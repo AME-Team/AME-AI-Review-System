@@ -1,0 +1,150 @@
+# AME-AI-Review-System ルートの「ツール設定専用」pyproject。
+#
+# ビルド対象ではなく、リポジトリ横断の静的解析ツール設定のみを保持する。
+# Python スクリプトは scripts/linux/*.py および tools/*.py に存在する。
+#
+# 厳格度: ruff ALL + preview + mypy strict で運用。
+
+# ---------------------------------------------------------------------------
+# Ruff: lint + format（超厳格）
+#   方針: 全ルール(ALL)を有効化。preview ルールも有効化する。
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = [
+    "ame-ai-review-system",
+    "scripts",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+preview = true
+ignore = [
+    # 日本語テキストでの全角記号は意図的（誤検出）。
+    "RUF001", "RUF002", "RUF003",
+    # 著作権表示はプロジェクト慣習なし。
+    "CPY001",
+    # Return/yield/例外をすべてdocstringに書くことは要求しない。
+    "DOC201", "DOC402", "DOC501",
+    # ドメインロジックの大関数（分割はスコープ外）。
+    "C901", "PLR0912", "PLR0914", "PLR0915", "PLR0911", "PLR0913", "PLR0917",
+    # tryブロック内の文数制限。
+    "PLW0717",
+    # subprocess/xml使用はスクリプトの性質上必要（内部コマンドのみ）。
+    "S404", "S405",
+    # 遅延 import は循環インポート回避のために意図的に使用。
+    "PLC0415",
+    # broad exception catch は境界でのエラー集約のため意図的。
+    "BLE001",
+    # print はスクリプトの進捗出力・報告として意図的。
+    "T201",
+    # Any 型は外部ライブラリの型付け困難箇所でのみ使用。
+    "ANN401",
+    # F401: 存在確認のための import（ImportError フォールバック用）。
+    "F401",
+    # SQL は内部信頼データのみ対象。
+    "S608",
+    # subprocess は内部コマンドのみ起動。フルパス指定は要求しない。
+    "S603", "S607",
+    # ERA001: 日本語コメントがコードと誤検出される。
+    "ERA001",
+    # S101: assert はパーサの不変条件確認に使用。
+    "S101",
+    # S105: 環境変数キー名（パスワードそのものではない）。
+    "S105",
+    # SIM115: NamedTemporaryFile は delete=False のため context manager 不可。
+    "SIM115",
+    # E501: 多言語文字列リテラル・docstring は機械的な折り返しで可読性が損なわれる。
+    "E501",
+    # DTZ005: アーカイブファイル名はローカル時刻で命名する（ユーザ向けタイムスタンプ）。
+    "DTZ005",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = [
+    "D100",    # テストモジュールに docstring を要求しない
+    "D103",    # テスト関数に docstring を要求しない
+    "PLR2004", # テストの assert で数値リテラルを使ってよい
+    "S101",    # assert 文を pytest で使う
+    "PLC2701", # プライベートヘルパー関数のインポートを許容する
+    "TCH003",  # テストでの標準ライブラリの型インポートチェックをスキップする
+]
+"ame-ai-review-system/*.py" = [
+    "INP001",  # 単体実行のためパッケージ化不要
+    "D103",
+]
+"scripts/*.py" = [
+    "INP001",  # 単体実行のためパッケージ化不要
+    "D103",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+preview = true
+
+# ---------------------------------------------------------------------------
+# mypy: 静的型検査（strict + 追加厳格化）。
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+enable_error_code = [
+    "redundant-expr",
+    "truthy-bool",
+    "truthy-iterable",
+    "ignore-without-code",
+    "possibly-undefined",
+    "redundant-self",
+    "explicit-override",
+    "unused-awaitable",
+    "mutable-override",
+    "comparison-overlap",
+]
+disable_error_code = ["untyped-decorator", "type-arg"]
+namespace_packages = true
+explicit_package_bases = true
+mypy_path = "ame-ai-review-system:scripts"
+
+[[tool.mypy.overrides]]
+module = [
+    "anthropic.*",
+]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest: 単体テスト（将来のテスト追加に備えて設定を保持）。
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+pythonpath = ["ame-ai-review-system", "scripts"]
+addopts = "--tb=short -q"
+
+# ---------------------------------------------------------------------------
+# codespell: 綴りミス検出（コード・コメント・ドキュメント横断）。
+# ---------------------------------------------------------------------------
+[tool.codespell]
+skip = '*/vendor/*,*.min.js,*.min.css,*.zip,*.db,*.wasm,*.sha512,*.lock,package-lock.json'
+ignore-words-list = "nd"
+check-filenames = true
+
+# ---------------------------------------------------------------------------
+# pyright: 静的型検査設定。
+# ---------------------------------------------------------------------------
+[tool.pyright]
+extraPaths = ["ame-ai-review-system", "scripts"]

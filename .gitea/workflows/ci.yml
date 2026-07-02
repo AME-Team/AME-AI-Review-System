@@ -1,0 +1,99 @@
+---
+# Gitea Actions CI — pre-commit チェック
+#
+# PR 作成・更新時と main へのプッシュ時に、ローカルの pre-commit と
+# 同一のフックを実行する。
+#
+# ランナー要件: シェル・curl・git のみ。Python / Node / lint ツールは
+# すべてワークフロー内で自動インストールされる（host モードランナー想定）。
+#
+# ランナー登録コマンド例:
+#   act_runner register --no-interactive \
+#     --instance http://<gitea-host>:3000 \
+#     --token <registration-token> \
+#     --name local-runner \
+#     --labels "ubuntu-latest:host"
+
+name: CI
+
+"on":
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pre-commit:
+    name: pre-commit (all hooks)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clean untracked and reset tracked files
+        run: |
+          git reset --hard HEAD
+          git clean -fdx
+
+      - name: Set up Python tools via uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv python install 3.12
+          uv venv "$GITHUB_WORKSPACE/.venv" --python 3.12
+          uv pip install -r requirements-dev.txt
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install project-local Node.js packages
+        run: npm ci
+
+      - name: Install shellcheck
+        run: |
+          base="https://github.com/koalaman/shellcheck/releases/download"
+          mkdir -p /tmp/shellcheck-install
+          curl -sSfL "${base}/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz" \
+            | tar -xJ -C /tmp/shellcheck-install
+          mkdir -p ~/.local/bin
+          mv /tmp/shellcheck-install/shellcheck-v0.10.0/shellcheck ~/.local/bin/shellcheck
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install actionlint
+        run: |
+          base="https://github.com/rhysd/actionlint/releases/download"
+          mkdir -p /tmp/actionlint-install
+          curl -sSfL "${base}/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz" \
+            | tar -xz -C /tmp/actionlint-install
+          mkdir -p ~/.local/bin
+          mv /tmp/actionlint-install/actionlint ~/.local/bin/actionlint
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install gitleaks
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download"
+          mkdir -p /tmp/gitleaks-install
+          curl -sSfL "${base}/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+            | tar -xz -C /tmp/gitleaks-install
+          mkdir -p ~/.local/bin
+          mv /tmp/gitleaks-install/gitleaks ~/.local/bin/gitleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run pre-commit (all files)
+        run: pre-commit run --all-files
+        env:
+          MYPYPATH: ${{ github.workspace }}/ame-ai-review-system:${{ github.workspace }}/scripts
+          PYTHONPATH: ${{ github.workspace }}/ame-ai-review-system:${{ github.workspace }}/scripts
+
+      - name: Run unit tests (pytest)
+        run: pytest --tb=short -q
+
+      - name: Run pyright (type check)
+        run: pyright --warnings

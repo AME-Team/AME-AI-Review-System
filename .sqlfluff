@@ -1,0 +1,22 @@
+# sqlfluff 設定。SQL を sqlite 方言で lint する。
+# 導入（グローバル）: python -m pip install sqlfluff
+[sqlfluff]
+dialect = sqlite
+# テンプレートエンジンは使わない素の SQL。
+templater = raw
+max_line_length = 100
+# RF04: SQLite では予約語をカラム名に使用できる。
+exclude_rules = RF04
+
+[sqlfluff:indentation]
+indent_unit = space
+tab_space_size = 4
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = upper

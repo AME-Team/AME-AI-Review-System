@@ -1,0 +1,345 @@
+# pre-commit フック定義（AME-AI-Review-System・超厳格）
+#
+# 方針: 厳格な lint/型検査/フォーマット/セキュリティスキャンを包括適用する。
+#       Python(ruff ALL + preview / mypy strict / pyright) + Shell(shellcheck) +
+#       YAML(yamllint strict) + Markdown(markdownlint / textlint) +
+#       依存ゼロの衛生チェック(tools/precommit_hygiene.py) + シークレットスキャン(gitleaks) +
+#       Conventional Commits(commitlint) + テスト(pytest, pre-push のみ)。
+#
+# 重要: GitHub からフックを取得しない（`repo: local` + `language: system`）。
+#       社内 Git(Gitea) など GitHub 非接続環境でも確実に動作させるため、フックは
+#       「ローカルにグローバル導入済みのツール」を直接呼ぶ。設定の正本は各設定ファイル。
+#
+# ── 初回セットアップ ──────────────────────────────────────────────────────────
+#   pip install ruff mypy codespell yamllint pre-commit pyright
+#   npm ci
+#   # shellcheck: apt install shellcheck  または  pip install shellcheck-py
+#   # actionlint: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+#   # gitleaks  : apt install gitleaks  または  brew install gitleaks
+#   pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push
+#
+# ── 全ファイルに手動でかける ────────────────────────────────────────────────
+#   pre-commit run --all-files
+#
+# ── 設定の正本 ──────────────────────────────────────────────────────────────
+#   - Python lint/format : pyproject.toml [tool.ruff]
+#   - Python 型検査       : pyproject.toml [tool.mypy]
+#   - 綴り                : pyproject.toml [tool.codespell]
+#   - Markdown            : .markdownlint-cli2.jsonc
+#   - CSS                 : .stylelintrc.json
+#   - SQL                 : .sqlfluff
+#   - YAML                : .yamllint.yaml
+#   - Shell               : .shellcheckrc
+#   - コミットメッセージ  : .commitlintrc.json
+#   - EditorConfig        : .editorconfig / .editorconfig-checker.json
+#   - Prettier            : .prettierrc / .prettierignore
+#   - textlint            : .textlintrc
+#   - 改行/衝突/最終改行  : tools/precommit_hygiene.py
+---
+minimum_pre_commit_version: "4.0.0"
+default_stages: [pre-commit, pre-merge-commit]
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+# vendored ライブラリ（事前ビルド済み UMD 等）と圧縮成果物はどのフックも触らない。
+exclude: |
+  (?x)^(
+      (^|/)vendor/.*|
+      .*\.min\.(js|css)$|
+      .*\.(zip|wasm|db|sha512)$|
+      node_modules/.*|
+      \.venv/.*|
+      dist/.*|
+      build/.*|
+      \.git/.*|
+      .*\.lock$|
+      package-lock\.json
+  )$
+
+repos:
+  - repo: local
+    hooks:
+      # =========================================================================
+      # 0) ポリシーガードレール — エラー抑制コメント禁止
+      #    # noqa / # type: ignore / # pylint: disable / // eslint-disable /
+      #    // @ts-ignore 等のエラー抑制コメントを検出して禁止する。
+      # =========================================================================
+      - id: prohibit-suppression-comments
+        name: "policy: prohibit error-suppression comments"
+        entry: python3 scripts/check_suppression_comments.py
+        language: system
+        pass_filenames: true
+        types_or: [python, ts, tsx, javascript, jsx]
+        exclude: |
+          (?x)^(
+              scripts/check_suppression_comments\.py|
+              scripts/precommit_hygiene\.py
+          )$
+
+      # =========================================================================
+      # 1) Python lint（超厳格: select=["ALL"] + preview）。
+      #    --exit-non-zero-on-fix: 自動修正できても「修正が必要だった」事実で失敗させ、
+      #    再 add とレビューを必須にする。
+      # =========================================================================
+      - id: ruff-check
+        name: ruff check (lint, ALL + preview)
+        entry: ruff check --force-exclude --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # 2) Python フォーマッタ。差分があれば書き換えてフック失敗 → 再 add を促す。
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # 3) Python 静的型検査（mypy strict + 追加の error code）。
+      - id: mypy
+        name: mypy (strict)
+        entry: mypy --config-file pyproject.toml
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # 4) 綴りミス検出（コード・コメント・ドキュメント横断）。設定は pyproject.toml。
+      - id: codespell
+        name: codespell (typos)
+        entry: codespell
+        language: system
+        types: [text]
+        require_serial: true
+
+      # 5) Markdown lint。自動修正可能なものは --fix で直す。
+      - id: markdownlint-cli2
+        name: markdownlint-cli2 (Markdown)
+        entry: ./node_modules/.bin/markdownlint-cli2 --fix
+        language: system
+        types: [markdown]
+        pass_filenames: false
+        require_serial: true
+
+      # 6) JavaScript lint（ESLint。警告も 0 件を強制）。設定は eslint.config.mjs。
+      #    現リポジトリに JS ファイルはないが、追加時に自動適用されるよう保持。
+      - id: eslint
+        name: eslint (--max-warnings=0)
+        entry: eslint --max-warnings=0 --no-warn-ignored
+        language: system
+        files: '\.(js|mjs|cjs)$'
+        require_serial: true
+
+      # 7) CSS lint（Stylelint）。設定は .stylelintrc.json。
+      #    現リポジトリに CSS ファイルはないが、追加時に自動適用されるよう保持。
+      - id: stylelint
+        name: stylelint
+        entry: stylelint
+        language: system
+        files: '\.css$'
+        require_serial: true
+
+      # 8) SQL lint（sqlfluff, sqlite 方言）。設定は .sqlfluff。
+      #    現リポジトリに SQL ファイルはないが、追加時に自動適用されるよう保持。
+      - id: sqlfluff
+        name: sqlfluff lint (sqlite)
+        entry: sqlfluff lint
+        language: system
+        files: '\.sql$'
+        require_serial: true
+
+      # 9) YAML lint（yamllint, strict）。設定は .yamllint.yaml。
+      - id: yamllint
+        name: yamllint (strict)
+        entry: yamllint --strict
+        language: system
+        types: [yaml]
+        require_serial: true
+
+      # 10) 依存ゼロの衛生チェック（自作・オフライン）。改行コード方針・マージ衝突
+      #     マーカー・最終改行・巨大ソースを検査する。Python だけで動く。
+      - id: repo-hygiene
+        name: repo hygiene (line-endings / conflicts / final-newline)
+        entry: python3 scripts/precommit_hygiene.py
+        language: system
+        require_serial: true
+
+      # 11) Pylance/pyright 静的型検査（VSCode Pylance と同エンジン）。
+      #     --warnings: warning が 1 件でも出たら exit code 1（エラー扱い）。
+      - id: pyright
+        name: pyright (type check)
+        entry: pyright --warnings
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        require_serial: true
+        always_run: true
+
+      # =========================================================================
+      # 12) ファイル衛生チェック群（pre-commit-hooks 由来）
+      # =========================================================================
+      - id: trailing-whitespace
+        name: trailing whitespace
+        entry: trailing-whitespace-fixer
+        language: system
+        types: [text]
+        exclude: \.md$
+
+      - id: end-of-file-fixer
+        name: end of file fixer
+        entry: end-of-file-fixer
+        language: system
+        types: [text]
+        exclude: '\.(bat|cmd|ps1)$'
+
+      - id: mixed-line-ending
+        name: mixed line ending
+        entry: mixed-line-ending
+        args: [--fix=lf]
+        language: system
+        types: [text]
+        exclude: '\.(bat|cmd|ps1)$'
+
+      - id: check-yaml
+        name: check yaml
+        entry: check-yaml
+        args: [--unsafe]
+        language: system
+        types: [yaml]
+
+      - id: check-toml
+        name: check toml
+        entry: check-toml
+        language: system
+        types: [toml]
+
+      - id: check-json
+        name: check json
+        entry: check-json
+        language: system
+        types: [json]
+
+      - id: check-merge-conflict
+        name: check merge conflict
+        entry: check-merge-conflict
+        language: system
+        types: [text]
+
+      - id: check-case-conflict
+        name: check case conflict
+        entry: check-case-conflict
+        language: system
+
+      - id: detect-private-key
+        name: detect private key
+        entry: detect-private-key
+        language: system
+        types: [text]
+
+      - id: check-added-large-files
+        name: check added large files
+        entry: check-added-large-files
+        args: [--maxkb=500]
+        language: system
+
+      - id: check-shebang-scripts-are-executable
+        name: check shebang scripts are executable
+        entry: check-shebang-scripts-are-executable
+        language: system
+
+      - id: forbid-new-submodules
+        name: forbid new submodules
+        entry: forbid-new-submodules
+        language: system
+
+      - id: debug-statements
+        name: debug statements
+        entry: debug-statement-hook
+        language: system
+        types: [python]
+
+      - id: check-builtin-literals
+        name: check builtin literals
+        entry: check-builtin-literals
+        language: system
+        types: [python]
+
+      - id: check-docstring-first
+        name: check docstring first
+        entry: check-docstring-first
+        language: system
+        types: [python]
+
+      # =========================================================================
+      # 13) textlint — 日本語散文品質
+      # =========================================================================
+      - id: textlint
+        name: "textlint (Japanese prose)"
+        entry: ./node_modules/.bin/textlint
+        language: system
+        types: [markdown]
+        pass_filenames: true
+        require_serial: true
+
+      # =========================================================================
+      # 14) Prettier — MD/YAML/JSON フォーマット
+      # =========================================================================
+      - id: prettier-root
+        name: "prettier (MD/YAML/JSON)"
+        entry: ./node_modules/.bin/prettier --check
+        language: system
+        types_or: [markdown, yaml, json]
+        pass_filenames: true
+
+      # =========================================================================
+      # 15) actionlint — Gitea/GitHub Actions ワークフロー構文検証
+      #    -ignore "unknown Webhook event": Gitea 固有のイベント（pull_request_comment 等）を
+      #    actionlint が GitHub Actions 非対応イベントとして警告するため抑制する。
+      # =========================================================================
+      - id: actionlint
+        name: "actionlint (Actions workflow validator)"
+        entry: actionlint -ignore "unknown Webhook event"
+        language: system
+        files: '^\.gitea/workflows/.*\.ya?ml$'
+        pass_filenames: true
+
+      # =========================================================================
+      # 16) shellcheck — シェルスクリプト静的解析
+      # =========================================================================
+      - id: shellcheck
+        name: "shellcheck (shell script linter)"
+        entry: shellcheck --external-sources --severity=style --rcfile=.shellcheckrc
+        language: system
+        types: [shell]
+        pass_filenames: true
+
+      # =========================================================================
+      # 17) gitleaks — シークレットスキャン
+      # =========================================================================
+      - id: gitleaks
+        name: "gitleaks (secret scanner)"
+        entry: gitleaks protect --staged
+        language: system
+        pass_filenames: false
+
+      # =========================================================================
+      # 18) commitlint — Conventional Commits 強制
+      # =========================================================================
+      - id: commitlint
+        name: "commitlint (Conventional Commits enforcement)"
+        entry: ./node_modules/.bin/commitlint --edit
+        language: system
+        stages: [commit-msg]
+        always_run: true
+
+      # =========================================================================
+      # 19) 単体テスト（pytest）— pre-push / merge-commit のみ実行
+      # =========================================================================
+      - id: pytest
+        name: pytest (unit tests)
+        entry: pytest
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push, pre-merge-commit]
+        always_run: true

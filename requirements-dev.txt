@@ -1,0 +1,17 @@
+# CI (.gitea/workflows/ci.yml) とローカル開発環境の両方で使用する
+# Python lint / test ツールの正本。
+# pre-commit (.pre-commit-config.yaml) の language: system フックが
+# これらのコマンドを直接呼び出すため、すべて PATH 上に存在する必要がある。
+#
+# インストール:
+#   uv venv .venv --python 3.12 && uv pip install -r requirements-dev.txt
+#   (.venv/bin を有効化すれば pre-commit run がすべてのフックを呼べる)
+codespell
+mypy
+pre-commit>=4.0
+pre-commit-hooks
+pyright
+pytest
+ruff
+sqlfluff
+yamllint

@@ -1,0 +1,64 @@
+---
+# PR コメントへの返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
+
+name: AI Review Reply
+
+"on":
+  pull_request_comment:
+    types: [created]
+
+jobs:
+  general-review-reply:
+    name: General Review Reply (ame-ai-reviewer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.comment.user.login != 'ame-ai-reviewer' && contains(github.event.comment.body,
+      '@ame-ai-reviewer')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Switch to PR branch
+        env:
+          GITEA_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+        run: |
+          PR_JSON_TMP=$(mktemp)
+          cleanup() { rm -f "$PR_JSON_TMP"; }
+          trap cleanup EXIT
+          HTTP_CODE=$(curl -s -o "$PR_JSON_TMP" -w "%{http_code}" \
+            "${GITEA_URL}/api/v1/repos/${REPO}/pulls/${PR_NUMBER}" \
+            -H "Authorization: token ${TOKEN}")
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "[review_reply] ERROR: Failed to fetch PR info (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
+          PR_JSON=$(cat "$PR_JSON_TMP")
+          BRANCH=$(printf '%s\n' "$PR_JSON" | python3 -c "
+          import json,sys
+          print(json.load(sys.stdin)['head']['ref'])
+          ")
+          BASE=$(printf '%s\n' "$PR_JSON" | python3 -c "
+          import json,sys
+          print(json.load(sys.stdin)['base']['ref'])
+          ")
+          if [[ ! "$BASE" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+              echo "[review_reply] ERROR: Invalid BASE_REF: ${BASE}"
+              exit 1
+          fi
+          echo "BASE_REF=${BASE}" >> "$GITHUB_ENV"
+          git fetch origin "${BRANCH}"
+          git checkout "${BRANCH}"
+      - name: Run reply handler
+        env:
+          REVIEWER_TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          REVIEWER_NAME: ame-ai-reviewer
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GITEA_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash ame-ai-review-system/pr_review_reply.sh

@@ -1,0 +1,28 @@
+---
+name: AI Code Review
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  general-review:
+    name: General Review (ame-ai-reviewer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run General Review
+        env:
+          GITEA_URL: ${{ github.server_url }}
+          REVIEWER_TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          REVIEWER_NAME: ame-ai-reviewer
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          bash ame-ai-review-system/pr_review.sh

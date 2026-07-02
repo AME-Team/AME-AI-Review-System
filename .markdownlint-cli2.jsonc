@@ -1,0 +1,24 @@
+// markdownlint-cli2 設定（AME-AI-Review-System）
+//
+// 既定ルール（markdownlint default）を全有効化。
+// MD013（行長）は日本語の説明文・表・元コード由来の長い行が多いため無効化する。
+// それ以外は default のまま厳格に維持する。
+//
+// 実行:     markdownlint-cli2 "**/*.md"
+// 自動修正: markdownlint-cli2 --fix "**/*.md"
+{
+  "config": {
+    "default": true,
+    // 行長制限のみ無効（全角文字も1桁換算で機械的折返しが困難なため）。
+    "MD013": false
+  },
+  "globs": [
+    "*.md",
+    "docs/**/*.md"
+  ],
+  "ignores": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/.venv/**"
+  ]
+}

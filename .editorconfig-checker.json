@@ -1,0 +1,14 @@
+{
+  "Exclude": [
+    "vendor/.*",
+    "node_modules/.*",
+    "\\.venv/.*",
+    "dist/.*",
+    "build/.*",
+    "\\.git/.*",
+    ".*\\.min\\.(js|css)$",
+    ".*\\.(zip|wasm|db|sha512)$",
+    "package-lock\\.json",
+    ".*\\.lock$"
+  ]
+}
