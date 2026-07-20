@@ -99,8 +99,9 @@ GraphQL      : https://api.github.com/graphql
 Resolve       : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
 ```
 
-> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL` が自動設定されるため、
-> ワークフロー側での環境変数明示は不要です（`github_client.resolve_env` が解決します）。
+> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL`
+> が自動設定されるため、ワークフロー側での環境変数明示は不要です（`github_client.resolve_env`
+> が解決します）。
 
 ---
 

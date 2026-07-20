@@ -1,0 +1,15 @@
+{
+  "include": [
+    "ame_ai_review_system",
+    "scripts",
+    "tests"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/*.pyc"
+  ],
+  "typeCheckingMode": "strict",
+  "venvPath": "/home/taito/projects/AME-AI-Review-System",
+  "venv": ".venv"
+}

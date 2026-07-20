@@ -27,8 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.issue.pull_request != null &&
+      github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
        github.event.comment.user.login != 'ame-ai-reviewer' &&
        startsWith(github.event.comment.body, '/'))
     steps:

@@ -161,8 +161,9 @@ sequenceDiagram
   コマンドを判定するヘルパ。 `get <key>` で設定値を、`is-review-command <body>`
   でコマンド判定結果を出力する。設定の優先順位は `config.user.json` >
   `config.json` > 組み込みデフォルト。
-- **`payload.py`** モデル出力テキストをパースし、GitHub
-  API 用のインラインコメント（`line` / `side: "RIGHT"` を含む）のペイロードへ変換する。AI 出力の実ファイル行番号を diff 内の有効行へスナップする検証も行う。
+- **`payload.py`** モデル出力テキストをパースし、GitHub API 用のインラインコメント（`line` /
+  `side: "RIGHT"`
+  を含む）のペイロードへ変換する。AI 出力の実ファイル行番号を diff 内の有効行へスナップする検証も行う。
 - **`static_precheck.py`** PR レビュー前段の静的解析 pre-check（Circuit
   Breaker）。ruff/mypy/semgrep を実行し、エラーが1件でもあれば AI レビューをスキップする。
 - **`diff_utils.py`** git

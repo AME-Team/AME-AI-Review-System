@@ -4,17 +4,18 @@
 
 ## 1. 前提条件
 
-| 項目         | 要件                                                                                                                                                                                                                                                                           |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **GitHub**   | 対象リポジトリが GitHub 上に存在し、Actions が有効化されていること。                                                                                                                                                                                                            |
+| 項目         | 要件                                                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub**   | 対象リポジトリが GitHub 上に存在し、Actions が有効化されていること。                                                                                                                                                                                                      |
 | **ランナー** | GitHub-hosted `ubuntu-latest`（デフォルト）。ツールチェーン (Python 3.12 / Node 22 / uv / shellcheck / actionlint / gitleaks / claude-code / opencode-ai / headroom) は `.github/workflows/ci.yml` の `steps:` で都度セットアップされるため、ランナー側の事前準備は不要。 |
-| **LLM CLI**  | 使用するエンジンの CLI（既定: `claude`）がランナー上で認証済みであること（認証情報は GitHub Secrets 経由で渡す）。`opencode` / `agy`(Antigravity) に切り替える場合はそれぞれの CLI が必要（[アーキテクチャ](architecture.md)参照）。                                                       |
-| **Python**   | Python 3.10 以上（外部依存ライブラリは不要、標準ライブラリのみで動作）。                                                                                                                                                                                                         |
+| **LLM CLI**  | 使用するエンジンの CLI（既定: `claude`）がランナー上で認証済みであること（認証情報は GitHub Secrets 経由で渡す）。`opencode` / `agy`(Antigravity) に切り替える場合はそれぞれの CLI が必要（[アーキテクチャ](architecture.md)参照）。                                      |
+| **Python**   | Python 3.10 以上（外部依存ライブラリは不要、標準ライブラリのみで動作）。                                                                                                                                                                                                  |
 
 > [!NOTE] **CI/セキュリティツールのバージョン管理** shellcheck / actionlint /
-> gitleaks は既知脆弱性回避のため GitHub Releases から latest を取得する。GitHub-hosted ランナーの `GITHUB_TOKEN`
-> によりレート制限が緩和されるため、フォールバック出現頻度は低い。FALLBACK バージョンは `ci.yml` にハードコードされて
-> いるため、四半期を目安に見直すことを推奨する。
+> gitleaks は既知脆弱性回避のため GitHub Releases から latest を取得する。GitHub-hosted ランナーの
+> `GITHUB_TOKEN`
+> によりレート制限が緩和されるため、フォールバック出現頻度は低い。FALLBACK バージョンは `ci.yml`
+> にハードコードされているため、四半期を目安に見直すことを推奨する。
 
 ### 1-1. 開発端末（ローカル環境）の準備
 
@@ -139,14 +140,18 @@ cp -r ame_ai_review_system/ <your-repo>/
 
 ### Step 2: レビュアー用アカウントの作成とトークンの登録
 
-1. GitHub 上で AI レビュアー用アカウント（ボット用アカウント。例: `ame-ai-reviewer`）を作成する（既存アカウントでも可）。
-2. レビュアーアカウントでログインし、**[Settings] → [Developer settings] → [Personal access tokens]**
-   から Fine-grained または Classic トークンを生成する。
-   - 必須スコープ: `repo`（または同等の Fine-grained 権限: `Contents: RW`, `Pull requests: RW`, `Issues: RW`）
-3. 導入先リポジトリの **[Settings] → [Secrets and variables] → [Actions] → [Secrets]** から Secret を追加する。
+1. GitHub 上で AI レビュアー用アカウント（ボット用アカウント。例:
+   `ame-ai-reviewer`）を作成する（既存アカウントでも可）。
+2. レビュアーアカウントでログインし、**[Settings] → [Developer settings] → [Personal access
+   tokens]** から Fine-grained または Classic トークンを生成する。
+   - 必須スコープ: `repo`（または同等の Fine-grained 権限: `Contents: RW`, `Pull requests: RW`,
+     `Issues: RW`）
+3. 導入先リポジトリの **[Settings] → [Secrets and variables] → [Actions] → [Secrets]**
+   から Secret を追加する。
    - `AME_AI_REVIEWER_TOKEN` : 上記で生成したレビュアー PAT
    - `GITHUB_PAT_TOKEN` : 通常操作（PR checkout 等）用 PAT。`AME_AI_REVIEWER_TOKEN`
-     と同じトークンを再利用可能。`GITHUB_TOKEN`（GitHub Actions が自動予約する一時トークン）はボット PAT に使えないため別 Secret が必要。
+     と同じトークンを再利用可能。`GITHUB_TOKEN`（GitHub
+     Actions が自動予約する一時トークン）はボット PAT に使えないため別 Secret が必要。
 
 > [!NOTE] 本リポジトリのワークフロー（`review_command.yml` / `review.yml` / `review_reply.yml`）は
 > `AME_AI_REVIEWER_TOKEN` という Secret 名を参照します。別のレビュアーを追加する場合は

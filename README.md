@@ -137,12 +137,11 @@ scripts/
 
 他プロジェクトへの導入は非常にシンプルです。
 
-1. **資材のコピー**: `.github/` と `ame_ai_review_system/`
-   を対象リポジトリのルートにコピーする。
+1. **資材のコピー**: `.github/` と `ame_ai_review_system/` を対象リポジトリのルートにコピーする。
 2. **トークンの登録**: レビュアー用の GitHub Personal Access Token（repo / pull-requests
-   scope）を生成し、対象リポジトリの Secrets に `AME_AI_REVIEWER_TOKEN` として登録する。
-   通常操作用に `GITHUB_PAT_TOKEN` も別途登録すること（`GITHUB_TOKEN` は GitHub Actions
-   が自動予約する一時トークンのため PAT には使えない）。
+   scope）を生成し、対象リポジトリの Secrets に `AME_AI_REVIEWER_TOKEN` として登録する。通常操作用に
+   `GITHUB_PAT_TOKEN` も別途登録すること（`GITHUB_TOKEN` は GitHub
+   Actions が自動予約する一時トークンのため PAT には使えない）。
 3. **プロンプトの調整**: `ame_ai_review_system/review_prompt.txt`
    をプロジェクトの規約や観点に合わせてカスタマイズする。
 4. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。

@@ -126,4 +126,6 @@ Code 等）がこのプロジェクトで PR 修正作業を行う場合は、�
    - 本文には必ず AIレビュアー（デフォルト：`@ame-ai-reviewer`）へのメンションを含める。
 3. **LGTM 待機と Resolve 処理**: AI レビュアーからの `LGTM`
    返信が API 経由で取得できるまで待機し、確認後にスレッドを Resolve（解決）に変更すること。
-   - Resolve API: GitHub REST に相当エンドポイントが無いため GraphQL mutation `resolveReviewConversation(input: {threadId: ID!})` を使用（`reply.py` → `github_client.resolve_review_thread` がラップ）。
+   - Resolve API: GitHub REST に相当エンドポイントが無いため GraphQL mutation
+     `resolveReviewConversation(input: {threadId: ID!})` を使用（`reply.py` →
+     `github_client.resolve_review_thread` がラップ）。

@@ -29,7 +29,8 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 
 ### Step 2: GitHub Secrets の登録
 
-新レビュアーアカウントの Personal Access Token (repo / pull-requests scope) を GitHub の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
+新レビュアーアカウントの Personal Access Token (repo / pull-requests
+scope) を GitHub の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
 
 > [!NOTE] 本リポジトリの既定のレビュアー（`ame-ai-reviewer`）は `AME_AI_REVIEWER_TOKEN`
 > という Secret 名を参照します。新規レビュアーは `<NAME>_TOKEN`
@@ -38,8 +39,9 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 ### Step 3: `review_command.yml` にジョブを追加（コマンドトリガー・推奨）
 
 `.github/workflows/review_command.yml` に、新レビュアー用のジョブを追加します。こちらが
-`/request-review` コマンドで動く **標準のレビュートリガー** です。`issue_comment` イベントは
-Issue でも発火するため `github.event.issue.pull_request != null` フィルタを必ず含めてください。
+`/request-review` コマンドで動く **標準のレビュートリガー** です。`issue_comment`
+イベントは Issue でも発火するため `github.event.issue.pull_request != null`
+フィルタを必ず含めてください。
 
 ```yaml
 security-review-command:
@@ -47,8 +49,7 @@ security-review-command:
   runs-on: ubuntu-latest
   timeout-minutes: 10
   if: >-
-    github.event_name == 'workflow_dispatch' ||
-    (github.event.issue.pull_request != null &&
+    github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
      github.event.comment.user.login != 'ame-ai-reviewer' &&
      github.event.comment.user.login != 'security-reviewer' &&
      startsWith(github.event.comment.body, '/'))
@@ -164,11 +165,10 @@ security-review:
 # 既存の一般レビュアー用ジョブの if 条件
 general-review-reply:
   if: >-
-    github.event.issue.pull_request != null &&
-    github.event.comment.user.login != 'ame-ai-reviewer' &&
-    github.event.comment.user.login != 'security-reviewer' &&
-    !startsWith(github.event.comment.body, '/') &&
-    contains(github.event.comment.body, '@ame-ai-reviewer')
+    github.event.issue.pull_request != null && github.event.comment.user.login != 'ame-ai-reviewer'
+    && github.event.comment.user.login != 'security-reviewer' &&
+    !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
+    '@ame-ai-reviewer')
 ```
 
 また、セキュリティレビュアー用の返信ジョブを追加します。PR ブランチの取得は
@@ -179,11 +179,10 @@ security-review-reply:
   name: Security Review Reply (security-reviewer)
   runs-on: ubuntu-latest
   if: >-
-    github.event.issue.pull_request != null &&
-    github.event.comment.user.login != 'ame-ai-reviewer' &&
-    github.event.comment.user.login != 'security-reviewer' &&
-    !startsWith(github.event.comment.body, '/') &&
-    contains(github.event.comment.body, '@security-reviewer')
+    github.event.issue.pull_request != null && github.event.comment.user.login != 'ame-ai-reviewer'
+    && github.event.comment.user.login != 'security-reviewer' &&
+    !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
+    '@security-reviewer')
   steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -318,7 +317,8 @@ PR レビュー（Gate 2）のエンジン・モデル・思考量は、GitHub �
 
 ### 6-1. GitHub Variables の設定
 
-GitHub のリポジトリ設定 > Settings > Secrets and variables > Actions > Variables から以下の変数を登録します。
+GitHub のリポジトリ設定 > Settings > Secrets and variables > Actions >
+Variables から以下の変数を登録します。
 
 | 変数名            | 説明                  | 有効値                                        |
 | ----------------- | --------------------- | --------------------------------------------- |
@@ -369,8 +369,10 @@ base64 -w0 ~/.gemini/oauth_creds.json | tr -d '\n' | clip.exe  # → GEMINI_OAUT
 
 1. GitHub リポジトリの **Settings > Secrets and variables > Actions > Secrets** を開く
 2. 各 Secret を追加:
-   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用 GitHub Personal Access Token (repo / pull-requests scope)
-   - `GITHUB_PAT_TOKEN`: 通常操作用（PR checkout 等）の GitHub PAT。`AME_AI_REVIEWER_TOKEN` と同じトークンを再利用可能。
+   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用 GitHub Personal Access
+     Token (repo / pull-requests scope)
+   - `GITHUB_PAT_TOKEN`: 通常操作用（PR checkout 等）の GitHub PAT。`AME_AI_REVIEWER_TOKEN`
+     と同じトークンを再利用可能。
    - `CLAUDE_CONFIG_B64`: `~/.claude.json` の Base64 エンコード値
    - `CLAUDE_CREDENTIALS_B64`: `~/.claude/.credentials.json` の Base64 エンコード値
    - `OPENCODE_AUTH_B64`: `~/.local/share/opencode/auth.json` の Base64 エンコード値
@@ -423,12 +425,12 @@ REVIEW_THINKING = low
 
 ### 6-5. Gate 1 と Gate 2 の設定比較
 
-| 設定項目 | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)         |
-| -------- | ------------------------------------------------- | ---------------------- |
-| 設定場所 | `config.json` / `config.user.json` または環境変数 | GitHub Variables       |
-| エンジン | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`        |
-| モデル   | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`         |
-| 思考量   | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`      |
+| 設定項目 | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)          |
+| -------- | ------------------------------------------------- | ----------------------- |
+| 設定場所 | `config.json` / `config.user.json` または環境変数 | GitHub Variables        |
+| エンジン | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`         |
+| モデル   | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`          |
+| 思考量   | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`       |
 | 認証     | ホストの認証ファイルを直接使用                    | GitHub Secrets (Base64) |
 
 > [!NOTE] Gate 1 と Gate 2 で異なるエンジン・モデルを使用できます。例えば、ローカルでは `opencode`

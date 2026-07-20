@@ -19,7 +19,8 @@ PR に AI レビュアーからインラインレビューコメントが付い�
    - トークン: `~/.config/ame-ai-review-system/ame-ai-reviewer.token`
    - 本文例: `「対応確認しました。LGTM ✅ Resolve してください。」`
 4. **スレッドを Resolve する** — LGTM 返信が来たら Resolve する。
-   - GitHub REST に相当エンドポイントが無いため GraphQL mutation `resolveReviewConversation` 経由で Resolve する（`reply.py` → `github_client.resolve_review_thread`）
+   - GitHub REST に相当エンドポイントが無いため GraphQL mutation `resolveReviewConversation`
+     経由で Resolve する（`reply.py` → `github_client.resolve_review_thread`）
 
 ### 2. 返信・Resolve の API まとめ
 
@@ -41,8 +42,9 @@ Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
 > 1. `~/.config/ame-ai-review-system/github.token`（またはレビュアー固有の `<name>.token`）
 > 2. 環境変数 `$GITHUB_PAT_TOKEN`（または `<NAME>_TOKEN`）
 >
-> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL` が自動設定されるため、
-> ワークフロー側での環境変数明示は不要（`github_client.resolve_env` が解決する）。
+> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL`
+> が自動設定されるため、ワークフロー側での環境変数明示は不要（`github_client.resolve_env`
+> が解決する）。
 
 ### 3. 各レビュアーの仕様（重要）
 
@@ -69,7 +71,8 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
 0. PR コメントで `/request-review` を投稿してレビューを依頼する（`github.token`）。 `/review`
    も同じ意味。push 自動レビューはデフォルト OFF（GitHub Variables `PUSH_REVIEW_ENABLED`
    で有効化可）。
-1. `ame-ai-reviewer` のインラインコメント一覧を取得する。API: `GET /repos/{repo}/pulls/{pr}/comments`。
+1. `ame-ai-reviewer` のインラインコメント一覧を取得する。API:
+   `GET /repos/{repo}/pulls/{pr}/comments`。
 2. 未対応の CRITICAL / HIGH / MIDDLE / LOW コメントがあればコードを修正してコミット・プッシュする
 3. 各スレッドに `@ame-ai-reviewer` メンション付きで対応内容を返信する（`github.token`）
 4. `ame-ai-reviewer` が LGTM 返信を投稿してくれる（`ame-ai-reviewer.token`）
@@ -93,7 +96,8 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
 レビュー処理は `main review` サブコマンドが担う。`REVIEWER_NAME` / `REVIEWER_PROMPT_FILE`
 環境変数でパラメータ化されているため、コード追加なしで新レビュアーを追加できる。
 
-1. GitHub アカウント作成（またはボット用アカウント）・Personal Access Token 発行（repo / pull-requests scope 必須）
+1. GitHub アカウント作成（またはボット用アカウント）・Personal Access Token 発行（repo /
+   pull-requests scope 必須）
 2. `~/.config/ame-ai-review-system/<レビュアー名>.token` にトークン保存
 3. GitHub Actions Secrets に `<SECRET_KEY>`（例: `SECURITY_REVIEWER_TOKEN`）を登録
 4. `.github/workflows/review_command.yml`（コマンドトリガー・標準）と `review_reply.yml`
