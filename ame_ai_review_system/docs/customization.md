@@ -1,0 +1,420 @@
+# 静的解析とAIレビューのカスタマイズ
+
+本システムでは、プロンプト変更や複数レビュアーの追加が可能です。また、静的解析ツール（Ruff/mypy/Semgrep）の検査項目や、ローカルの pre-commit ゲートの挙動もカスタマイズできます。
+
+## 1. レビュー観点（プロンプト）の変更
+
+AI が指摘する観点や規約を変更するには、以下のファイルを修正します。
+
+- **`ame_ai_review_system/review_prompt.txt`**
+
+### カスタマイズのヒント
+
+- **プロジェクト固有のルールの追加**: `## レビュー観点` や `## コーディング規約`
+  の項目に、開発チーム内で定めたルールや非推奨な記述を記述する。
+- **出力フォーマットの維持**: プロンプトの最後にある `## 出力フォーマット（厳守）`
+  セクションは**絶対に書き換えない**。この構造が変わると、Giteaへのコメント登録時のパース処理が失敗する。
+
+---
+
+## 2. 複数のレビュアーを追加する手順
+
+例として、コード品質をレビューする `ame-ai-reviewer` に加え、セキュリティを厳しくチェックする
+`security-reviewer` を追加する手順を示します。
+
+### Step 1: 新しいプロンプトファイルの用意
+
+`ame_ai_review_system/` 内に、新しいプロンプトファイル（例:
+`security_review_prompt.txt`）を配置します。
+
+### Step 2: Gitea Secrets の登録
+
+新レビュアーアカウントのトークンを Gitea の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
+
+> [!NOTE] 本リポジトリの既定のレビュアー（`ame-ai-reviewer`）は `AME_AI_REVIEWER_TOKEN`
+> という Secret 名を参照します。新規レビュアーは `<NAME>_TOKEN`
+> の命名規則で Secret を追加してください。
+
+### Step 3: `review_command.yml` にジョブを追加（コマンドトリガー・推奨）
+
+`.gitea/workflows/review_command.yml` に、新レビュアー用のジョブを追加します。こちらが
+`/request-review` コマンドで動く **標準のレビュートリガー** です。
+
+```yaml
+security-review-command:
+  name: Review on /request-review (security-reviewer)
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  if: >-
+    github.event.comment.user.login != 'ame-ai-reviewer' && github.event.comment.user.login !=
+    'security-reviewer' && startsWith(github.event.comment.body, '/')
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Restore engine credentials
+      run: |
+        mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+        echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+        echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+        chmod 600 ~/.claude.json ~/.claude/.credentials.json
+    - name: Parse review command
+      id: cmd
+      env:
+        COMMENT_BODY: ${{ github.event.comment.body }}
+      run: |
+        RUN_REVIEW=$(python3 -m ame_ai_review_system.review_config \
+          is-review-command "${COMMENT_BODY}")
+        echo "run_review=${RUN_REVIEW}" >> "$GITHUB_OUTPUT"
+    - name: Switch to PR branch
+      if: steps.cmd.outputs.run_review == 'true'
+      env:
+        GITEA_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.issue.number }}
+        GITEA_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+      run: |
+        python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+    - name: Run Security Review
+      if: steps.cmd.outputs.run_review == 'true'
+      env:
+        GITEA_URL: ${{ github.server_url }}
+        SECURITY_REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        REVIEWER_NAME: security-reviewer
+        PR_NUMBER: ${{ github.event.issue.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+        REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+        REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+      run: |
+        scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
+          "$PR_NUMBER" \
+          --prompt-file ame_ai_review_system/security_review_prompt.txt
+```
+
+> [!IMPORTANT] コマンド判定は `review_config.py is-review-command`
+> で共通化されています。新レビュアーを追加する場合は、**既存ジョブの `if` 条件にも新レビュアー名を
+> `!=` で追加**し、自分自身のコマンドで再トリガーされないようにしてください。
+
+### Step 4: `review.yml` にジョブを追加（push トリガー・任意）
+
+push 自動レビューを使う場合は `.gitea/workflows/review.yml`
+にもジョブを追加します。有効化には Gitea のリポジトリ設定 **[Settings] → [Actions] → [Variables]**
+で `PUSH_REVIEW_ENABLED` を `true` に設定する必要があります。デフォルトは OFF なので、通常は Step
+3 のみで十分です。
+
+```yaml
+security-review:
+  name: Security Review (security-reviewer)
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Restore engine credentials
+      run: |
+        mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+        echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+        echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+        chmod 600 ~/.claude.json ~/.claude/.credentials.json
+    - name: Run Security Review
+      env:
+        GITEA_URL: ${{ github.server_url }}
+        SECURITY_REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        REVIEWER_NAME: security-reviewer
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_BODY: ${{ github.event.pull_request.body }}
+        BASE_REF: ${{ github.base_ref }}
+        REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+        REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+        REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+      run: |
+        scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
+          "$PR_NUMBER" \
+          --base-ref "$BASE_REF" \
+          --pr-title "$PR_TITLE" \
+          --pr-body "$PR_BODY" \
+          --prompt-file ame_ai_review_system/security_review_prompt.txt
+```
+
+### Step 5: `review_reply.yml` の修正（重要）
+
+新レビュアーからの返信も判定対象とするため、`.gitea/workflows/review_reply.yml` へ `if`
+条件およびジョブを追加する。
+
+> [!IMPORTANT] 返信ループ（カスケード）を防ぐため、他ジョブの `if`
+> 条件にも互いのレビュアーのアカウント名を除外するように設定する必要があります。また
+> `/request-review` のようなスラッシュコマンドが返信判定をトリガーしないよう
+> `!startsWith(github.event.comment.body, '/')` を含めてください。
+
+```yaml
+# 既存の一般レビュアー用ジョブの if 条件
+general-review-reply:
+  if: >-
+    github.event.comment.user.login != 'ame-ai-reviewer' && github.event.comment.user.login !=
+    'security-reviewer' && !startsWith(github.event.comment.body, '/') &&
+    contains(github.event.comment.body, '@ame-ai-reviewer')
+```
+
+また、セキュリティレビュアー用の返信ジョブを追加します。PR ブランチの取得は
+`python3 -m ame_ai_review_system.main checkout` を使います。
+
+```yaml
+security-review-reply:
+  name: Security Review Reply (security-reviewer)
+  runs-on: ubuntu-latest
+  if: >-
+    github.event.comment.user.login != 'ame-ai-reviewer' && github.event.comment.user.login !=
+    'security-reviewer' && !startsWith(github.event.comment.body, '/') &&
+    contains(github.event.comment.body, '@security-reviewer')
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Restore engine credentials
+      run: |
+        mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+        echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+        echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+        chmod 600 ~/.claude.json ~/.claude/.credentials.json
+    - name: Switch to PR branch
+      env:
+        GITEA_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.issue.number }}
+        GITEA_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+      run: |
+        python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+    - name: Run reply handler
+      env:
+        REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        REVIEWER_NAME: security-reviewer
+        PR_NUMBER: ${{ github.event.issue.number }}
+        GITEA_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        BASE_REF: ${{ github.base_ref }}
+        REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+        REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+        REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+      run: |
+        scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.reply run "$PR_NUMBER"
+```
+
+---
+
+## 3. レビュー対象外のファイル設定
+
+画像ファイルやドキュメント、外部ライブラリなどのファイルを AI のレビュー対象から外したい場合、`main.py`
+の diff 抽出箇所を直接書き換えるか、あるいは Git のコマンドで除外する。
+
+通常、`git diff` を実行して差分を抽出する際に、パスを指定して除外できる。
+
+例として、`main.py` の diff 抽出箇所を以下のように変更する。
+
+```bash
+DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)vendor/*' 2>/dev/null || ...)
+```
+
+このように記述することで、Markdown ファイルや `vendor/`
+ディレクトリ配下の差分が LLM へのプロンプトから除外される。
+
+---
+
+## 4. 静的解析ツールのカスタマイズ
+
+本システムの前段ゲートで動作する静的解析ツールは、プロジェクトのコード規約や使用言語に合わせてカスタマイズ可能です。
+
+### 4-1. Ruff (Python Linter / Formatter)
+
+- **設定ファイル**: `pyproject.toml`
+- Ruff のルール（警告やフォーマット規約）は `[tool.ruff]` 配下で定義されている。
+- `select` や `ignore` セクションを編集することで、検出する警告を増減できる。
+
+### 4-2. mypy (Python 静的型検査)
+
+- **設定ファイル**: `pyproject.toml`
+- `[tool.mypy]` 配下で型チェックの厳格度（`strict = true`
+  など）を制御する。プロジェクトの型定義状況に合わせて設定を変更する。
+
+### 4-3. Semgrep (プロジェクト固有ルール)
+
+- **ルール定義ファイル**: `ame_ai_review_system/.semgrep/rules.yml`
+- `CLAUDE.md` §8 のコーディング規約を Semgrep カスタムルールとして機械的に検出する。
+- 新たにチームの禁止事項や推奨パターンを追加したい場合は、この YAML ファイルに Semgrep の構文（`pattern`
+  や `patterns`）を用いてルールを追加する。
+
+---
+
+## 5. pre-commit AI レビューのカスタマイズ
+
+ローカルコミット時に動作する `Gate 1 (pre-commit)` は、`config.json` / `config.user.json`
+または環境変数で挙動を変更できる。
+
+### 5-1. `config.json` / `config.user.json` によるカスタマイズ
+
+`config.json` 内の `precommit_*` キーを設定します。環境依存の設定は Git 管理対象外の
+`config.user.json` に記述すると `config.json` より優先されます。
+
+- **`precommit_review_enabled`**:
+  `true`（デフォルト）の場合、コミット時にローカルAIレビューでブロックする。`false`
+  の場合は静的解析のみを行う。
+- **`precommit_require_static_checks`**:
+  `true`（デフォルト）の場合、静的解析がパスした時のみ AI レビューに進む。`false`
+  の場合は静的解析の成否に関わらず AI レビューする。
+- **`precommit_engine`**: デフォルトは `"auto"` であり、動作中の AI ツール（Claude Code, OpenCode,
+  Antigravity CLI）を自動検出する。明示的に `"claude"`, `"opencode"`, `"antigravity"`
+  を指定して固定できる。
+- **`precommit_model`**: pre-commit レビューで使うモデルを指定。省略時はエンジン既定値。
+- **`precommit_thinking`**: 思考量（`high` / `medium` / `low`）。省略時は PR の `thinking` を継承。
+
+> [!TIP] `config.user.json` の例（Gate 1 のみ claude/sonnet/medium に変更）:
+>
+> ```json
+> {
+>   "precommit_engine": "claude",
+>   "precommit_model": "sonnet",
+>   "precommit_thinking": "medium"
+> }
+> ```
+
+### 5-2. 環境変数による一時的な上書き
+
+コミット実行時に一時的に設定を上書きしたい場合、以下の環境変数を利用できます。
+
+- **`PRECOMMIT_REVIEW_ENGINE`**: pre-commit で使用する LLM エンジンを一時的に指定（例: `claude`）
+- **`PRECOMMIT_REVIEW_MODEL`**: 使用するモデルを一時的に指定
+- **`PRECOMMIT_REVIEW_THINKING`**: 思考量を指定（`high` / `medium` / `low`）
+
+実行例を以下に示す。
+
+```bash
+PRECOMMIT_REVIEW_ENGINE=claude PRECOMMIT_REVIEW_THINKING=low git commit -m "feat: low budget commit"
+```
+
+---
+
+## 6. CI (Gate 2) のカスタマイズ
+
+PR レビュー（Gate 2）のエンジン・モデル・思考量は、Gitea の **Variables** で設定します。
+
+### 6-1. Gitea Variables の設定
+
+Gitea のリポジトリ設定 > Variables から以下の変数を登録します。
+
+| 変数名            | 説明                  | 有効値                                        |
+| ----------------- | --------------------- | --------------------------------------------- |
+| `REVIEW_ENGINE`   | 使用する LLM エンジン | `claude`, `opencode`, `antigravity`           |
+| `REVIEW_MODEL`    | 使用するモデル        | エンジンに応じて指定（例: `sonnet`, `gpt-5`） |
+| `REVIEW_THINKING` | 思考量                | `high`, `medium`, `low`                       |
+
+> [!NOTE] 環境変数の優先順位は **Gitea Variables > `config.user.json` >
+> `config.json` > デフォルト値** です。Variables に設定した値が最も優先されます。
+
+### 6-2. 認証情報の設定（Gitea Secrets）
+
+各エンジンの認証情報は Gitea Secrets に Base64 エンコードして登録します。
+
+#### Claude（長期トークン方式）
+
+ホスト側で `claude setup-token` を実行し、長期トークンを生成します。
+
+```bash
+# WSL の場合: クリップボードへ自動コピー → Gitea UI の該当 Secret に貼り付け
+base64 -w0 ~/.claude.json | tr -d '\n' | clip.exe               # → CLAUDE_CONFIG_B64
+base64 -w0 ~/.claude/.credentials.json | tr -d '\n' | clip.exe   # → CLAUDE_CREDENTIALS_B64
+```
+
+> [!TIP] WSL 以外の環境では以下でクリップボードへコピー可能。macOS: `| pbcopy`、Linux (X11):
+> `| xclip -selection clipboard`
+>
+> 貼り付け後はクリップボード履歴（Win+V）に認証情報が残らないようクリアすることを推奨（適当なテキストをコピーして上書き）。
+
+#### OpenCode（API キー方式）
+
+OpenCode の認証情報は `~/.local/share/opencode/auth.json` に保存される。Anthropic, OpenRouter,
+DeepSeek 等、OpenCode に登録した全プロバイダーの API Key がこの単一ファイルに格納される。1 つの
+`OPENCODE_AUTH_B64` Secret で全プロバイダーをカバーできる。
+
+```bash
+base64 -w0 ~/.local/share/opencode/auth.json | tr -d '\n' | clip.exe  # → OPENCODE_AUTH_B64
+```
+
+#### Antigravity（OAuth + refresh_token）
+
+```bash
+base64 -w0 ~/.gemini/antigravity-cli/antigravity-oauth-token | tr -d '\n' | clip.exe  # → ANTIGRAVITY_OAUTH_B64
+base64 -w0 ~/.gemini/oauth_creds.json | tr -d '\n' | clip.exe  # → GEMINI_OAUTH_B64
+```
+
+### 6-3. Secrets の登録手順
+
+1. Gitea のリポジトリ設定 > Secrets を開く
+2. 各 Secret を追加:
+   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用 Gitea Access Token
+   - `CLAUDE_CONFIG_B64`: `~/.claude.json` の Base64 エンコード値
+   - `CLAUDE_CREDENTIALS_B64`: `~/.claude/.credentials.json` の Base64 エンコード値
+   - `OPENCODE_AUTH_B64`: `~/.local/share/opencode/auth.json` の Base64 エンコード値
+   - `ANTIGRAVITY_OAUTH_B64`: `~/.gemini/antigravity-cli/antigravity-oauth-token`
+     の Base64 エンコード値
+   - `GEMINI_OAUTH_B64`: `~/.gemini/oauth_creds.json` の Base64 エンコード値
+
+> [!TIP] 使用しないエンジンの認証情報は登録不要です。未登録の場合、そのエンジンは使用できません。
+
+### 6-4. 設定例
+
+**Claude + Sonnet + medium thinking:**
+
+```text
+REVIEW_ENGINE   = claude
+REVIEW_MODEL    = sonnet
+REVIEW_THINKING = medium
+```
+
+**OpenCode + GPT-5 + high thinking:**
+
+```text
+REVIEW_ENGINE   = opencode
+REVIEW_MODEL    = gpt-5
+REVIEW_THINKING = high
+```
+
+**OpenCode + OpenRouter + Tencent/Hy3 + medium thinking:**
+
+OpenRouter 経由でモデルを使う場合、`REVIEW_MODEL` は `openrouter/<org>/<model>` 形式で指定します。
+
+```text
+REVIEW_ENGINE   = opencode
+REVIEW_MODEL    = openrouter/tencent/hy3:free
+REVIEW_THINKING = medium
+```
+
+> [!NOTE] OpenRouter のモデル名は URL スラッグ（例: `tencent/hy3:free`）の先頭に `openrouter/`
+> を付与します。利用可能なモデルは [OpenRouter Models](https://openrouter.ai/models)
+> で確認できます。ローカルで `/models`
+> コマンドを実行すると、OpenCodeに登録済みのプロバイダー経由のモデル一覧が表示されます。
+
+**Antigravity + Gemini 2.5 Pro + low thinking:**
+
+```text
+REVIEW_ENGINE   = antigravity
+REVIEW_MODEL    = gemini-2.5-pro
+REVIEW_THINKING = low
+```
+
+### 6-5. Gate 1 と Gate 2 の設定比較
+
+| 設定項目 | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)         |
+| -------- | ------------------------------------------------- | ---------------------- |
+| 設定場所 | `config.json` / `config.user.json` または環境変数 | Gitea Variables        |
+| エンジン | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`        |
+| モデル   | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`         |
+| 思考量   | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`      |
+| 認証     | ホストの認証ファイルを直接使用                    | Gitea Secrets (Base64) |
+
+> [!NOTE] Gate 1 と Gate 2 で異なるエンジン・モデルを使用できます。例えば、ローカルでは `opencode`
+> で開発し、CI では `claude` でレビューすることが可能です。

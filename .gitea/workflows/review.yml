@@ -9,20 +9,51 @@ jobs:
   general-review:
     name: General Review (ame-ai-reviewer)
     runs-on: ubuntu-latest
+    # PUSH_REVIEW_ENABLED が未設定(=デフォルト OFF)の場合、ジョブは skipped となり
+    # ランナーに割り当てられない (= Actions Queue を消費しない)。
+    if: vars.PUSH_REVIEW_ENABLED == 'true'
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Restore engine credentials
+        run: |
+          mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+          echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+          echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+          echo "${{ secrets.OPENCODE_AUTH_B64 }}" | base64 -d > ~/.local/share/opencode/auth.json
+          AGY_TOKEN=~/.gemini/antigravity-cli/antigravity-oauth-token
+          echo "${{ secrets.ANTIGRAVITY_OAUTH_B64 }}" | base64 -d > "$AGY_TOKEN"
+          echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.claude.json ~/.claude/.credentials.json
+          chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Switch to PR branch
+        env:
+          GITEA_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITEA_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+        run: |
+          python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
       - name: Run General Review
         env:
           GITEA_URL: ${{ github.server_url }}
-          REVIEWER_TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          AME_AI_REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           BASE_REF: ${{ github.base_ref }}
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+          REPLY_MODEL: ${{ vars.REPLY_MODEL }}
+          REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
         run: |
-          bash ame-ai-review-system/pr_review.sh
+          scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
+            "$PR_NUMBER" \
+            --base-ref "$BASE_REF" \
+            --pr-title "$PR_TITLE" \
+            --pr-body "$PR_BODY" \
+            --prompt-file ame_ai_review_system/review_prompt.txt

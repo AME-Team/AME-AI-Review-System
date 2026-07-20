@@ -1,0 +1,26 @@
+# act_runner 設定ファイル
+# リファレンス: https://docs.gitea.com/usage/actions/act-runner#configuration
+---
+# docker-compose.yml の CONFIG_FILE=/config.yaml でマウントされる。
+
+log:
+  level: info
+
+runner:
+  capacity: 1
+  timeout: 30m
+  insecure: true
+  fetch_timeout: 5s
+  fetch_interval: 2s
+
+cache:
+  enabled: true
+  dir: /data/cache
+
+container:
+  # docker-compose.yml で作成した runner-net (172.28.0.0/16) を使用。
+  # WSL2 のサブネット (172.18.0.0/16) と衝突しないようにするため。
+  network: "runner-net"
+
+valid_volumes:
+  - /data/cache

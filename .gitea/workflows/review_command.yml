@@ -1,0 +1,83 @@
+---
+# PR コメントで ``/request-review`` (エイリアス ``/review``) を投稿するとレビューを開始する。
+# push 時の自動レビュー (review.yml) とは独立しており、明示的なコマンドでのみ動作する。
+# workflow_dispatch はブートストラップ・再実行用途（PR 番号を入力して手動起動）。
+
+name: AI Code Review (Command)
+
+"on":
+  pull_request_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "レビュー対象 PR 番号（手動実行時）"
+        required: true
+
+jobs:
+  general-review-command:
+    name: Review on /request-review (ame-ai-reviewer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name == 'workflow_dispatch' || (github.event.comment.user.login !=
+      'ame-ai-reviewer' &&
+       startsWith(github.event.comment.body, '/'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore engine credentials
+        run: |
+          mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+          echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+          echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+          echo "${{ secrets.OPENCODE_AUTH_B64 }}" | base64 -d > ~/.local/share/opencode/auth.json
+          AGY_TOKEN=~/.gemini/antigravity-cli/antigravity-oauth-token
+          echo "${{ secrets.ANTIGRAVITY_OAUTH_B64 }}" | base64 -d > "$AGY_TOKEN"
+          echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.claude.json ~/.claude/.credentials.json
+          chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Determine target PR and whether to run
+        id: cmd
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_PR: ${{ github.event.issue.number }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run_review=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=${INPUT_PR}" >> "$GITHUB_OUTPUT"
+          else
+            RUN_REVIEW=$(python3 -m ame_ai_review_system.review_config \
+              is-review-command "${COMMENT_BODY}")
+            echo "run_review=${RUN_REVIEW}" >> "$GITHUB_OUTPUT"
+            echo "pr_number=${ISSUE_PR}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Switch to PR branch
+        if: steps.cmd.outputs.run_review == 'true'
+        env:
+          GITEA_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
+          GITEA_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+        run: |
+          python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+      - name: Run General Review
+        if: steps.cmd.outputs.run_review == 'true'
+        env:
+          GITEA_URL: ${{ github.server_url }}
+          AME_AI_REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+          REVIEWER_NAME: ame-ai-reviewer
+          PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+          REPLY_MODEL: ${{ vars.REPLY_MODEL }}
+          REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+        run: |
+          scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
+            "$PR_NUMBER" \
+            --prompt-file ame_ai_review_system/review_prompt.txt

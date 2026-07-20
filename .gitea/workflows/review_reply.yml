@@ -13,52 +13,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
-      github.event.comment.user.login != 'ame-ai-reviewer' && contains(github.event.comment.body,
-      '@ame-ai-reviewer')
+      github.event.comment.user.login != 'ame-ai-reviewer' && !startsWith(github.event.comment.body,
+      '/') && contains(github.event.comment.body, '@ame-ai-reviewer')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Restore engine credentials
+        run: |
+          mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+          echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+          echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+          echo "${{ secrets.OPENCODE_AUTH_B64 }}" | base64 -d > ~/.local/share/opencode/auth.json
+          AGY_TOKEN=~/.gemini/antigravity-cli/antigravity-oauth-token
+          echo "${{ secrets.ANTIGRAVITY_OAUTH_B64 }}" | base64 -d > "$AGY_TOKEN"
+          echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.claude.json ~/.claude/.credentials.json
+          chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
       - name: Switch to PR branch
         env:
           GITEA_URL: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number }}
-          TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          GITEA_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
         run: |
-          PR_JSON_TMP=$(mktemp)
-          cleanup() { rm -f "$PR_JSON_TMP"; }
-          trap cleanup EXIT
-          HTTP_CODE=$(curl -s -o "$PR_JSON_TMP" -w "%{http_code}" \
-            "${GITEA_URL}/api/v1/repos/${REPO}/pulls/${PR_NUMBER}" \
-            -H "Authorization: token ${TOKEN}")
-          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            echo "[review_reply] ERROR: Failed to fetch PR info (HTTP ${HTTP_CODE})"
-            exit 1
-          fi
-          PR_JSON=$(cat "$PR_JSON_TMP")
-          BRANCH=$(printf '%s\n' "$PR_JSON" | python3 -c "
-          import json,sys
-          print(json.load(sys.stdin)['head']['ref'])
-          ")
-          BASE=$(printf '%s\n' "$PR_JSON" | python3 -c "
-          import json,sys
-          print(json.load(sys.stdin)['base']['ref'])
-          ")
-          if [[ ! "$BASE" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
-              echo "[review_reply] ERROR: Invalid BASE_REF: ${BASE}"
-              exit 1
-          fi
-          echo "BASE_REF=${BASE}" >> "$GITHUB_ENV"
-          git fetch origin "${BRANCH}"
-          git checkout "${BRANCH}"
+          python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
       - name: Run reply handler
         env:
-          REVIEWER_TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ github.event.issue.number }}
           GITEA_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+          REPLY_MODEL: ${{ vars.REPLY_MODEL }}
+          REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
         run: |
-          bash ame-ai-review-system/pr_review_reply.sh
+          scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.reply run "$PR_NUMBER"

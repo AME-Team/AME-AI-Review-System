@@ -1,0 +1,5 @@
+# Semgrep ignore rules
+# The rules.yml file contains Unicode characters that trigger the
+# ame-no-ambiguous-unicode rule (self-referential detection).
+
+ame_ai_review_system/.semgrep/rules.yml

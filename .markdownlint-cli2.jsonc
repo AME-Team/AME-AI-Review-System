@@ -10,15 +10,8 @@
   "config": {
     "default": true,
     // 行長制限のみ無効（全角文字も1桁換算で機械的折返しが困難なため）。
-    "MD013": false
+    "MD013": false,
   },
-  "globs": [
-    "*.md",
-    "docs/**/*.md"
-  ],
-  "ignores": [
-    "**/node_modules/**",
-    "**/vendor/**",
-    "**/.venv/**"
-  ]
+  "globs": ["*.md", "docs/**/*.md"],
+  "ignores": ["**/node_modules/**", "**/vendor/**", "**/.venv/**"],
 }

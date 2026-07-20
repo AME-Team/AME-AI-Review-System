@@ -4,6 +4,7 @@
 #       Python(ruff ALL + preview / mypy strict / pyright) + Shell(shellcheck) +
 #       YAML(yamllint strict) + Markdown(markdownlint / textlint) +
 #       依存ゼロの衛生チェック(tools/precommit_hygiene.py) + シークレットスキャン(gitleaks) +
+#       プロジェクト固有ロジック検査(semgrep custom rules) +
 #       Conventional Commits(commitlint) + テスト(pytest, pre-push のみ)。
 #
 # 重要: GitHub からフックを取得しない（`repo: local` + `language: system`）。
@@ -38,7 +39,7 @@
 ---
 minimum_pre_commit_version: "4.0.0"
 default_stages: [pre-commit, pre-merge-commit]
-default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_install_hook_types: [pre-commit, commit-msg, pre-push, post-commit]
 
 # vendored ライブラリ（事前ビルド済み UMD 等）と圧縮成果物はどのフックも触らない。
 exclude: |
@@ -103,6 +104,18 @@ repos:
         types_or: [python, pyi]
         require_serial: true
 
+      # 3b) Semgrep カスタムルール（プロジェクト固有ロジック検査）。
+      #     CLAUDE.md §8 のコーディング規約を機械的に強制する。broad exception
+      #     catch / kill -15 直接呼出 / echo|python3 -c / mktemp+trap 未対 等。
+      #     設定は ame_ai_review_system/.semgrep/rules.yml。
+      - id: semgrep-custom
+        name: semgrep (custom rules, CLAUDE.md §8)
+        entry: semgrep --config ame_ai_review_system/.semgrep/rules.yml --error
+        language: system
+        pass_filenames: false
+        require_serial: true
+        always_run: true
+
       # 4) 綴りミス検出（コード・コメント・ドキュメント横断）。設定は pyproject.toml。
       - id: codespell
         name: codespell (typos)
@@ -120,20 +133,37 @@ repos:
         pass_filenames: false
         require_serial: true
 
-      # 6) JavaScript lint（ESLint。警告も 0 件を強制）。設定は eslint.config.mjs。
-      #    現リポジトリに JS ファイルはないが、追加時に自動適用されるよう保持。
+      # 5b) Mermaid 記法チェック。マークダウン内の Mermaid コードブロックの構文を
+      #     検証し、括弧などの特殊文字を含む bracket label を検出する。
+      - id: mermaid-check
+        name: "mermaid syntax check"
+        entry: python3 -m ame_ai_review_system.mermaid_check
+        language: system
+        types: [markdown]
+        pass_filenames: true
+        require_serial: true
+
+      # 6) JavaScript/TypeScript lint（ESLint。警告も 0 件を強制）。設定は eslint.config.mjs。
       - id: eslint
         name: eslint (--max-warnings=0)
-        entry: eslint --max-warnings=0 --no-warn-ignored
+        entry: ./node_modules/.bin/eslint --max-warnings=0 --no-warn-ignored
         language: system
-        files: '\.(js|mjs|cjs)$'
+        files: '\.(js|mjs|cjs|ts|tsx)$'
+        require_serial: true
+
+      # 6b) TypeScript 型検査（tsc --noEmit）。設定は tsconfig.json。
+      - id: tsc
+        name: tsc (strict type check)
+        entry: ./node_modules/.bin/tsc --noEmit -p landing-page/tsconfig.app.json
+        language: system
+        files: '\.(ts|tsx)$'
+        pass_filenames: false
         require_serial: true
 
       # 7) CSS lint（Stylelint）。設定は .stylelintrc.json。
-      #    現リポジトリに CSS ファイルはないが、追加時に自動適用されるよう保持。
       - id: stylelint
         name: stylelint
-        entry: stylelint
+        entry: ./node_modules/.bin/stylelint
         language: system
         files: '\.css$'
         require_serial: true
@@ -281,13 +311,13 @@ repos:
         require_serial: true
 
       # =========================================================================
-      # 14) Prettier — MD/YAML/JSON フォーマット
+      # 14) Prettier — MD/YAML/JSON/TS/TSX/JS/CSS フォーマット
       # =========================================================================
       - id: prettier-root
-        name: "prettier (MD/YAML/JSON)"
+        name: "prettier (MD/YAML/JSON/TS/TSX/JS/CSS)"
         entry: ./node_modules/.bin/prettier --check
         language: system
-        types_or: [markdown, yaml, json]
+        types_or: [markdown, yaml, json, ts, tsx, javascript, css]
         pass_filenames: true
 
       # =========================================================================
@@ -343,3 +373,47 @@ repos:
         require_serial: true
         stages: [pre-push, pre-merge-commit]
         always_run: true
+
+      # =========================================================================
+      # 19b) フロントエンド単体テスト（vitest）— pre-push / merge-commit のみ実行
+      # =========================================================================
+      - id: vitest
+        name: vitest (unit tests)
+        entry: npm run test --workspace=landing-page
+        language: system
+        files: '\.(ts|tsx)$'
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push, pre-merge-commit]
+        always_run: true
+
+      # =========================================================================
+      # 20) AI コードレビュー (pre-commit)
+      #     PR レビューと同じプロンプトで staged + ブランチ差分をレビューする。
+      #     指摘 0 件なら PASS。CRITICAL/HIGH/MIDDLE/WARNING/未知severity を含めば FAIL。
+      #     LOW/INFO のみが 3 回連続した場合は無限ループ回避で PASS する。
+      #     エンジン失敗時は fail-closed でブロック。config.json の
+      #     `precommit_review_enabled` で ON/OFF 可能（デフォルト ON）。
+      #     注意: SKIP 環境変数でスキップ可能 (pre-commit 標準動作)。
+      #     前段の静的解析 (ruff / mypy) が全て pass した場合のみ AI レビューを実行する。
+      #     `precommit_require_static_checks` で ON/OFF 可能（デフォルト ON）。
+      # =========================================================================
+      - id: ai-precommit-review
+        name: "AI Code Review (pre-commit)"
+        entry: scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.precommit_review
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      # =========================================================================
+      # 21) AI レビュー streak リセット (post-commit)
+      #     コミット成功時に LOW/INFO のみ streak カウンタを 0 に戻す。
+      # =========================================================================
+      - id: ai-review-state-reset
+        name: "AI review state reset (post-commit)"
+        entry: python3 -m ame_ai_review_system.post_commit_reset
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]

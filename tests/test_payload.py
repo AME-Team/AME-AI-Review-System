@@ -3,21 +3,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from payload import parse_review_json
+from ame_ai_review_system.payload import parse_review_json, parse_review_json_with_flag
 
 
 def test_parse_review_json_plain(tmp_path: Path) -> None:
     data = {
         "summary": "Good progress.",
         "comments": [],
-        "checklist": {"no_bugs": True},
     }
     tmp_file = tmp_path / "review.json"
     tmp_file.write_text(json.dumps(data), encoding="utf-8")
 
     res = parse_review_json(str(tmp_file))
     assert res["summary"] == "Good progress."
-    assert res["checklist"]["no_bugs"] is True
+    assert res["comments"] == []
 
 
 def test_parse_review_json_with_code_fence(tmp_path: Path) -> None:
@@ -25,8 +24,7 @@ def test_parse_review_json_with_code_fence(tmp_path: Path) -> None:
 ```json
 {
   "summary": "Code fence test",
-  "comments": [],
-  "checklist": {"no_bugs": false}
+  "comments": []
 }
 ```
 Some text after"""
@@ -35,4 +33,23 @@ Some text after"""
 
     res = parse_review_json(str(tmp_file))
     assert res["summary"] == "Code fence test"
-    assert res["checklist"]["no_bugs"] is False
+    assert res["comments"] == []
+
+
+def test_parse_review_json_fallback_on_invalid(tmp_path: Path) -> None:
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file))
+    assert is_fallback is True
+    assert res["comments"] == []
+
+
+def test_parse_review_json_with_flag_false_on_valid(tmp_path: Path) -> None:
+    data = {"summary": "LGTM", "comments": []}
+    tmp_file = tmp_path / "review.json"
+    tmp_file.write_text(json.dumps(data), encoding="utf-8")
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file))
+    assert is_fallback is False
+    assert res["summary"] == "LGTM"

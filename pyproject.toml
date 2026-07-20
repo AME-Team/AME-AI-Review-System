@@ -13,18 +13,23 @@
 target-version = "py311"
 line-length = 88
 src = [
-    "ame-ai-review-system",
+    "ame_ai_review_system",
     "scripts",
+]
+# 抑制コメント検出スクリプトは # noqa / # ruff: noqa パターンを
+# データとして保持するため、ruff のチェック・フォーマット対象外とする。
+extend-exclude = [
+    "scripts/precommit_hygiene.py",
 ]
 
 [tool.ruff.lint]
 select = ["ALL"]
 preview = true
 ignore = [
-    # 日本語テキストでの全角記号は意図的（誤検出）。
-    "RUF001", "RUF002", "RUF003",
     # 著作権表示はプロジェクト慣習なし。
     "CPY001",
+    # COM812 は ruff format と競合するため無効化 (formatter 側でカンマを制御)。
+    "COM812",
     # Return/yield/例外をすべてdocstringに書くことは要求しない。
     "DOC201", "DOC402", "DOC501",
     # ドメインロジックの大関数（分割はスコープ外）。
@@ -35,8 +40,6 @@ ignore = [
     "S404", "S405",
     # 遅延 import は循環インポート回避のために意図的に使用。
     "PLC0415",
-    # broad exception catch は境界でのエラー集約のため意図的。
-    "BLE001",
     # print はスクリプトの進捗出力・報告として意図的。
     "T201",
     # Any 型は外部ライブラリの型付け困難箇所でのみ使用。
@@ -60,6 +63,8 @@ ignore = [
     # DTZ005: アーカイブファイル名はローカル時刻で命名する（ユーザ向けタイムスタンプ）。
     "DTZ005",
 ]
+# 日本語テキストでの全角括弧・等号は意図的（RUF001/002/003 の誤検出除外）。
+allowed-confusables = ["\uff08", "\uff09", "\uff1d"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = [
@@ -69,14 +74,22 @@ ignore = [
     "S101",    # assert 文を pytest で使う
     "PLC2701", # プライベートヘルパー関数のインポートを許容する
     "TCH003",  # テストでの標準ライブラリの型インポートチェックをスキップする
+    "TC002",   # テストでのサードパーティ型インポートチェックをスキップする(pytest 等)
 ]
-"ame-ai-review-system/*.py" = [
+"ame_ai_review_system/*.py" = [
     "INP001",  # 単体実行のためパッケージ化不要
+    "D100",    # スタンドアロンスクリプトのためモジュール docstring 不要
     "D103",
 ]
 "scripts/*.py" = [
     "INP001",  # 単体実行のためパッケージ化不要
     "D103",
+]
+"ame_ai_review_system/pr_streak.py" = [
+    "S310",    # URL open 検査: Gitea API (localhost) へのアクセスは許容
+]
+"ame_ai_review_system/main.py" = [
+    "S310",    # URL open 検査: Gitea API (localhost) へのアクセスは許容
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -116,12 +129,13 @@ enable_error_code = [
 ]
 disable_error_code = ["untyped-decorator", "type-arg"]
 namespace_packages = true
-explicit_package_bases = true
-mypy_path = "ame-ai-review-system:scripts"
+explicit_package_bases = false
+mypy_path = "scripts"
 
 [[tool.mypy.overrides]]
 module = [
     "anthropic.*",
+    "pytest",
 ]
 ignore_missing_imports = true
 
@@ -147,4 +161,4 @@ check-filenames = true
 # pyright: 静的型検査設定。
 # ---------------------------------------------------------------------------
 [tool.pyright]
-extraPaths = ["ame-ai-review-system", "scripts"]
+extraPaths = ["ame_ai_review_system", "scripts"]

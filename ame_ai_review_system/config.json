@@ -1,0 +1,18 @@
+{
+  "precommit_review_enabled": true,
+  "precommit_require_static_checks": true,
+  "pr_review_require_static_checks": true,
+  "precommit_engine": "auto",
+  "engine": "claude",
+  "model": "sonnet",
+  "review_model": "sonnet",
+  "reply_model": "haiku",
+  "thinking": "high",
+  "review_thinking": "high",
+  "reply_thinking": "low",
+  "review_budget_usd": 2.0,
+  "reply_budget_usd": 0.2,
+  "headroom_proxy_enabled": true,
+  "headroom_proxy_port": 8787,
+  "headroom_output_shaper": true
+}

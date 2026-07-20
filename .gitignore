@@ -40,3 +40,13 @@ desktop.ini
 .idea/
 *.swp
 *~
+actionlint
+
+# --- ユーザー固有設定 (Git 管理対象外) ---
+config.user.json
+.env
+
+# --- AI エージェント / ツール状態 (セッション・利用者固有) ---
+.serena/
+AGENTS.md
+.claude/

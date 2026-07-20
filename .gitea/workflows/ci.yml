@@ -4,15 +4,17 @@
 # PR 作成・更新時と main へのプッシュ時に、ローカルの pre-commit と
 # 同一のフックを実行する。
 #
-# ランナー要件: シェル・curl・git のみ。Python / Node / lint ツールは
-# すべてワークフロー内で自動インストールされる（host モードランナー想定）。
+# ランナー要件: あらかじめ Python 3.12 / Node.js 22 / shellcheck /
+# actionlint / gitleaks がインストールされた Docker イメージを使用する
+# （Dockerfile 参照）。
 #
 # ランナー登録コマンド例:
+#   docker build -t ame-ai-review-runner:latest .
 #   act_runner register --no-interactive \
 #     --instance http://<gitea-host>:3000 \
 #     --token <registration-token> \
 #     --name local-runner \
-#     --labels "ubuntu-latest:host"
+#     --labels "ubuntu-latest:docker://ame-ai-review-runner:latest"
 
 name: CI
 
@@ -25,8 +27,22 @@ name: CI
 
 jobs:
   pre-commit:
-    name: pre-commit (all hooks)
+    name: Static Analysis (pre-commit)
     runs-on: ubuntu-latest
+
+    # このリポジトリは自己ホスト Gitea Actions (act_runner) 専用であり、
+    # `runs-on: ubuntu-latest` は GitHub ホスト型ランナーではなく Dockerfile
+    # でビルドしたカスタムイメージを指すラベル (ヘッダコメント参照)。
+    # 当該イメージは `useradd --create-home gitea-runner` によって
+    # /home/gitea-runner を作成し、ジョブは `USER gitea-runner` で実行される
+    # ため、以下のパスは書き込み可能であることが保証されている。
+    # $GITHUB_WORKSPACE 配下ではなく home 配下に置く理由:
+    # 直後の「Clean untracked and reset tracked files」ステップ (git clean -fdx)
+    # が実行されるたびに $GITHUB_WORKSPACE 配下の未追跡ファイルを削除するため
+    # (ワークスペースはジョブ間で使い回される永続ボリューム)。
+    env:
+      UV_CACHE_DIR: /home/gitea-runner/.cache/uv
+      npm_config_cache: /home/gitea-runner/.cache/npm
 
     steps:
       - name: Checkout
@@ -34,66 +50,114 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch base ref (PR diff scope)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [[ ! "$BASE_REF" =~ ^[A-Za-z0-9/_.-]+$ ]]; then
+            echo "Invalid BASE_REF: $BASE_REF" >&2
+            exit 1
+          fi
+          git fetch origin "$BASE_REF" --depth=1
+
+      - name: Compute changed files (PR diff)
+        id: changed_files
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          files="$(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD")"
+          delimiter="CHANGED_FILES_EOF_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "files<<${delimiter}"
+            printf '%s\n' "$files"
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Clean untracked and reset tracked files
         run: |
           git reset --hard HEAD
           git clean -fdx
 
-      - name: Set up Python tools via uv
+      - name: Restore uv package cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: uv-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: |
+            uv-
+
+      - name: Install project-specific pip dependencies
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          export PATH="$HOME/.local/bin:$PATH"
-          uv python install 3.12
           uv venv "$GITHUB_WORKSPACE/.venv" --python 3.12
           uv pip install -r requirements-dev.txt
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Restore npm package cache
+        uses: actions/cache@v4
         with:
-          node-version: "20"
+          path: ${{ env.npm_config_cache }}
+          key: npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-
 
       - name: Install project-local Node.js packages
         run: npm ci
 
-      - name: Install shellcheck
-        run: |
-          base="https://github.com/koalaman/shellcheck/releases/download"
-          mkdir -p /tmp/shellcheck-install
-          curl -sSfL "${base}/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz" \
-            | tar -xJ -C /tmp/shellcheck-install
-          mkdir -p ~/.local/bin
-          mv /tmp/shellcheck-install/shellcheck-v0.10.0/shellcheck ~/.local/bin/shellcheck
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install actionlint
-        run: |
-          base="https://github.com/rhysd/actionlint/releases/download"
-          mkdir -p /tmp/actionlint-install
-          curl -sSfL "${base}/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz" \
-            | tar -xz -C /tmp/actionlint-install
-          mkdir -p ~/.local/bin
-          mv /tmp/actionlint-install/actionlint ~/.local/bin/actionlint
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install gitleaks
-        run: |
-          base="https://github.com/gitleaks/gitleaks/releases/download"
-          mkdir -p /tmp/gitleaks-install
-          curl -sSfL "${base}/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
-            | tar -xz -C /tmp/gitleaks-install
-          mkdir -p ~/.local/bin
-          mv /tmp/gitleaks-install/gitleaks ~/.local/bin/gitleaks
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Run pre-commit (all files)
+      # ==========================================================================
+      # pre-commit 実行ステップ (Gate 2)
+      #
+      # push (main マージ後) は --all-files でフルスキャン (セーフティネット)。
+      # pull_request は --files <PR差分> で差分スコープ実行 (Gate 1 と同一セマンティクス)。
+      #
+      # --files を使うとファイルスコープフック (ruff/mypy/eslint/mermaid-check 等の
+      # pass_filenames: true なフック) は差分ファイルのみ検証する。一方、
+      # always_run: true (semgrep-custom / pyright) はファイル選択に依存せず常時全量実行、
+      # pass_filenames: false (tsc / markdownlint-cli2) はマッチするファイル種別が
+      # 1件でも差分に含まれればフック全体を全量実行する (pre-commit の仕様)。
+      # したがって --files への切替でプロジェクト全体のカバレッジは低下しない
+      # (詳細は .pre-commit-config.yaml の各フック定義参照)。
+      # 検証済み: always_run 挙動は pre-commit 4.6.0 で実機確認済み
+      # (always_run フックに非マッチファイルを --files 指定しても常時実行される)。
+      #
+      # 例外: PR差分が空 (origin/<base_ref>...HEAD で変更ファイル0件) の場合は
+      # pre-commit 全体をスキップする (always_run フック含む)。これは head == base
+      # を意味するため、base 側で既に検証済みの内容を再スキャンする意義がなく、
+      # かつ --all-files にフォールバックすると PR 無関係の既存問題で Circuit
+      # Breaker が誤ブロックする懸念Bの再発になるため (Issue #49 設計ポイント4)。
+      # push (main マージ後) は常に --all-files でセーフティネットが効くため、
+      # 空差分PRでの一時的スキップは許容される。
+      # 補足: 空差分 == HEAD と base が完全一致。ci.yml / .pre-commit-config.yaml 等
+      # のCI設定ファイルが実際に変更されていれば必ず diff に含まれるため、当ス
+      # テップで CHANGED_FILES が空になる状況ではCI設定の変更も存在しない。
+      # したがって「CI設定の構文破綻を見落とす」リスクは構造上発生しない。
+      # ==========================================================================
+      - name: Run pre-commit (all files, push to main)
+        if: github.event_name == 'push'
         run: pre-commit run --all-files
         env:
-          MYPYPATH: ${{ github.workspace }}/ame-ai-review-system:${{ github.workspace }}/scripts
-          PYTHONPATH: ${{ github.workspace }}/ame-ai-review-system:${{ github.workspace }}/scripts
+          MYPYPATH: ${{ github.workspace }}/ame_ai_review_system:${{ github.workspace }}/scripts
+          PYTHONPATH: ${{ github.workspace }}/ame_ai_review_system:${{ github.workspace }}/scripts
+
+      - name: Run pre-commit (changed files, PR diff)
+        if: github.event_name == 'pull_request'
+        env:
+          CHANGED_FILES: ${{ steps.changed_files.outputs.files }}
+          MYPYPATH: ${{ github.workspace }}/ame_ai_review_system:${{ github.workspace }}/scripts
+          PYTHONPATH: ${{ github.workspace }}/ame_ai_review_system:${{ github.workspace }}/scripts
+        run: |
+          if [ -z "${CHANGED_FILES// /}" ]; then
+            echo "No changed files detected against base ref; skipping pre-commit."
+            exit 0
+          fi
+          printf '%s\n' "$CHANGED_FILES" | xargs -r -d '\n' pre-commit run --files
 
       - name: Run unit tests (pytest)
         run: pytest --tb=short -q
+
+      - name: Run frontend unit tests (vitest)
+        run: npm run test --workspace=landing-page
 
       - name: Run pyright (type check)
         run: pyright --warnings

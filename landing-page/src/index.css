@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+:root {
+  --primary-color: #005b99;
+  --primary-color-hover: #004b7d;
+  --font-ui: var(--font-ui-ja-sans);
+  --font-ui-ja-sans: "Noto Sans JP", sans-serif;
+  --font-ui-ja-serif: "Noto Serif JP", serif;
+  --font-ui-en-sans: "Noto Sans", sans-serif;
+  --font-ui-en-serif: "Noto Serif", serif;
+}
+
+/* Light Mode presets */
+:root[data-theme-color="blue"] {
+  --primary-color: #005b99;
+  --primary-color-hover: #004b7d;
+}
+
+:root[data-theme-color="green"] {
+  --primary-color: #2d6a4f;
+  --primary-color-hover: #1b3f2f;
+}
+
+:root[data-theme-color="orange"] {
+  --primary-color: #c2410c;
+  --primary-color-hover: #9a3412;
+}
+
+:root[data-theme-color="indigo"] {
+  --primary-color: #4338ca;
+  --primary-color-hover: #312e81;
+}
+
+:root[data-theme-color="teal"] {
+  --primary-color: #0f766e;
+  --primary-color-hover: #0b534e;
+}
+
+/* Dark Mode presets */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary-color: #3b82c4;
+    --primary-color-hover: #60a5fa;
+  }
+
+  :root[data-theme-color="blue"] {
+    --primary-color: #3b82c4;
+    --primary-color-hover: #60a5fa;
+  }
+
+  :root[data-theme-color="green"] {
+    --primary-color: #4f8a6e;
+    --primary-color-hover: #6eb091;
+  }
+
+  :root[data-theme-color="orange"] {
+    --primary-color: #dd6b3d;
+    --primary-color-hover: #f08c5d;
+  }
+
+  :root[data-theme-color="indigo"] {
+    --primary-color: #7c79e8;
+    --primary-color-hover: #9f9df3;
+  }
+
+  :root[data-theme-color="teal"] {
+    --primary-color: #2fa39a;
+    --primary-color-hover: #50bdbc;
+  }
+}
+
+@theme {
+  --color-primary: var(--primary-color);
+  --color-primary-hover: var(--primary-color-hover);
+  --color-stable-green: #2d6a4f;
+  --color-grounded-orange: #c2410c;
+  --color-indigo-sophisticated: #4338ca;
+  --color-teal-clarity: #0f766e;
+  --color-gray-850: #1b2330;
+  --font-sans: var(--font-ui);
+  --font-mono: "Noto Sans Mono", "Noto Sans JP", monospace;
+}
+
+/* Font switches */
+:root[data-locale="ja"][data-font-style="sans"] {
+  --font-ui: var(--font-ui-ja-sans);
+}
+
+:root[data-locale="ja"][data-font-style="serif"] {
+  --font-ui: var(--font-ui-ja-serif);
+}
+
+:root[data-locale="en"][data-font-style="sans"] {
+  --font-ui: var(--font-ui-en-sans);
+}
+
+:root[data-locale="en"][data-font-style="serif"] {
+  --font-ui: var(--font-ui-en-serif);
+}
+
+@layer base {
+  body {
+    letter-spacing: 0.05em;
+    line-height: 1.625;
+    background-color: #f9fafb;
+    color: #374151;
+    transition:
+      color 0.2s ease-out,
+      background-color 0.2s ease-out;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      background-color: #111827;
+      color: #d1d5db;
+    }
+  }
+}
