@@ -4,7 +4,8 @@
       "sentence-length": {
         "max": 100
       },
-      "no-exclamation-question-mark": false
+      "no-exclamation-question-mark": false,
+      "no-unmatched-pair": false
     }
   }
 }
