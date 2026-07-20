@@ -197,7 +197,7 @@ jobs:
       # 1件でも差分に含まれればフック全体を全量実行する (pre-commit の仕様)。
       # したがって --files への切替でプロジェクト全体のカバレッジは低下しない
       # (詳細は .pre-commit-config.yaml の各フック定義参照)。
-      # 検証済み: always_run 舗動は pre-commit 4.6.0 で実機確認済み
+      # 検証済み: always_run 挙動は pre-commit 4.6.0 で実機確認済み
       # (always_run フックに非マッチファイルを --files 指定しても常時実行される)。
       #
       # 例外: PR差分が空 (origin/<base_ref>...HEAD で変更ファイル0件) の場合は
