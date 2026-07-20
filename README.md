@@ -25,13 +25,13 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 > **push時の自動レビューはデフォルトでOFF**です。コメントでの依頼を推奨します。有効化はリポジトリ設定
 > **[Settings] → [Actions] → [Variables]** で `PUSH_REVIEW_ENABLED` を `true` に設定してください。
 
-本リポジトリは、別のプロジェクトへ `.gitea/` と `ame_ai_review_system/`
+本リポジトリは、別のプロジェクトへ `.github/` と `ame_ai_review_system/`
 をコピペするだけで、この仕組みを移植可能です。
 
 ## 特徴
 
 - **コマンド駆動のレビュー**: PR コメントで `/request-review`
-  を入力したタイミングでレビューが走る。push 時の自動実行は Gitea の Variables `PUSH_REVIEW_ENABLED`
+  を入力したタイミングでレビューが走る。push 時の自動実行は GitHub Variables `PUSH_REVIEW_ENABLED`
   で ON/OFF 可能（デフォルト OFF）。
 - **pre-commit 時の AI レビュー**: `git commit`
   時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で無限ループ回避の escape
@@ -57,7 +57,7 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 - **ユーザー固有設定オーバーライド**:
   `config.user.json`（Git 管理対象外）で環境依存の設定（エンジン・モデル・思考量など）を上書き可能。`config.json`
   より優先される。
-- **超簡単移植**: `.gitea/` と `ame_ai_review_system/`
+- **超簡単移植**: `.github/` と `ame_ai_review_system/`
   の2つのディレクトリを他リポジトリにコピーするだけで導入完了。
 - **対話型の修正サイクル**: 開発者が `@<レビュアー名>`
   で返信すると、AI が最新コードを再評価してスレッドに返答。
@@ -90,11 +90,7 @@ npm run preview --workspace=landing-page
 ## ディレクトリ構成
 
 ```text
-Dockerfile                        # act_runner Docker イメージ定義（CI に必要な全ツールをプリインストール）
-.seccomp/
-  profile.json                    # seccomp カスタムプロファイル（セキュリティ sandbox 強化用）
-
-.gitea/
+.github/
   workflows/
     review.yml            # PR作成/プッシュ時にレビューを実行するワークフロー（設定で OFF 可能）
     review_command.yml    # `/request-review` コメントでレビューを実行するワークフロー
@@ -104,8 +100,9 @@ Dockerfile                        # act_runner Docker イメージ定義（CI �
 ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする資材
   main.py                # CLI エントリポイント（review / checkout / post-push / setup サブコマンド）
   reply.py               # 返信プロンプト生成・スレッド解析・stale-loop検出
+  github_client.py       # GitHub REST/GraphQL API 共通クライアント（Resolve 等の GraphQL 操作を含む）
   engine.py              # LLM エンジンアダプタ（claude/opencode/antigravity を切替・role別設定）
-  payload.py             # モデル出力 -> Gitea API ペイロード変換
+  payload.py             # モデル出力 -> GitHub API ペイロード変換
   review_config.py       # 設定読み込み・コマンド判定ヘルパ
   static_precheck.py     # PR レビュー前段の静的解析 pre-check（Circuit Breaker）
   diff_utils.py          # diff 圧縮ユーティリティ（RTK アプローチ）
@@ -131,26 +128,21 @@ ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする�
 scripts/
   linux/
     with_headroom.sh           # AI レビューコマンドを headroom プロキシ経由で実行するラッパー
-    act-runner.service         # systemd サービス定義（ランナーの自動起動）
-    act-runner-service.sh      # サービス起動スクリプト（WSL2 IP 自動検出・Docker 待機）
+    pr_review_reply.sh         # レビュー返信ワークフロー互換のレガシーパス（互換ラッパ）
   precommit_hygiene.py         # pre-commit 関連の補助スクリプト
   check_suppression_comments.py  # 抑制コメント検証スクリプト
-
-docker-compose.yml             # act_runner デーモン構成（gitea/act_runner 公式イメージ使用）
-runner-config.yaml             # act_runner 設定ファイル
-start-runner.sh                # ランナー手動起動スクリプト（WSL2 IP 自動検出）
-.env.example                   # 登録トークン設定テンプレート（.env にコピーして使用）
 ```
 
 ## クイックスタート
 
 他プロジェクトへの導入は非常にシンプルです。
 
-1. **資材のコピー**: `.gitea/` と `ame_ai_review_system/`
-   を対象リポジトリのルートにコピーする。Docker ランナーを使う場合は `Dockerfile` と `.seccomp/`
-   もコピーする。
-2. **トークンの登録**: レビュアー用の Gitea トークンを生成し、対象リポジトリの Secrets に
-   `AME_AI_REVIEWER_TOKEN` として登録する。
+1. **資材のコピー**: `.github/` と `ame_ai_review_system/`
+   を対象リポジトリのルートにコピーする。
+2. **トークンの登録**: レビュアー用の GitHub Personal Access Token（repo / pull-requests
+   scope）を生成し、対象リポジトリの Secrets に `AME_AI_REVIEWER_TOKEN` として登録する。
+   通常操作用に `GITHUB_PAT_TOKEN` も別途登録すること（`GITHUB_TOKEN` は GitHub Actions
+   が自動予約する一時トークンのため PAT には使えない）。
 3. **プロンプトの調整**: `ame_ai_review_system/review_prompt.txt`
    をプロジェクトの規約や観点に合わせてカスタマイズする。
 4. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。

@@ -47,23 +47,22 @@ PR 上で実行する品質ゲートです。以下のループを未解決ス�
 
 1. **PR 作成・プッシュ**
 2. **レビュー依頼** — PR コメントで `/request-review`（エイリアス `/review`）を投稿
-   - API: `POST /api/v1/repos/{owner}/{repo}/issues/{pr}/comments`
+   - API: `POST /repos/{owner}/{repo}/issues/{pr}/comments`
    - 本文: `/request-review`
 3. **Circuit Breaker** — 静的解析（ruff/mypy/semgrep）を先行実行
    - エラー 1 件でもあれば AI レビューをスキップ。エラー修正後に再依頼
 4. **AI レビュー実行** → インラインレビューコメントが PR に投稿される
 5. **レビューコメント取得**
-   - `GET /api/v1/repos/{owner}/{repo}/pulls/{pr}/reviews`
-   - `GET /api/v1/repos/{owner}/{repo}/pulls/{pr}/reviews/{id}/comments`
+   - `GET /repos/{owner}/{repo}/pulls/{pr}/comments`
 6. **コード修正・コミット・プッシュ** — 指摘事項に対応
 7. **スレッド返信** — 各スレッドに `@ame-ai-reviewer` メンション付きで対応内容を返信
-   - API: `POST /api/v1/repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
+   - API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
    - 本文例: `@ame-ai-reviewer 指摘された例外処理を追加し、ログ出力を修正しました。`
 8. **LGTM 待ち** — `ame-ai-reviewer` がスレッドに返信
    - LGTM: `対応確認しました。LGTM ✅ Resolve してください。`
    - 追加指摘 → Step 6 に戻る
 9. **Resolve** — LGTM が届いたスレッドを解決済みに変更
-   - API: `POST /api/v1/repos/{owner}/{repo}/pulls/comments/{id}/resolve`
+   - API: GraphQL mutation `resolveReviewConversation(input: {threadId: ID!})`
 10. **未解決スレッドチェック**
     - 残っていれば Step 6 に戻る
     - ゼロなら最終レビューへ
@@ -83,25 +82,25 @@ CRITICAL/HIGH/MIDDLE がなく、LOW のみの指摘が **2 回連続** した�
 ## API エンドポイントまとめ
 
 ```text
-Gitea URL   : http://localhost:3000
-リポジトリ   : AME-Team/AME-AI-Review-System
+GitHub API   : https://api.github.com
+GraphQL      : https://api.github.com/graphql
+リポジトリ    : tarminjapan/AME-AI-Review-System
 
 トークン取得（優先順位）:
-  1. ~/.config/ame-ai-review-system/gitea.token
-  2. 環境変数 $GITEA_TOKEN
+  1. ~/.config/ame-ai-review-system/github.token（またはレビュアー固有の <name>.token）
+  2. 環境変数 $GITHUB_PAT_TOKEN（または <NAME>_TOKEN）
 
 レビュアートークン:
   ame-ai-reviewer : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
 
-レビュー依頼   : POST /api/v1/repos/{repo}/issues/{pr}/comments
-コメント取得   : GET  /api/v1/repos/{repo}/pulls/{pr}/reviews
-               GET  /api/v1/repos/{repo}/pulls/{pr}/reviews/{id}/comments
-スレッド返信   : POST /api/v1/repos/{repo}/pulls/{pr}/comments/{id}/replies
-Resolve       : POST /api/v1/repos/{repo}/pulls/comments/{id}/resolve
+レビュー依頼   : POST /repos/{repo}/issues/{pr}/comments
+コメント取得   : GET  /repos/{repo}/pulls/{pr}/comments
+スレッド返信   : POST /repos/{repo}/pulls/{pr}/comments/{id}/replies
+Resolve       : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
 ```
 
-> **注意**: `localhost:3000` に接続できない場合は `host.docker.internal:3000`
-> も試すこと（WSL 環境では Gitea が Windows 側で動いているため）。
+> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL` が自動設定されるため、
+> ワークフロー側での環境変数明示は不要です（`github_client.resolve_env` が解決します）。
 
 ---
 

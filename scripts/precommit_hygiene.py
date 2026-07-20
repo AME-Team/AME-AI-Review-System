@@ -1,8 +1,8 @@
 """Offline, dependency-free repository hygiene checks for pre-commit.
 
 pre-commit はステージ済みファイルのパスを argv で渡す。言語別 linter が拾わない
-横断ポリシーを、サードパーティ依存もネットワークも使わず検査する（本プロジェクトの
-オフライン/Gitea 制約に合わせる）:
+横断ポリシーを、サードパーティ依存もネットワークも使わず検査する（オフライン環境
+制約に合わせる）:
 
 - 改行コード方針: ``*.bat`` / ``*.ps1`` / ``*.cmd`` は CRLF 必須（Windows ランチャ）。
   それ以外のテキストは LF のみ（CR を含めてはならない）。

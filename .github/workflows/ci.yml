@@ -1,20 +1,13 @@
 ---
-# Gitea Actions CI — pre-commit チェック
+# GitHub Actions CI — pre-commit / pytest / pyright
 #
 # PR 作成・更新時と main へのプッシュ時に、ローカルの pre-commit と
 # 同一のフックを実行する。
 #
-# ランナー要件: あらかじめ Python 3.12 / Node.js 22 / shellcheck /
-# actionlint / gitleaks がインストールされた Docker イメージを使用する
-# （Dockerfile 参照）。
-#
-# ランナー登録コマンド例:
-#   docker build -t ame-ai-review-runner:latest .
-#   act_runner register --no-interactive \
-#     --instance http://<gitea-host>:3000 \
-#     --token <registration-token> \
-#     --name local-runner \
-#     --labels "ubuntu-latest:docker://ame-ai-review-runner:latest"
+# ランナー: GitHub-hosted ubuntu-latest。
+# ツールチェーン (Python 3.12 / Node 22 / uv / shellcheck / actionlint /
+# gitleaks / claude-code / opencode-ai / headroom) は steps: で明示的に
+# セットアップする（旧 Dockerfile 相当）。
 
 name: CI
 
@@ -25,24 +18,17 @@ name: CI
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+
 jobs:
   pre-commit:
     name: Static Analysis (pre-commit)
     runs-on: ubuntu-latest
 
-    # このリポジトリは自己ホスト Gitea Actions (act_runner) 専用であり、
-    # `runs-on: ubuntu-latest` は GitHub ホスト型ランナーではなく Dockerfile
-    # でビルドしたカスタムイメージを指すラベル (ヘッダコメント参照)。
-    # 当該イメージは `useradd --create-home gitea-runner` によって
-    # /home/gitea-runner を作成し、ジョブは `USER gitea-runner` で実行される
-    # ため、以下のパスは書き込み可能であることが保証されている。
-    # $GITHUB_WORKSPACE 配下ではなく home 配下に置く理由:
-    # 直後の「Clean untracked and reset tracked files」ステップ (git clean -fdx)
-    # が実行されるたびに $GITHUB_WORKSPACE 配下の未追跡ファイルを削除するため
-    # (ワークスペースはジョブ間で使い回される永続ボリューム)。
     env:
-      UV_CACHE_DIR: /home/gitea-runner/.cache/uv
-      npm_config_cache: /home/gitea-runner/.cache/npm
+      UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
+      npm_config_cache: ${{ github.workspace }}/.cache/npm
 
     steps:
       - name: Checkout
@@ -50,6 +36,104 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ==========================================================================
+      # ツールチェーンセットアップ (旧 Dockerfile 相当)
+      # ==========================================================================
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-local-path: ${{ env.UV_CACHE_DIR }}
+
+      - name: Install shellcheck
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          FALLBACK="0.10.0"
+          API_RESPONSE=$(curl -sfH "Authorization: Bearer ${GH_TOKEN}" \
+            https://api.github.com/repos/koalaman/shellcheck/releases/latest || true)
+          VER=$(printf '%s' "$API_RESPONSE" | jq -e -r '.tag_name' 2>/dev/null || true)
+          if [ -z "$API_RESPONSE" ] || [ -z "$VER" ] || [ "$VER" = "null" ]; then
+            VER="$FALLBACK"
+            echo "shellcheck: using fallback ${FALLBACK}" >&2
+          fi
+          VER="${VER#v}"
+          echo "shellcheck version: ${VER}"
+          SC_BASE="https://github.com/koalaman/shellcheck/releases/download"
+          SC_URL="${SC_BASE}/v${VER}/shellcheck-v${VER}.linux.x86_64.tar.xz"
+          mkdir -p /tmp/sc
+          curl -sSfL "$SC_URL" | tar -xJ -C /tmp/sc
+          sudo mv "/tmp/sc/shellcheck-v${VER}/shellcheck" /usr/local/bin/
+          rm -rf /tmp/sc
+
+      - name: Install actionlint
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          FALLBACK="1.7.7"
+          API_RESPONSE=$(curl -sfH "Authorization: Bearer ${GH_TOKEN}" \
+            https://api.github.com/repos/rhysd/actionlint/releases/latest || true)
+          VER=$(printf '%s' "$API_RESPONSE" | jq -e -r '.tag_name' 2>/dev/null || true)
+          if [ -z "$API_RESPONSE" ] || [ -z "$VER" ] || [ "$VER" = "null" ]; then
+            VER="$FALLBACK"
+            echo "actionlint: using fallback ${FALLBACK}" >&2
+          fi
+          VER="${VER#v}"
+          echo "actionlint version: ${VER}"
+          AL_BASE="https://github.com/rhysd/actionlint/releases/download"
+          AL_URL="${AL_BASE}/v${VER}/actionlint_${VER}_linux_amd64.tar.gz"
+          mkdir -p /tmp/al
+          curl -sSfL "$AL_URL" | tar -xz -C /tmp/al
+          sudo mv "/tmp/al/actionlint" /usr/local/bin/
+          rm -rf /tmp/al
+
+      - name: Install gitleaks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          FALLBACK="8.21.2"
+          API_RESPONSE=$(curl -sfH "Authorization: Bearer ${GH_TOKEN}" \
+            https://api.github.com/repos/gitleaks/gitleaks/releases/latest || true)
+          VER=$(printf '%s' "$API_RESPONSE" | jq -e -r '.tag_name' 2>/dev/null || true)
+          if [ -z "$API_RESPONSE" ] || [ -z "$VER" ] || [ "$VER" = "null" ]; then
+            VER="$FALLBACK"
+            echo "gitleaks: using fallback ${FALLBACK}" >&2
+          fi
+          VER="${VER#v}"
+          echo "gitleaks version: ${VER}"
+          GL_BASE="https://github.com/gitleaks/gitleaks/releases/download"
+          GL_URL="${GL_BASE}/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          mkdir -p /tmp/gl
+          curl -sSfL "$GL_URL" | tar -xz -C /tmp/gl
+          sudo mv "/tmp/gl/gitleaks" /usr/local/bin/
+          rm -rf /tmp/gl
+
+      - name: Install claude-code / opencode-ai
+        run: npm install -g @anthropic-ai/claude-code@2.1.214 opencode-ai@1.18.3
+
+      - name: Install headroom
+        run: |
+          uv venv /opt/headroom --python 3.12
+          uv pip install --python /opt/headroom/bin/python "headroom-ai[all]==0.31.0"
+          sudo ln -s /opt/headroom/bin/headroom /usr/local/bin/headroom
+
+      # ==========================================================================
+      # Fetch base ref (PR diff scope)
+      # ==========================================================================
       - name: Fetch base ref (PR diff scope)
         if: github.event_name == 'pull_request'
         env:
@@ -75,18 +159,13 @@ jobs:
             echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Clean untracked and reset tracked files
-        run: |
-          git reset --hard HEAD
-          git clean -fdx
-
       - name: Restore uv package cache
         uses: actions/cache@v4
         with:
           path: ${{ env.UV_CACHE_DIR }}
-          key: uv-${{ hashFiles('requirements-dev.txt') }}
+          key: uv-${{ runner.os }}-py3.12-${{ hashFiles('requirements-dev.txt') }}
           restore-keys: |
-            uv-
+            uv-${{ runner.os }}-py3.12-
 
       - name: Install project-specific pip dependencies
         run: |
@@ -98,9 +177,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.npm_config_cache }}
-          key: npm-${{ hashFiles('package-lock.json') }}
+          key: npm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
           restore-keys: |
-            npm-
+            npm-${{ runner.os }}-node22-
 
       - name: Install project-local Node.js packages
         run: npm ci
@@ -118,7 +197,7 @@ jobs:
       # 1件でも差分に含まれればフック全体を全量実行する (pre-commit の仕様)。
       # したがって --files への切替でプロジェクト全体のカバレッジは低下しない
       # (詳細は .pre-commit-config.yaml の各フック定義参照)。
-      # 検証済み: always_run 挙動は pre-commit 4.6.0 で実機確認済み
+      # 検証済み: always_run 舗動は pre-commit 4.6.0 で実機確認済み
       # (always_run フックに非マッチファイルを --files 指定しても常時実行される)。
       #
       # 例外: PR差分が空 (origin/<base_ref>...HEAD で変更ファイル0件) の場合は

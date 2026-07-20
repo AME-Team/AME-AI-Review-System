@@ -11,7 +11,7 @@ AI レビュアーが返信を投稿すると、さらに `AI Review Reply`
 
 ### 原因: 自己返信の除外設定不足
 
-`.gitea/workflows/review_reply.yml` の `if`
+`.github/workflows/review_reply.yml` の `if`
 条件設定が漏れている、または不十分です。AI レビュアー自身のアカウントが投稿したコメントは、返信トリガーから除外する必要があります。
 
 ### 対策: if 条件の再設定
@@ -33,7 +33,7 @@ if: >-
 
 ### 症状: コマンドが見つからない
 
-Gitea Actions のログに `[engine] '<binary>' not found on PATH (engine=...)`
+GitHub Actions のログに `[engine] '<binary>' not found on PATH (engine=...)`
 が出力され、レビュー実行ステップが失敗する。
 
 ### 原因: ランナー環境の未セットアップ
@@ -68,9 +68,9 @@ PR をプッシュ、またはコメントでメンションしたにもかか�
      `reviewed-sha` を検索して重複を防ぐ。
    - **対策**: コードを変更して再度プッシュしてから `/request-review`
      するか、開発者メンションによる返信判定機能（`review_reply.yml`）を利用する。
-2. **トークン (`AME_AI_REVIEWER_TOKEN`) が無効、またはスコープ不足**
-   - **対策**: Gitea で設定した API トークンの有効期限が切れていないか、また `repository`
-     (read/write) スコープが付与されているか確認する。
+2. **トークン (`AME_AI_REVIEWER_TOKEN` / `GITHUB_PAT_TOKEN`) が無効、またはスコープ不足**
+   - **対策**: GitHub で設定した PAT の有効期限が切れていないか、また `repo`
+     スコープ（または同等の Fine-grained 権限）が付与されているか確認する。
 3. **1つの PR に対する最大レビュー回数制限に達した**
    - **仕様**: 無駄な API 消費を防ぐため、1つの PR に対して最大 `10` 回までしかレビューしない制御が
      `main.py` 内にある。
@@ -156,7 +156,7 @@ Breaker）を実行します。PR 内のコードに1件でも静的解析エラ
 
 ### 対策: 静的解析エラーの修正
 
-Gitea Actions の該当ワークフローログ（`general-review-command`
+GitHub Actions の該当ワークフローログ（`general-review-command`
 など）を開き、どのファイルでどのような静的解析エラーが発生しているかを確認してください。コード内の警告や違反（特に
 `Semgrep` による CLAUDE.md §8 規約違反など）を修正してプッシュし、エラーを 0 にした状態で再度
 `/request-review` を実行してください。

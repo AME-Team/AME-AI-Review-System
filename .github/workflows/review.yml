@@ -5,6 +5,10 @@ name: AI Code Review
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   general-review:
     name: General Review (ame-ai-reviewer)
@@ -29,17 +33,19 @@ jobs:
           echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
           chmod 600 ~/.claude.json ~/.claude/.credentials.json
           chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Switch to PR branch
         env:
-          GITEA_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          GITEA_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+          GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
         run: |
           python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
       - name: Run General Review
         env:
-          GITEA_URL: ${{ github.server_url }}
           AME_AI_REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ github.event.pull_request.number }}
