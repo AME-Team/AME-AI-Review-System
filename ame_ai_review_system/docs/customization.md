@@ -30,7 +30,7 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 ### Step 2: GitHub Secrets の登録
 
 新レビュアーアカウントの Personal Access Token (repo / pull-requests
-scope) を GitHub の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
+scope) を発行します。GitHub の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
 
 > [!NOTE] 本リポジトリの既定のレビュアー（`ame-ai-reviewer`）は `AME_AI_REVIEWER_TOKEN`
 > という Secret 名を参照します。新規レビュアーは `<NAME>_TOKEN`
@@ -108,8 +108,8 @@ security-review-command:
 
 push 自動レビューを使う場合は `.github/workflows/review.yml`
 にもジョブを追加します。有効化には GitHub のリポジトリ設定 **[Settings] → [Actions] → [Variables]**
-で `PUSH_REVIEW_ENABLED` を `true` に設定する必要があります。デフォルトは OFF なので、通常は Step
-3 のみで十分です。
+を開きます。 `PUSH_REVIEW_ENABLED` を `true`
+に設定する必要があります。デフォルトは OFF なので、通常は Step 3 のみで十分です。
 
 ```yaml
 security-review:
@@ -369,8 +369,8 @@ base64 -w0 ~/.gemini/oauth_creds.json | tr -d '\n' | clip.exe  # → GEMINI_OAUT
 
 1. GitHub リポジトリの **Settings > Secrets and variables > Actions > Secrets** を開く
 2. 各 Secret を追加:
-   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用 GitHub Personal Access
-     Token (repo / pull-requests scope)
+   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用のトークン。GitHub
+     Personal Access Token (repo / pull-requests scope) を発行する。
    - `GITHUB_PAT_TOKEN`: 通常操作用（PR checkout 等）の GitHub PAT。`AME_AI_REVIEWER_TOKEN`
      と同じトークンを再利用可能。
    - `CLAUDE_CONFIG_B64`: `~/.claude.json` の Base64 エンコード値

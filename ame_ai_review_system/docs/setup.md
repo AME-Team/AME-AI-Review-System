@@ -142,8 +142,8 @@ cp -r ame_ai_review_system/ <your-repo>/
 
 1. GitHub 上で AI レビュアー用アカウント（ボット用アカウント。例:
    `ame-ai-reviewer`）を作成する（既存アカウントでも可）。
-2. レビュアーアカウントでログインし、**[Settings] → [Developer settings] → [Personal access
-   tokens]** から Fine-grained または Classic トークンを生成する。
+2. レビュアーアカウントでログインする。**[Settings] → [Developer settings] → [Personal access
+   tokens]** を開く。Fine-grained または Classic トークンを生成する。
    - 必須スコープ: `repo`（または同等の Fine-grained 権限: `Contents: RW`, `Pull requests: RW`,
      `Issues: RW`）
 3. 導入先リポジトリの **[Settings] → [Secrets and variables] → [Actions] → [Secrets]**

@@ -58,7 +58,8 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
   `config.user.json`（Git 管理対象外）で環境依存の設定（エンジン・モデル・思考量など）を上書き可能。`config.json`
   より優先される。
 - **超簡単移植**: `.github/` と `ame_ai_review_system/`
-  の2つのディレクトリを他リポジトリにコピーするだけで導入完了。GitHub Actions と AI レビュー機能が自動で有効化されます。
+  の2つのディレクトリを他リポジトリにコピーするだけで導入完了。GitHub
+  Actions と AI レビュー機能が自動で有効化される。
 - **対話型の修正サイクル**: 開発者が `@<レビュアー名>`
   で返信すると、AI が最新コードを再評価してスレッドに返答。
 - **重大度ラベル**: 指摘を `CRITICAL` / `HIGH` / `MIDDLE` / `LOW` の 4 段階で分類。
@@ -139,8 +140,8 @@ scripts/
 
 1. **資材のコピー**: `.github/` と `ame_ai_review_system/` を対象リポジトリのルートにコピーする。
 2. **トークンの登録**: レビュアー用の GitHub Personal Access Token（repo / pull-requests
-   scope）を生成し、対象リポジトリの Secrets に `AME_AI_REVIEWER_TOKEN` として登録する。通常操作用に
-   `GITHUB_PAT_TOKEN` も別途登録すること（`GITHUB_TOKEN` は GitHub
+   scope）を生成する。生成したトークンを対象リポジトリの Secrets に `AME_AI_REVIEWER_TOKEN`
+   として登録する。通常操作用に `GITHUB_PAT_TOKEN` も別途登録すること（`GITHUB_TOKEN` は GitHub
    Actions が自動予約する一時トークンのため PAT には使えない）。
 3. **プロンプトの調整**: `ame_ai_review_system/review_prompt.txt`
    をプロジェクトの規約や観点に合わせてカスタマイズする。
