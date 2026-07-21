@@ -55,6 +55,7 @@ jobs:
         with:
           enable-cache: true
           cache-local-path: ${{ env.UV_CACHE_DIR }}
+          cache-dependency-glob: requirements-dev.txt
 
       - name: Install shellcheck
         env:
