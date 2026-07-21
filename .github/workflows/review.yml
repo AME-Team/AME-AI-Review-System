@@ -37,16 +37,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Get GitHub App installation token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AME_AI_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.AME_AI_REVIEWER_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
       - name: Switch to PR branch
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
+          GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
       - name: Run General Review
         env:
-          AME_AI_REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+          AME_AI_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}

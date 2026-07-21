@@ -65,6 +65,25 @@ def get_token(token_file: str, env_key: str = "GITHUB_PAT_TOKEN") -> str:
     raise RuntimeError(msg)
 
 
+def bot_login(name: str) -> str:
+    """GitHub App slug から bot の実際の login 名を返す.
+
+    例: ``ame-ai-reviewer`` → ``ame-ai-reviewer[bot]``。
+    本関数は GitHub App 運用を前提とする。すでに ``[bot]`` 付きの名前を渡した場合は
+    二重付与を防ぐためそのまま返す。
+    """
+    return name if name.endswith("[bot]") else f"{name}[bot]"
+
+
+def mentions_reviewer(body: str, name: str) -> bool:
+    """コメント本文がレビュアーへのメンションを含むかを判定する.
+
+    GitHub App 運用時は ``@{slug}[bot]`` が正式形式だが、``@{slug}`` (``[bot]`` なし) でも
+    GitHub 側で通知される場合があるため、両方の形式を受け入れる。
+    """
+    return f"@{name}" in body or f"@{bot_login(name)}" in body
+
+
 def http_request(
     method: str,
     url: str,

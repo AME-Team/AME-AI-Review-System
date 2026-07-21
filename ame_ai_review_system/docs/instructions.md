@@ -81,7 +81,8 @@ PR を作成・更新した後は、**未解決のレビューコメントがゼ
 
 ### Step 2-2: インライン指摘コメントの確認
 
-1. AI レビュアー（デフォルト: `ame-ai-reviewer`）から PR にインラインレビューコメントが届く。
+1. AI レビュアー（デフォルト: `ame-ai-reviewer` GitHub App、コメント作成者は
+   `ame-ai-reviewer[bot]`）から PR にインラインレビューコメントが届く。
 2. 指摘には重大度（`CRITICAL` / `HIGH` / `MIDDLE` / `LOW`）のアイコンが付与されている。
 
 ### Step 2-3: コード修正とプッシュ
@@ -94,7 +95,7 @@ PR を作成・更新した後は、**未解決のレビューコメントがゼ
 
 1. 修正をプッシュしたら、対象のレビューコメントスレッドに対し、**必ず AI レビュアーへの
    `@メンション` を含めて対応内容を返信する**。
-   - 例: `@ame-ai-reviewer 指摘された例外処理を追加し、ログ出力を WHY のみに修正しました。`
+   - 例: `@ame-ai-reviewer[bot] 指摘された例外処理を追加し、ログ出力を WHY のみに修正しました。`
    - **注意**: メンションを含めないと、AI の自動返信判定（Step 2-5）がトリガーされない。
 
 ### Step 2-5: AI による再評価と LGTM 返信の確認
@@ -118,12 +119,13 @@ AI 開発アシスタント（Claude
 Code 等）がこのプロジェクトで PR 修正作業を行う場合は、以下のルールを厳守してください。
 
 1. **未解決スレッドの自動走査**: PR 修正タスクの開始時に GitHub
-   API を用いること。AIレビュアー（デフォルト：`ame-ai-reviewer`）のインラインコメントを走査し、未解決スレッドを特定すること。
+   API を用いること。AIレビュアー（デフォルト：`ame-ai-reviewer` GitHub App、login は
+   `ame-ai-reviewer[bot]`）のインラインコメントを走査し、未解決スレッドを特定すること。
    - コメント取得 API: `GET /repos/{owner}/{repo}/pulls/{pr}/comments`
 2. **修正から返信までの一括処理**: コードを修正した後は、速やかに GitHub
    API で返信メッセージを投稿すること。
    - 返信 API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
-   - 本文には必ず AIレビュアー（デフォルト：`@ame-ai-reviewer`）へのメンションを含める。
+   - 本文には必ず AIレビュアー（デフォルト：`@ame-ai-reviewer[bot]`）へのメンションを含める。
 3. **LGTM 待機と Resolve 処理**: AI レビュアーからの `LGTM`
    返信が API 経由で取得できるまで待機し、確認後にスレッドを Resolve（解決）に変更すること。
    - Resolve API: GitHub REST に相当エンドポイントが無いため GraphQL mutation

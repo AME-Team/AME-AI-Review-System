@@ -80,6 +80,70 @@ def test_get_token_missing_raises(
 
 
 # ============================================================================
+# bot_login
+# ============================================================================
+
+
+def test_bot_login_appends_bot_suffix() -> None:
+    """App slug に [bot] サフィックスが付与されることを検証する。."""
+    assert github_client.bot_login("ame-ai-reviewer") == "ame-ai-reviewer[bot]"
+
+
+def test_bot_login_idempotent_for_already_bot_login() -> None:
+    """すでに [bot] 付きの名前はそのまま返すことを検証する。."""
+    assert github_client.bot_login("ame-ai-reviewer[bot]") == "ame-ai-reviewer[bot]"
+
+
+def test_bot_login_preserves_hyphenated_slug() -> None:
+    """ハイフン入り slug も正しく処理されることを検証する。."""
+    assert github_client.bot_login("security-reviewer") == "security-reviewer[bot]"
+
+
+# ============================================================================
+# mentions_reviewer
+# ============================================================================
+
+
+def test_mentions_reviewer_detects_short_form() -> None:
+    """@ame-ai-reviewer (旧PAT形式) を検出することを検証する。."""
+    assert github_client.mentions_reviewer(
+        "@ame-ai-reviewer 修正しました", "ame-ai-reviewer"
+    )
+
+
+def test_mentions_reviewer_detects_bot_form() -> None:
+    """@ame-ai-reviewer[bot] (App公式形式) を検出することを検証する。."""
+    assert github_client.mentions_reviewer(
+        "@ame-ai-reviewer[bot] 修正しました", "ame-ai-reviewer"
+    )
+
+
+def test_mentions_reviewer_negative_no_mention() -> None:
+    """メンションがない本文は False となることを検証する。."""
+    assert not github_client.mentions_reviewer(
+        "修正しました。LGTM お願いします。", "ame-ai-reviewer"
+    )
+
+
+def test_mentions_reviewer_negative_different_user() -> None:
+    """別ユーザーへのメンションは False となることを検証する。."""
+    assert not github_client.mentions_reviewer(
+        "@other-reviewer 修正しました", "ame-ai-reviewer"
+    )
+
+
+def test_mentions_reviewer_substring_safety() -> None:
+    """Bot 形式の明確な境界ケースを検証する。.
+
+    本実装では部分一致検出のため、``@ame-ai-reviewer[bot]`` の直後に
+    句読点が続くケースも True になることを確認する。
+    """
+    assert github_client.mentions_reviewer(
+        "@ame-ai-reviewer[bot], 修正しました", "ame-ai-reviewer"
+    )
+
+
+# ============================================================================
 # http_request
 # ============================================================================
 
