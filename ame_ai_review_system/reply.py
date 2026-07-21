@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import contextlib
-import http.client
 import json
 import os
 import pathlib
@@ -25,12 +24,12 @@ import subprocess
 import sys
 import tempfile
 from typing import Any, cast
-from urllib.parse import urlparse
+
+from . import github_client
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
 
-_HTTP_OK_MIN = 200
-_HTTP_OK_MAX = 300
+_HTTP_STATUS_OK = 200
 
 _REVIEWS_PAGE_SIZE = 50
 
@@ -48,130 +47,106 @@ _MIN_ARGS = 2
 
 
 # ============================================================================
-# HTTP helpers
-# ============================================================================
-
-
-def _http_request(
-    url: str,
-    token: str,
-    method: str = "GET",
-    body: dict[str, Any] | None = None,
-) -> tuple[int, Any]:
-    parsed = urlparse(url)
-    host = parsed.netloc
-    path = parsed.path
-    if parsed.query:
-        path += "?" + parsed.query
-
-    conn = (
-        http.client.HTTPSConnection(host)
-        if parsed.scheme == "https"
-        else http.client.HTTPConnection(host)
-    )
-
-    headers = {"Authorization": f"token {token}"}
-    data = None
-    if body is not None:
-        data = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    conn.request(method, path, body=data, headers=headers)
-    resp = conn.getresponse()
-    resp_body = resp.read()
-    if not (_HTTP_OK_MIN <= resp.status < _HTTP_OK_MAX):
-        msg = f"HTTP {resp.status}: {resp_body[:200]!r}"
-        raise OSError(msg)
-
-    try:
-        return resp.status, json.loads(resp_body)
-    except (json.JSONDecodeError, TypeError):
-        return resp.status, resp_body.decode("utf-8", errors="replace")
-
-
-def _get_json(url: str, token: str) -> Any:
-    _, data = _http_request(url, token, "GET")
-    return data
-
-
-# ============================================================================
 # Thread comment fetching
 # ============================================================================
 
 
 def _get_thread_comments(
-    gitea_url: str,
+    api_url: str,
     repo: str,
     pr: str,
     token: str,
 ) -> list[dict[str, Any]]:
-    """Return all inline comments across all reviews, flattened."""
-    reviews: list[dict[str, Any]] = []
+    """Return all inline review comments on the PR, flattened."""
+    comments: list[dict[str, Any]] = []
     page = 1
     while True:
-        page_reviews: list[dict[str, Any]] = _get_json(
-            f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr}"
-            f"/reviews?limit={_REVIEWS_PAGE_SIZE}&page={page}",
+        page_data: list[dict[str, Any]] = github_client.http_request(
+            "GET",
+            f"{api_url}/repos/{repo}/pulls/{pr}"
+            f"/comments?per_page={_REVIEWS_PAGE_SIZE}&page={page}",
             token,
         )
-        if not page_reviews:
+        if not page_data:
             break
-        reviews.extend(page_reviews)
-        if len(page_reviews) < _REVIEWS_PAGE_SIZE:
+        comments.extend(page_data)
+        if len(page_data) < _REVIEWS_PAGE_SIZE:
             break
         page += 1
-    result: list[dict[str, Any]] = []
-    for review in reviews:
-        try:
-            comments: list[dict[str, Any]] = _get_json(
-                f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr}"
-                f"/reviews/{review['id']}/comments",
-                token,
-            )
-        except (OSError, ConnectionError):
+    return comments
+
+
+def _group_by_thread(comments: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    """GitHub の in_reply_to_id に基づき、スレッド単位でコメントをグルーピングする.
+
+    戻り値は {ルートコメント id: [ルート, *返信（created_at 昇順）]}。
+    """
+    threads: dict[int, list[dict[str, Any]]] = {
+        int(c["id"]): [c] for c in comments if c.get("in_reply_to_id") is None
+    }
+    for c in comments:
+        parent_id = c.get("in_reply_to_id")
+        if parent_id is None:
             continue
-        result.extend(comments)
-    return result
+        thread = threads.get(int(parent_id))
+        if thread is not None:
+            thread.append(c)
+    for thread in threads.values():
+        thread.sort(key=lambda x: x.get("created_at", ""))
+    return threads
+
+
+def _find_thread(
+    comments: list[dict[str, Any]],
+    thread_id: int,
+) -> list[dict[str, Any]] | None:
+    return _group_by_thread(comments).get(thread_id)
+
+
+def _resolved_root_ids(pr_number: int, token: str) -> set[int]:
+    """Resolve 済みスレッドに属するコメント databaseId 集合を GraphQL 経由で取得する."""
+    resolved: set[int] = set()
+    for thread in github_client.list_review_threads(pr_number, token):
+        if not thread.get("isResolved"):
+            continue
+        for c in thread["comments"]["nodes"]:
+            database_id = c.get("databaseId")
+            if database_id is not None:
+                resolved.add(int(database_id))
+    return resolved
 
 
 def _get_pr_diff(
     base_ref: str,
-    gitea_url: str = "",
+    api_url: str = "",
     repo: str = "",
     pr: str = "",
     token: str = "",
 ) -> str:
-    """Get PR diff from Gitea .diff endpoint or git diff."""
+    """Get PR diff via GitHub content negotiation or git diff."""
     from . import diff_utils
 
     max_diff_lines = 4000
 
-    if gitea_url and repo and pr and token:
+    if api_url and repo and pr and token:
         try:
-            parsed = urlparse(f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr}.diff")
-            host = parsed.netloc
-            path = parsed.path
-            if parsed.query:
-                path += "?" + parsed.query
-            conn = (
-                http.client.HTTPSConnection(host)
-                if parsed.scheme == "https"
-                else http.client.HTTPConnection(host)
+            raw = github_client.http_request(
+                "GET",
+                f"{api_url}/repos/{repo}/pulls/{pr}",
+                token,
+                accept="application/vnd.github.diff",
             )
-            conn.request("GET", path, headers={"Authorization": f"token {token}"})
-            resp = conn.getresponse()
-            raw = resp.read().decode("utf-8", errors="replace")
-            if raw:
-                raw = diff_utils.compact_diff(raw)
-                all_lines = raw.splitlines()
-                if len(all_lines) > max_diff_lines:
-                    return (
-                        "\n".join(all_lines[:max_diff_lines])
-                        + f"\n... (truncated, {len(all_lines)} lines total)"
-                    )
-                return raw
-        except OSError:
-            pass
+        except RuntimeError:
+            raw = None
+        if raw:
+            raw = diff_utils.compact_diff(raw)
+            all_lines = raw.splitlines()
+            if len(all_lines) > max_diff_lines:
+                return (
+                    "\n".join(all_lines[:max_diff_lines])
+                    + f"\n... (truncated, {len(all_lines)} lines total)"
+                )
+            return raw
 
     if not re.match(r"^[a-zA-Z0-9/_-]+$", base_ref):
         print(f"[get_pr_diff] Invalid base_ref: {base_ref!r}", file=sys.stderr)
@@ -242,34 +217,23 @@ def is_stale_loop(comment_bodies: list[str]) -> bool:
 
 
 def _get_pending_threads(
-    gitea_url: str,
+    api_url: str,
     repo: str,
     pr: str,
     token: str,
     reviewer_name: str,
 ) -> list[int]:
-    """Return list of pending thread IDs (parent comment IDs)."""
-    comments = _get_thread_comments(gitea_url, repo, pr, token)
-
-    by_thread: dict[tuple[int, str, int], list[dict[str, Any]]] = {}
-    for c in comments:
-        key = (
-            int(c.get("pull_request_review_id", 0)),
-            str(c.get("path", "")),
-            int(c.get("position") or c.get("original_position") or 0),
-        )
-        by_thread.setdefault(key, []).append(c)
+    """Return list of pending thread IDs (root comment IDs)."""
+    comments = _get_thread_comments(api_url, repo, pr, token)
+    threads = _group_by_thread(comments)
+    resolved_ids = _resolved_root_ids(int(pr), token)
 
     pending: list[int] = []
-    for thread in by_thread.values():
-        thread_sorted = sorted(thread, key=lambda x: x.get("created_at", ""))
-        if not thread_sorted:
+    for root_id, thread in threads.items():
+        if root_id in resolved_ids:
             continue
-        parent = thread_sorted[0]
-        replies = thread_sorted[1:]
 
-        if parent.get("resolved"):
-            continue
+        replies = thread[1:]
 
         mention_replies = [
             r for r in replies if f"@{reviewer_name}" in r.get("body", "")
@@ -286,9 +250,7 @@ def _get_pending_threads(
         if reviewer_replied_after:
             continue
 
-        parent_id = parent.get("id")
-        if parent_id is not None:
-            pending.append(int(parent_id))
+        pending.append(root_id)
 
     return pending
 
@@ -299,49 +261,27 @@ def _get_pending_threads(
 
 
 def _cmd_build(pr: str, thread_id_str: str) -> None:
-    gitea_url = os.environ.get("GITEA_URL", "http://localhost:3000")
-    repo = os.environ.get("REPO", "AME-Team/AME-AI-Review-System")
+    api_url, repo = github_client.resolve_env()
     token = os.environ.get("REVIEWER_TOKEN", "")
     reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
     base_ref = os.environ.get("BASE_REF", "main")
 
     thread_id = int(thread_id_str)
-    comments = _get_thread_comments(gitea_url, repo, pr, token)
+    comments = _get_thread_comments(api_url, repo, pr, token)
 
-    parent: dict[str, Any] | None = next(
-        (c for c in comments if c.get("id") == thread_id),
-        None,
-    )
-    if parent is None:
+    thread = _find_thread(comments, thread_id)
+    if thread is None:
         print(f"[build] thread {thread_id} not found", file=sys.stderr)
         return
-
-    thread_key = (
-        int(parent.get("pull_request_review_id", 0)),
-        str(parent.get("path", "")),
-        int(parent.get("position") or parent.get("original_position") or 0),
-    )
-    thread_sorted = sorted(
-        [
-            c
-            for c in comments
-            if (
-                int(c.get("pull_request_review_id", 0)),
-                str(c.get("path", "")),
-                int(c.get("position") or c.get("original_position") or 0),
-            )
-            == thread_key
-        ],
-        key=lambda x: x.get("created_at", ""),
-    )
-    replies = thread_sorted[1:]
+    parent = thread[0]
+    replies = thread[1:]
 
     mention_replies = [r for r in replies if f"@{reviewer_name}" in r.get("body", "")]
     if not mention_replies:
         return
     latest_reply = mention_replies[-1]
 
-    diff = _get_pr_diff(base_ref, gitea_url=gitea_url, repo=repo, pr=pr, token=token)
+    diff = _get_pr_diff(base_ref, api_url=api_url, repo=repo, pr=pr, token=token)
 
     prompt_lines = [
         f"あなたは厳格なコードレビュアー ({reviewer_name}) です。",
@@ -407,51 +347,30 @@ def _cmd_parse(claude_out_path: str) -> None:
 
 
 def _cmd_pending(pr: str) -> None:
-    gitea_url = os.environ.get("GITEA_URL", "http://localhost:3000")
-    repo = os.environ.get("REPO", "AME-Team/AME-AI-Review-System")
+    api_url, repo = github_client.resolve_env()
     token = os.environ.get("REVIEWER_TOKEN", "")
     reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
 
-    pending = _get_pending_threads(gitea_url, repo, pr, token, reviewer_name)
+    pending = _get_pending_threads(api_url, repo, pr, token, reviewer_name)
     print(json.dumps(pending))
 
 
 def _cmd_stale_check(pr: str, thread_id_str: str) -> None:
-    gitea_url = os.environ.get("GITEA_URL", "http://localhost:3000")
-    repo = os.environ.get("REPO", "AME-Team/AME-AI-Review-System")
+    api_url, repo = github_client.resolve_env()
     token = os.environ.get("REVIEWER_TOKEN", "")
     reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
 
     thread_id = int(thread_id_str)
-    comments = _get_thread_comments(gitea_url, repo, pr, token)
+    comments = _get_thread_comments(api_url, repo, pr, token)
 
-    parent = next((c for c in comments if c.get("id") == thread_id), None)
-    if parent is None:
+    thread = _find_thread(comments, thread_id)
+    if thread is None:
         print("ok")
         return
 
-    thread_key = (
-        int(parent.get("pull_request_review_id", 0)),
-        str(parent.get("path", "")),
-        int(parent.get("position") or parent.get("original_position") or 0),
-    )
-    thread_sorted = sorted(
-        [
-            c
-            for c in comments
-            if (
-                int(c.get("pull_request_review_id", 0)),
-                str(c.get("path", "")),
-                int(c.get("position") or c.get("original_position") or 0),
-            )
-            == thread_key
-        ],
-        key=lambda x: x.get("created_at", ""),
-    )
-
     reviewer_replies = [
         str(c.get("body", ""))
-        for c in thread_sorted[1:]
+        for c in thread[1:]
         if c.get("user", {}).get("login") == reviewer_name
     ]
 
@@ -500,7 +419,7 @@ def _extract_json(raw: str) -> dict[str, Any] | None:
 
 
 def _post_reply(
-    gitea_url: str,
+    api_url: str,
     repo: str,
     pr_number: int,
     thread_id: int,
@@ -508,31 +427,29 @@ def _post_reply(
     body: str,
 ) -> int:
     """Post a reply to a review thread. Returns HTTP status code."""
-    url = f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr_number}/comments/{thread_id}/replies"
+    url = f"{api_url}/repos/{repo}/pulls/{pr_number}/comments/{thread_id}/replies"
     try:
-        status, _ = _http_request(url, token, "POST", {"body": body})
-    except OSError as e:
+        github_client.http_request("POST", url, token, body={"body": body})
+    except RuntimeError as e:
         print(f"[reply] Failed to post reply: {e}", file=sys.stderr)
         return 0
     else:
-        return status
+        return _HTTP_STATUS_OK
 
 
 def _resolve_thread(
-    gitea_url: str,
-    repo: str,
+    pr_number: int,
     thread_id: int,
     token: str,
 ) -> int:
-    """Resolve a review thread. Returns HTTP status code."""
-    url = f"{gitea_url}/api/v1/repos/{repo}/pulls/comments/{thread_id}/resolve"
+    """Resolve a review thread via GraphQL. Returns HTTP status code."""
     try:
-        status, _ = _http_request(url, token, "POST", {})
-    except OSError as e:
+        github_client.resolve_review_thread(pr_number, thread_id, token)
+    except RuntimeError as e:
         print(f"[reply] Failed to resolve thread: {e}", file=sys.stderr)
         return 0
     else:
-        return status
+        return _HTTP_STATUS_OK
 
 
 def _run_engine(prompt: str) -> tuple[int, str]:
@@ -592,7 +509,7 @@ def _run_engine(prompt: str) -> tuple[int, str]:
 
 
 def _check_stale(
-    gitea_url: str,
+    api_url: str,
     repo: str,
     pr: str,
     thread_id_str: str,
@@ -600,34 +517,15 @@ def _check_stale(
     reviewer_name: str,
 ) -> str:
     thread_id = int(thread_id_str)
-    comments = _get_thread_comments(gitea_url, repo, pr, token)
+    comments = _get_thread_comments(api_url, repo, pr, token)
 
-    parent = next((c for c in comments if c.get("id") == thread_id), None)
-    if parent is None:
+    thread = _find_thread(comments, thread_id)
+    if thread is None:
         return "ok"
-
-    thread_key = (
-        int(parent.get("pull_request_review_id", 0)),
-        str(parent.get("path", "")),
-        int(parent.get("position") or parent.get("original_position") or 0),
-    )
-    thread_sorted = sorted(
-        [
-            c
-            for c in comments
-            if (
-                int(c.get("pull_request_review_id", 0)),
-                str(c.get("path", "")),
-                int(c.get("position") or c.get("original_position") or 0),
-            )
-            == thread_key
-        ],
-        key=lambda x: x.get("created_at", ""),
-    )
 
     reviewer_replies = [
         str(c.get("body", ""))
-        for c in thread_sorted[1:]
+        for c in thread[1:]
         if c.get("user", {}).get("login") == reviewer_name
     ]
 
@@ -637,7 +535,7 @@ def _check_stale(
 
 
 def _build_prompt_for_thread(
-    gitea_url: str,
+    api_url: str,
     repo: str,
     pr: str,
     thread_id_str: str,
@@ -646,39 +544,21 @@ def _build_prompt_for_thread(
     base_ref: str,
 ) -> str:
     thread_id = int(thread_id_str)
-    comments = _get_thread_comments(gitea_url, repo, pr, token)
+    comments = _get_thread_comments(api_url, repo, pr, token)
 
-    parent = next((c for c in comments if c.get("id") == thread_id), None)
-    if parent is None:
+    thread = _find_thread(comments, thread_id)
+    if thread is None:
         print(f"[reply] thread {thread_id} not found", file=sys.stderr)
         return ""
-
-    thread_key = (
-        int(parent.get("pull_request_review_id", 0)),
-        str(parent.get("path", "")),
-        int(parent.get("position") or parent.get("original_position") or 0),
-    )
-    thread_sorted = sorted(
-        [
-            c
-            for c in comments
-            if (
-                int(c.get("pull_request_review_id", 0)),
-                str(c.get("path", "")),
-                int(c.get("position") or c.get("original_position") or 0),
-            )
-            == thread_key
-        ],
-        key=lambda x: x.get("created_at", ""),
-    )
-    replies = thread_sorted[1:]
+    parent = thread[0]
+    replies = thread[1:]
 
     mention_replies = [r for r in replies if f"@{reviewer_name}" in r.get("body", "")]
     if not mention_replies:
         return ""
     latest_reply = mention_replies[-1]
 
-    diff = _get_pr_diff(base_ref, gitea_url=gitea_url, repo=repo, pr=pr, token=token)
+    diff = _get_pr_diff(base_ref, api_url=api_url, repo=repo, pr=pr, token=token)
 
     prompt_lines = [
         f"あなたは厳格なコードレビュアー ({reviewer_name}) です。",
@@ -719,8 +599,7 @@ def _build_prompt_for_thread(
 
 
 def _cmd_run(pr_number_str: str) -> None:
-    gitea_url = os.environ.get("GITEA_URL", "http://localhost:3000")
-    repo = os.environ.get("REPO", "AME-Team/AME-AI-Review-System")
+    api_url, repo = github_client.resolve_env()
     token = os.environ.get("REVIEWER_TOKEN", "")
     reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
     base_ref = os.environ.get("BASE_REF", "main")
@@ -732,7 +611,7 @@ def _cmd_run(pr_number_str: str) -> None:
 
     print(f"[reply] Scanning PR #{pr_number} for pending reply threads...")
     pending = _get_pending_threads(
-        gitea_url,
+        api_url,
         repo,
         str(pr_number),
         token,
@@ -755,7 +634,7 @@ def _cmd_run(pr_number_str: str) -> None:
 
         # Stale-loop detection
         stale_status = _check_stale(
-            gitea_url,
+            api_url,
             repo,
             str(pr_number),
             str(thread_id),
@@ -765,13 +644,13 @@ def _cmd_run(pr_number_str: str) -> None:
         if stale_status == "stale":
             print(f"[reply] Thread {thread_id} is in stale-loop. Forcing LGTM.")
             body = _DEFAULT_LGTM
-            status = _post_reply(gitea_url, repo, pr_number, thread_id, token, body)
+            status = _post_reply(api_url, repo, pr_number, thread_id, token, body)
             print(f"[reply] Thread {thread_id} (stale-loop LGTM) → HTTP {status}.")
             continue
 
         # Build prompt
         prompt = _build_prompt_for_thread(
-            gitea_url,
+            api_url,
             repo,
             str(pr_number),
             str(thread_id),
@@ -805,7 +684,7 @@ def _cmd_run(pr_number_str: str) -> None:
                 body = _DEFAULT_LGTM
 
         # Post reply
-        status = _post_reply(gitea_url, repo, pr_number, thread_id, token, body)
+        status = _post_reply(api_url, repo, pr_number, thread_id, token, body)
         print(f"[reply] Thread {thread_id} → HTTP {status}.")
 
     print("[reply] Done.")

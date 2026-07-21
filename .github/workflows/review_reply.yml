@@ -1,0 +1,66 @@
+---
+# PR コメントへの返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
+#
+# トリガー: issue_comment (PR 上のコメントで発火)。Issue コメントでは発火しないよう
+# github.event.issue.pull_request != null でフィルタする。
+# BASE_REF は直前の checkout ステップが $GITHUB_ENV へ書き込む値を自然に使わせるため
+# ここでは明示上書きしない (issue_comment イベントでは github.base_ref は設定されない)。
+
+name: AI Review Reply
+
+"on":
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  general-review-reply:
+    name: General Review Reply (ame-ai-reviewer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.issue.pull_request != null && github.event.comment.user.login !=
+      'ame-ai-reviewer' && !startsWith(github.event.comment.body, '/') &&
+      contains(github.event.comment.body, '@ame-ai-reviewer')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore engine credentials
+        run: |
+          mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
+          echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
+          echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+          echo "${{ secrets.OPENCODE_AUTH_B64 }}" | base64 -d > ~/.local/share/opencode/auth.json
+          AGY_TOKEN=~/.gemini/antigravity-cli/antigravity-oauth-token
+          echo "${{ secrets.ANTIGRAVITY_OAUTH_B64 }}" | base64 -d > "$AGY_TOKEN"
+          echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.claude.json ~/.claude/.credentials.json
+          chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Switch to PR branch
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
+        run: |
+          python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+      - name: Run reply handler
+        env:
+          REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+          REVIEWER_NAME: ame-ai-reviewer
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+          REPLY_MODEL: ${{ vars.REPLY_MODEL }}
+          REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+        run: |
+          scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.reply run "$PR_NUMBER"

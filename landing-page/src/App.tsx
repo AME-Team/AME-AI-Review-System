@@ -21,7 +21,7 @@ interface TranslationResource {
   navDemo: string;
   navWorkflow: string;
   navConfig: string;
-  giteaRepo: string;
+  githubRepo: string;
   badgeVersion: string;
   heroTitle1: string;
   heroTitleAccent: string;
@@ -88,7 +88,7 @@ const translations: Record<Locale, TranslationResource> = {
     navDemo: "動作デモ",
     navWorkflow: "ワークフロー",
     navConfig: "設定構成",
-    giteaRepo: "Gitea リポジトリ",
+    githubRepo: "GitHub リポジトリ",
     badgeVersion: "v2.0.0 厳格監視ゲート",
     heroTitle1: "デュアルゲートAIコードレビュー",
     heroTitleAccent: "厳格なマルチ言語品質",
@@ -162,7 +162,7 @@ const translations: Record<Locale, TranslationResource> = {
     navDemo: "Interactive Demo",
     navWorkflow: "Workflow",
     navConfig: "Configuration",
-    giteaRepo: "Gitea Repo",
+    githubRepo: "GitHub Repo",
     badgeVersion: "v2.0.0 Strict Monitoring Gate",
     heroTitle1: "Dual-Gate AI Code Review",
     heroTitleAccent: "Strict Multi-Language Quality",
@@ -780,14 +780,14 @@ if ts_files:
 
             <a
               href={
-                import.meta.env.VITE_GITEA_URL ??
-                "http://localhost:3000/AME-Team/AME-AI-Review-System"
+                import.meta.env.VITE_GITHUB_URL ??
+                "https://github.com/tarminjapan/AME-AI-Review-System"
               }
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center bg-gray-900 dark:bg-gray-800 text-white hover:bg-gray-800 dark:hover:bg-gray-700 text-xs font-semibold px-4 py-2 rounded-md transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
             >
-              {t.giteaRepo}
+              {t.githubRepo}
             </a>
           </div>
         </div>

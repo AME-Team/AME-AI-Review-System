@@ -13,35 +13,38 @@ PR に AI レビュアーからインラインレビューコメントが付い�
    LOW レベルの各指摘事項に対応した修正を加え、pre-commit を通過させてコミット・プッシュする。
 2. **各スレッドに返信する** — 対応内容を説明したメッセージを、必ず `@<レビュアー名>`
    メンション付きで投稿する。
-   - API: `POST /api/v1/repos/{owner}/{repo}/pulls/{index}/comments/{id}/replies`
-   - トークン: `~/.config/ame-ai-review-system/gitea.token`（taito.amemiya アカウント）
+   - API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
+   - トークン: `~/.config/ame-ai-review-system/github.token`（ユーザーアカウント）
 3. **レビュアーが LGTM 返信してくれる** — レビュアーが対応済みを確認し、返信を投稿してくれる。
    - トークン: `~/.config/ame-ai-review-system/ame-ai-reviewer.token`
    - 本文例: `「対応確認しました。LGTM ✅ Resolve してください。」`
 4. **スレッドを Resolve する** — LGTM 返信が来たら Resolve する。
-   - API: `POST /api/v1/repos/{owner}/{repo}/pulls/comments/{id}/resolve`
+   - GitHub REST には対応エンドポイントが無い。GraphQL mutation `resolveReviewConversation`
+     経由で Resolve する。実装は `reply.py` → `github_client.resolve_review_thread` で行う。
 
 ### 2. 返信・Resolve の API まとめ
 
 ```text
-Gitea URL : http://localhost:3000
-リポジトリ : AME-Team/AME-AI-Review-System
-通常トークン : ~/.config/ame-ai-review-system/gitea.token（なければ環境変数 $GITEA_TOKEN を使用）
+GitHub API : https://api.github.com
+GraphQL   : https://api.github.com/graphql
+リポジトリ : tarminjapan/AME-AI-Review-System
+通常トークン : ~/.config/ame-ai-review-system/github.token（なければ環境変数 $GITHUB_PAT_TOKEN を使用）
 
 レビュアートークン（レビュアーが LGTM 返信する際に使用）:
   ame-ai-reviewer  : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
 
-スレッド返信 : POST /api/v1/repos/{repo}/pulls/{pr}/comments/{id}/replies
-Resolve     : POST /api/v1/repos/{repo}/pulls/comments/{id}/resolve
+スレッド返信 : POST /repos/{repo}/pulls/{pr}/comments/{id}/replies
+Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
 ```
 
 > **トークン取得の優先順位（ファイルが存在しない場合は次を試す）**
 >
-> 1. `~/.config/ame-ai-review-system/gitea.token`
-> 2. 環境変数 `$GITEA_TOKEN`
+> 1. `~/.config/ame-ai-review-system/github.token`（またはレビュアー固有の `<name>.token`）
+> 2. 環境変数 `$GITHUB_PAT_TOKEN`（または `<NAME>_TOKEN`）
 >
-> また、`localhost:3000` に接続できない場合は `host.docker.internal:3000`
-> も試すこと（WSL 環境では Gitea が Windows 側で動いているため）。
+> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL`
+> が自動設定されるため、ワークフロー側での環境変数明示は不要（`github_client.resolve_env`
+> が解決する）。
 
 ### 3. 各レビュアーの仕様（重要）
 
@@ -49,9 +52,9 @@ Resolve     : POST /api/v1/repos/{repo}/pulls/comments/{id}/resolve
 
 1. **レビュー実行**: PR コメントで `/request-review`
    が入力されたときにインラインコメントを投稿する（`review_command.yml`）。`/review`
-   も同じコマンドのエイリアス。なお push 時の自動実行（`review.yml`）は Gitea の Variables
+   も同じコマンドのエイリアス。なお push 時の自動実行（`review.yml`）は GitHub Variables
    `PUSH_REVIEW_ENABLED` で ON/OFF 可能で、**デフォルトは OFF**。
-2. **返信判断**: `pull_request_comment: created` イベントで `@<レビュアー名>`
+2. **返信判断**: `issue_comment: created` イベントで `@<レビュアー名>`
    宛ての返信を検知する。**実際の diff を読んで LGTM か追加指摘かを判断**して返信する（`review_reply.yml`）。ただし
    `/` で始まるコメント（コマンド）は返信判定の対象外。
 
@@ -65,13 +68,13 @@ Sonnet のフローで実行される。Claude はレビュアーとして「元
 
 PR を作成・プッシュしたら、以下のループを完遂すること。
 
-0. PR コメントで `/request-review` を投稿してレビューを依頼する（`gitea.token`）。 `/review`
-   も同じ意味。push 自動レビューはデフォルト OFF（Gitea Variables `PUSH_REVIEW_ENABLED`
+0. PR コメントで `/request-review` を投稿してレビューを依頼する（`github.token`）。 `/review`
+   も同じ意味。push 自動レビューはデフォルト OFF（GitHub Variables `PUSH_REVIEW_ENABLED`
    で有効化可）。
-1. `ame-ai-reviewer` のインラインコメント一覧を取得する。API: `GET /pulls/{pr}/reviews` →
-   `GET /pulls/{pr}/reviews/{id}/comments`。
+1. `ame-ai-reviewer` のインラインコメント一覧を取得する。API:
+   `GET /repos/{repo}/pulls/{pr}/comments`。
 2. 未対応の CRITICAL / HIGH / MIDDLE / LOW コメントがあればコードを修正してコミット・プッシュする
-3. 各スレッドに `@ame-ai-reviewer` メンション付きで対応内容を返信する（`gitea.token`）
+3. 各スレッドに `@ame-ai-reviewer` メンション付きで対応内容を返信する（`github.token`）
 4. `ame-ai-reviewer` が LGTM 返信を投稿してくれる（`ame-ai-reviewer.token`）
 5. LGTM が届いたスレッドを Resolve する
 6. **未解決スレッドが残っていれば 1 に戻る**
@@ -83,7 +86,7 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
 `main.py review` は指摘があっても `exit 0` で終了させる（ワークフローを success にする）。
 
 - **理由**:
-  AI レビューの指摘によるエラーと、スクリプト自体のエラーを区別できるようにするため。指摘は Gitea の PR インラインコメントで通知されるため、CI ステータスでゲートする必要はない。
+  AI レビューの指摘によるエラーと、スクリプト自体のエラーを区別できるようにするため。指摘は GitHub の PR インラインコメントで通知されるため、CI ステータスでゲートする必要はない。
 - **適用範囲**: `main.py review`
   の末尾 exit ステータスのみ。スクリプト内のエラー（Claude 呼び出し失敗など）は引き続き `exit 1`
   を返す。
@@ -93,10 +96,11 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
 レビュー処理は `main review` サブコマンドが担う。`REVIEWER_NAME` / `REVIEWER_PROMPT_FILE`
 環境変数でパラメータ化されているため、コード追加なしで新レビュアーを追加できる。
 
-1. Gitea アカウント作成・トークン生成
+1. GitHub アカウント作成（またはボット用アカウント）・Personal Access Token 発行（repo /
+   pull-requests scope 必須）
 2. `~/.config/ame-ai-review-system/<レビュアー名>.token` にトークン保存
-3. Gitea Actions Secrets に `<SECRET_KEY>`（例: `SECURITY_REVIEWER_TOKEN`）を登録
-4. `.gitea/workflows/review_command.yml`（コマンドトリガー・標準）と `review_reply.yml`
+3. GitHub Actions Secrets に `<SECRET_KEY>`（例: `SECURITY_REVIEWER_TOKEN`）を登録
+4. `.github/workflows/review_command.yml`（コマンドトリガー・標準）と `review_reply.yml`
    に新ジョブを追加する。push 自動レビューを使う場合は `review.yml` にも追加。 `review_command.yml`
    / `review_reply.yml` の**既存全ジョブの `if`
    条件にも新レビュアー名を追加**する（カスケードループ防止）

@@ -20,7 +20,7 @@ AI レビューおよび静的解析が有効なプロジェクトで作業す�
                                            ▼                                          ▼
                                        ブロック                                   ブロック (※3回LOW時はエスケープ可)
 
-【 Gate 2: Pull Request 反映時 (Gitea Actions) 】
+【 Gate 2: Pull Request 反映時 (GitHub Actions) 】
  [PR 作成/プッシュ] ──► コメント `/request-review` ──► [静的解析 (ruff/mypy/semgrep)]
                                                             │ (Circuit Breaker)
                                                          PASS (エラー0件)
@@ -117,12 +117,15 @@ PR を作成・更新した後は、**未解決のレビューコメントがゼ
 AI 開発アシスタント（Claude
 Code 等）がこのプロジェクトで PR 修正作業を行う場合は、以下のルールを厳守してください。
 
-1. **未解決スレッドの自動走査**: PR 修正タスクの開始時に Gitea/GitHub
+1. **未解決スレッドの自動走査**: PR 修正タスクの開始時に GitHub
    API を用いること。AIレビュアー（デフォルト：`ame-ai-reviewer`）のインラインコメントを走査し、未解決スレッドを特定すること。
-2. **修正から返信までの一括処理**: コードを修正した後は、速やかに Gitea
+   - コメント取得 API: `GET /repos/{owner}/{repo}/pulls/{pr}/comments`
+2. **修正から返信までの一括処理**: コードを修正した後は、速やかに GitHub
    API で返信メッセージを投稿すること。
-   - 返信 API: `POST /api/v1/repos/{owner}/{repo}/pulls/{index}/comments/{id}/replies`
+   - 返信 API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
    - 本文には必ず AIレビュアー（デフォルト：`@ame-ai-reviewer`）へのメンションを含める。
 3. **LGTM 待機と Resolve 処理**: AI レビュアーからの `LGTM`
    返信が API 経由で取得できるまで待機し、確認後にスレッドを Resolve（解決）に変更すること。
-   - Resolve API: `POST /api/v1/repos/{owner}/{repo}/pulls/comments/{id}/resolve`
+   - Resolve API: GitHub REST に相当エンドポイントが無いため GraphQL mutation
+     `resolveReviewConversation(input: {threadId: ID!})` を使用（`reply.py` →
+     `github_client.resolve_review_thread` がラップ）。

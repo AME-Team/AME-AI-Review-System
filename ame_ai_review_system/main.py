@@ -13,19 +13,16 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
-import urllib.error
-import urllib.request
 from typing import Any
 
+from . import github_client, pr_streak, reply, review_config, static_precheck
 from . import payload as payload_module
-from . import pr_streak, reply, review_config, static_precheck
 from .engine import resolve_settings, run_engine
 
 # ============================================================================
@@ -33,71 +30,15 @@ from .engine import resolve_settings, run_engine
 # ============================================================================
 
 PROJ_ROOT = pathlib.Path(__file__).resolve().parent.parent
-GITEA_URL_DEFAULT = "http://localhost:3000"
-REPO_DEFAULT = "AME-Team/AME-AI-Review-System"
-DEFAULT_TIMEOUT = 10
 STALE_ROUND_THRESHOLD = 3
 MAX_REVIEWS = 10
 MAX_DIFF_LINES = 4000
-HTTP_OK_MIN = 200
-HTTP_OK_MAX = 300
 POST_PUSH_WAIT_SECONDS = 90
+HTTP_STATUS_OK = 200
 
 
 def _get_env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
-
-
-def _get_token(token_file: pathlib.Path, env_key: str) -> str:
-    if token_file.exists():
-        return token_file.read_text(encoding="utf-8").strip()
-    return os.environ.get(env_key, "")
-
-
-def _http_request(
-    url: str,
-    token: str,
-    method: str = "GET",
-    data: dict[str, Any] | None = None,
-) -> tuple[int, dict[str, Any] | list[Any]]:
-    """Make HTTP request to Gitea API."""
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(data).encode("utf-8") if data else None,
-        headers={
-            "Authorization": f"token {token}",
-            "Content-Type": "application/json",
-        },
-        method=method,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
-            body = resp.read().decode("utf-8")
-            return resp.status, json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")
-        return e.code, json.loads(body) if body else {}
-
-
-def _http_get(url: str, token: str) -> dict[str, Any] | list[Any]:
-    _, data = _http_request(url, token, "GET")
-    return data
-
-
-def _http_post(
-    url: str,
-    token: str,
-    data: dict[str, Any],
-) -> tuple[int, dict[str, Any] | list[Any]]:
-    return _http_request(url, token, "POST", data)
-
-
-def _http_patch(
-    url: str,
-    token: str,
-    data: dict[str, Any],
-) -> tuple[int, dict[str, Any] | list[Any]]:
-    return _http_request(url, token, "PATCH", data)
 
 
 def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
@@ -121,23 +62,29 @@ def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
 
 
 def cmd_checkout(args: argparse.Namespace) -> int:
-    gitea_url = _get_env("GITEA_URL", GITEA_URL_DEFAULT)
-    repo = _get_env("GITHUB_REPOSITORY", REPO_DEFAULT)
+    api_url, repo = github_client.resolve_env()
     pr_number = args.pr_number
-    token = args.token or _get_token(
-        pathlib.Path.home() / ".config" / "ame-ai-review-system" / "gitea.token",
-        "GITEA_TOKEN",
-    )
+    try:
+        token = args.token or github_client.get_token(
+            str(
+                pathlib.Path.home()
+                / ".config"
+                / "ame-ai-review-system"
+                / "github.token"
+            ),
+        )
+    except RuntimeError:
+        token = ""
 
     if not token:
         print("[checkout] ERROR: Token required", file=sys.stderr)
         return 1
 
     # Fetch PR info
-    pr_url = f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr_number}"
+    pr_url = f"{api_url}/repos/{repo}/pulls/{pr_number}"
     try:
-        pr_data = _http_get(pr_url, token)
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
+        pr_data = github_client.http_request("GET", pr_url, token)
+    except RuntimeError as e:
         print(f"[checkout] ERROR: Failed to fetch PR info: {e}", file=sys.stderr)
         return 1
 
@@ -282,27 +229,31 @@ def _run_engine_capture(_settings: dict[str, Any], prompt: str) -> tuple[int, st
 
 
 def _post_review(
-    gitea_url: str,
+    api_url: str,
     repo: str,
     pr_number: int,
     token: str,
     payload_data: dict[str, Any],
 ) -> tuple[int, dict[str, Any] | list[Any]]:
-    """Post a review to Gitea. Returns (status_code, response_json)."""
-    url = f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr_number}/reviews"
+    """Post a review to GitHub. Returns (status_code, response_json)."""
+    url = f"{api_url}/repos/{repo}/pulls/{pr_number}/reviews"
     try:
-        return _http_request(url, token, "POST", payload_data)
-    except OSError as e:
+        resp = github_client.http_request("POST", url, token, body=payload_data)
+    except RuntimeError as e:
         print(f"[review] Failed to post review: {e}", file=sys.stderr)
         return 0, {}
+    else:
+        return 200, resp
 
 
-def _build_review_payloads(review_json: str, base_ref: str) -> list[dict[str, Any]]:
-    """Parse review JSON and build Gitea review payloads."""
-    import subprocess
-
+def _build_review_payloads(
+    review_json: str,
+    base_ref: str,
+    head_sha: str,
+) -> list[dict[str, Any]]:
+    """Parse review JSON and build GitHub review payloads."""
     review, _ = payload_module.parse_review_json_with_flag(review_json)
-    pos_map = payload_module.build_position_map(base_ref)
+    valid_lines = payload_module.build_valid_lines_map(base_ref)
 
     severity_icon = {
         "CRITICAL": "🔴",
@@ -319,46 +270,40 @@ def _build_review_payloads(review_json: str, base_ref: str) -> list[dict[str, An
         icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
         body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
 
-        file_map = pos_map.get(path, {})
-        new_pos = file_map.get(line)
-        if new_pos is None:
+        lines = valid_lines.get(path, set())
+        target_line = line if line in lines else None
+        if target_line is None:
             body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
-            if file_map:
-                closest = min(file_map.keys(), key=lambda x: abs(x - line))
-                new_pos = file_map[closest]
-            else:
-                new_pos = 1
+            target_line = min(lines, key=lambda x: abs(x - line)) if lines else 1
 
         individual_payloads.append(
             {
                 "event": "COMMENT",
                 "body": "",
-                "comments": [{"path": path, "new_position": new_pos, "body": body}],
+                "commit_id": head_sha,
+                "comments": [
+                    {"path": path, "line": target_line, "side": "RIGHT", "body": body}
+                ],
             },
         )
-
-    try:
-        head_sha = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        head_sha = ""
 
     summary_body = (
         f"### 総評\n{review.get('summary', '')}\n\n"
         f"---\n*{len(individual_payloads)} 件のインラインコメントを添付しています。*\n"
         f"<!-- reviewed-sha: {head_sha} -->"
     )
-    summary_payload = {"event": "COMMENT", "body": summary_body, "comments": []}
+    summary_payload = {
+        "event": "COMMENT",
+        "body": summary_body,
+        "commit_id": head_sha,
+        "comments": [],
+    }
 
     return [summary_payload, *individual_payloads]
 
 
 def cmd_review(args: argparse.Namespace) -> int:
-    gitea_url = _get_env("GITEA_URL", GITEA_URL_DEFAULT)
-    repo = _get_env("GITHUB_REPOSITORY", REPO_DEFAULT)
+    api_url, repo = github_client.resolve_env()
     pr_number = args.pr_number
     base_ref = args.base_ref or "main"
     pr_title = args.pr_title or ""
@@ -369,13 +314,18 @@ def cmd_review(args: argparse.Namespace) -> int:
     )
 
     # Token resolution
-    token = args.token or _get_token(
-        pathlib.Path.home()
-        / ".config"
-        / "ame-ai-review-system"
-        / f"{reviewer_name}.token",
-        (reviewer_name.upper().replace("-", "_") + "_TOKEN"),
-    )
+    try:
+        token = args.token or github_client.get_token(
+            str(
+                pathlib.Path.home()
+                / ".config"
+                / "ame-ai-review-system"
+                / f"{reviewer_name}.token",
+            ),
+            reviewer_name.upper().replace("-", "_") + "_TOKEN",
+        )
+    except RuntimeError:
+        token = ""
     if not token:
         print("[review] ERROR: REVIEWER_TOKEN not found", file=sys.stderr)
         return 1
@@ -394,10 +344,10 @@ def cmd_review(args: argparse.Namespace) -> int:
         return 1
 
     # Check already reviewed SHAs
-    reviews_url = f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr_number}/reviews?limit=100"
+    reviews_url = f"{api_url}/repos/{repo}/pulls/{pr_number}/reviews?per_page=100"
     try:
-        reviews_data = _http_get(reviews_url, token)
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        reviews_data = github_client.http_request("GET", reviews_url, token)
+    except RuntimeError:
         reviews_data = []
 
     if not isinstance(reviews_data, list):
@@ -520,7 +470,7 @@ def cmd_review(args: argparse.Namespace) -> int:
         os.close(fd)
         review_file = pathlib.Path(review_path)
         review_file.write_text(engine_out, encoding="utf-8")
-        payloads = _build_review_payloads(str(review_file), base_ref)
+        payloads = _build_review_payloads(str(review_file), base_ref, head_sha)
     except (ValueError, KeyError, TypeError, OSError) as e:
         print(f"[review] Failed to build payload: {e}", file=sys.stderr)
         return 1
@@ -538,9 +488,9 @@ def cmd_review(args: argparse.Namespace) -> int:
     )
 
     for i, pl in enumerate(payloads):
-        status, resp = _post_review(gitea_url, repo, pr_number, token, pl)
+        status, resp = _post_review(api_url, repo, pr_number, token, pl)
         review_id = resp.get("id", "?") if isinstance(resp, dict) else "?"
-        if HTTP_OK_MIN <= status < HTTP_OK_MAX:
+        if status == HTTP_STATUS_OK:
             print(
                 f"[review] Review {i + 1}/{len(payloads)} posted (id={review_id}, HTTP {status}).",
             )
@@ -554,8 +504,8 @@ def cmd_review(args: argparse.Namespace) -> int:
                 bodies = [c.get("body", "") for c in pl["comments"]]
                 fallback["body"] = "\n\n---\n\n".join(bodies)
                 fallback["comments"] = []
-                fb_status, _ = _post_review(gitea_url, repo, pr_number, token, fallback)
-                if HTTP_OK_MIN <= fb_status < HTTP_OK_MAX:
+                fb_status, _ = _post_review(api_url, repo, pr_number, token, fallback)
+                if fb_status == HTTP_STATUS_OK:
                     print(
                         f"[review] Review {i + 1} posted as general comment (HTTP {fb_status}).",
                     )
@@ -571,16 +521,16 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 
 def cmd_post_push(args: argparse.Namespace) -> int:
-    gitea_url = _get_env("GITEA_URL", GITEA_URL_DEFAULT)
-    repo = _get_env("GITHUB_REPOSITORY", REPO_DEFAULT)
+    api_url, repo = github_client.resolve_env()
 
     # Get token
     token_file = (
-        pathlib.Path.home() / ".config" / "ame-ai-review-system" / "gitea.token"
+        pathlib.Path.home() / ".config" / "ame-ai-review-system" / "github.token"
     )
-    token = _get_token(token_file, "GITEA_TOKEN")
-    if not token:
-        print("[post_push] No Gitea token, exiting.")
+    try:
+        token = github_client.get_token(str(token_file))
+    except RuntimeError:
+        print("[post_push] No GitHub token, exiting.")
         return 0
 
     # Get current branch
@@ -590,10 +540,10 @@ def cmd_post_push(args: argparse.Namespace) -> int:
         return 0
 
     # Find PR for this branch
-    prs_url = f"{gitea_url}/api/v1/repos/{repo}/pulls?state=open&limit=20"
+    prs_url = f"{api_url}/repos/{repo}/pulls?state=open&per_page=20"
     try:
-        prs_data = _http_get(prs_url, token)
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        prs_data = github_client.http_request("GET", prs_url, token)
+    except RuntimeError:
         return 0
 
     if not isinstance(prs_data, list):
@@ -615,13 +565,13 @@ def cmd_post_push(args: argparse.Namespace) -> int:
     reviewers = ["ame-ai-reviewer"]
 
     def count_reviews(pr: int) -> int:
-        url = f"{gitea_url}/api/v1/repos/{repo}/pulls/{pr}/reviews?limit=50"
+        url = f"{api_url}/repos/{repo}/pulls/{pr}/reviews?per_page=50"
         try:
-            data = _http_get(url, token)
+            data = github_client.http_request("GET", url, token)
             if not isinstance(data, list):
                 return 0
             return sum(1 for r in data if r.get("user", {}).get("login") in reviewers)
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        except RuntimeError:
             return 0
 
     initial_reviews = count_reviews(pr_num)
@@ -648,11 +598,12 @@ def cmd_post_push(args: argparse.Namespace) -> int:
             / "ame-ai-review-system"
             / f"{reviewer_name}.token"
         )
-        reviewer_token = _get_token(
-            token_file,
-            reviewer_name.upper().replace("-", "_") + "_TOKEN",
-        )
-        if not reviewer_token:
+        try:
+            reviewer_token = github_client.get_token(
+                str(token_file),
+                reviewer_name.upper().replace("-", "_") + "_TOKEN",
+            )
+        except RuntimeError:
             print(f"[post_push] Token not found for {reviewer_name}, skipping.")
             continue
 
@@ -660,7 +611,7 @@ def cmd_post_push(args: argparse.Namespace) -> int:
         os.environ["REVIEWER_NAME"] = reviewer_name
         os.environ["PR_NUMBER"] = str(pr_num)
         os.environ["BASE_REF"] = args.base_ref or "main"
-        os.environ["GITEA_URL"] = gitea_url
+        os.environ["GITHUB_API_URL"] = api_url
         os.environ["GITHUB_REPOSITORY"] = repo
 
         # Run reply handler
@@ -738,7 +689,7 @@ def main(argv: list[str] | None = None) -> int:
     # checkout
     p_checkout = subparsers.add_parser("checkout", help="Checkout PR branch")
     p_checkout.add_argument("pr_number", type=int)
-    p_checkout.add_argument("--token", help="Gitea token (or use token file/env)")
+    p_checkout.add_argument("--token", help="GitHub token (or use token file/env)")
 
     # review
     p_review = subparsers.add_parser("review", help="Run AI review on PR")

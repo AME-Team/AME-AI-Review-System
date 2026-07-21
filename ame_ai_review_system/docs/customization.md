@@ -13,7 +13,7 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 - **プロジェクト固有のルールの追加**: `## レビュー観点` や `## コーディング規約`
   の項目に、開発チーム内で定めたルールや非推奨な記述を記述する。
 - **出力フォーマットの維持**: プロンプトの最後にある `## 出力フォーマット（厳守）`
-  セクションは**絶対に書き換えない**。この構造が変わると、Giteaへのコメント登録時のパース処理が失敗する。
+  セクションは**絶対に書き換えない**。この構造が変わると、GitHub へのコメント登録時のパース処理が失敗する。
 
 ---
 
@@ -27,9 +27,10 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 `ame_ai_review_system/` 内に、新しいプロンプトファイル（例:
 `security_review_prompt.txt`）を配置します。
 
-### Step 2: Gitea Secrets の登録
+### Step 2: GitHub Secrets の登録
 
-新レビュアーアカウントのトークンを Gitea の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
+新レビュアーアカウントの Personal Access Token (repo / pull-requests
+scope) を発行します。GitHub の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
 
 > [!NOTE] 本リポジトリの既定のレビュアー（`ame-ai-reviewer`）は `AME_AI_REVIEWER_TOKEN`
 > という Secret 名を参照します。新規レビュアーは `<NAME>_TOKEN`
@@ -37,8 +38,10 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 
 ### Step 3: `review_command.yml` にジョブを追加（コマンドトリガー・推奨）
 
-`.gitea/workflows/review_command.yml` に、新レビュアー用のジョブを追加します。こちらが
-`/request-review` コマンドで動く **標準のレビュートリガー** です。
+`.github/workflows/review_command.yml` に、新レビュアー用のジョブを追加します。こちらが
+`/request-review` コマンドで動く **標準のレビュートリガー** です。`issue_comment`
+イベントは Issue でも発火するため `github.event.issue.pull_request != null`
+フィルタを必ず含めてください。
 
 ```yaml
 security-review-command:
@@ -46,8 +49,10 @@ security-review-command:
   runs-on: ubuntu-latest
   timeout-minutes: 10
   if: >-
-    github.event.comment.user.login != 'ame-ai-reviewer' && github.event.comment.user.login !=
-    'security-reviewer' && startsWith(github.event.comment.body, '/')
+    github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
+     github.event.comment.user.login != 'ame-ai-reviewer' &&
+     github.event.comment.user.login != 'security-reviewer' &&
+     startsWith(github.event.comment.body, '/'))
   steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -59,6 +64,10 @@ security-review-command:
         echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
         echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
         chmod 600 ~/.claude.json ~/.claude/.credentials.json
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
     - name: Parse review command
       id: cmd
       env:
@@ -70,16 +79,14 @@ security-review-command:
     - name: Switch to PR branch
       if: steps.cmd.outputs.run_review == 'true'
       env:
-        GITEA_URL: ${{ github.server_url }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.issue.number }}
-        GITEA_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
       run: |
         python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
     - name: Run Security Review
       if: steps.cmd.outputs.run_review == 'true'
       env:
-        GITEA_URL: ${{ github.server_url }}
         SECURITY_REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
         REVIEWER_NAME: security-reviewer
         PR_NUMBER: ${{ github.event.issue.number }}
@@ -99,10 +106,10 @@ security-review-command:
 
 ### Step 4: `review.yml` にジョブを追加（push トリガー・任意）
 
-push 自動レビューを使う場合は `.gitea/workflows/review.yml`
-にもジョブを追加します。有効化には Gitea のリポジトリ設定 **[Settings] → [Actions] → [Variables]**
-で `PUSH_REVIEW_ENABLED` を `true` に設定する必要があります。デフォルトは OFF なので、通常は Step
-3 のみで十分です。
+push 自動レビューを使う場合は `.github/workflows/review.yml`
+にもジョブを追加します。有効化には GitHub のリポジトリ設定 **[Settings] → [Actions] → [Variables]**
+を開きます。 `PUSH_REVIEW_ENABLED` を `true`
+に設定する必要があります。デフォルトは OFF なので、通常は Step 3 のみで十分です。
 
 ```yaml
 security-review:
@@ -120,9 +127,12 @@ security-review:
         echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
         echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
         chmod 600 ~/.claude.json ~/.claude/.credentials.json
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
     - name: Run Security Review
       env:
-        GITEA_URL: ${{ github.server_url }}
         SECURITY_REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
         REVIEWER_NAME: security-reviewer
         PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -143,7 +153,7 @@ security-review:
 
 ### Step 5: `review_reply.yml` の修正（重要）
 
-新レビュアーからの返信も判定対象とするため、`.gitea/workflows/review_reply.yml` へ `if`
+新レビュアーからの返信も判定対象とするため、`.github/workflows/review_reply.yml` へ `if`
 条件およびジョブを追加する。
 
 > [!IMPORTANT] 返信ループ（カスケード）を防ぐため、他ジョブの `if`
@@ -155,9 +165,10 @@ security-review:
 # 既存の一般レビュアー用ジョブの if 条件
 general-review-reply:
   if: >-
-    github.event.comment.user.login != 'ame-ai-reviewer' && github.event.comment.user.login !=
-    'security-reviewer' && !startsWith(github.event.comment.body, '/') &&
-    contains(github.event.comment.body, '@ame-ai-reviewer')
+    github.event.issue.pull_request != null && github.event.comment.user.login != 'ame-ai-reviewer'
+    && github.event.comment.user.login != 'security-reviewer' &&
+    !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
+    '@ame-ai-reviewer')
 ```
 
 また、セキュリティレビュアー用の返信ジョブを追加します。PR ブランチの取得は
@@ -168,9 +179,10 @@ security-review-reply:
   name: Security Review Reply (security-reviewer)
   runs-on: ubuntu-latest
   if: >-
-    github.event.comment.user.login != 'ame-ai-reviewer' && github.event.comment.user.login !=
-    'security-reviewer' && !startsWith(github.event.comment.body, '/') &&
-    contains(github.event.comment.body, '@security-reviewer')
+    github.event.issue.pull_request != null && github.event.comment.user.login != 'ame-ai-reviewer'
+    && github.event.comment.user.login != 'security-reviewer' &&
+    !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
+    '@security-reviewer')
   steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -182,12 +194,15 @@ security-review-reply:
         echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
         echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
         chmod 600 ~/.claude.json ~/.claude/.credentials.json
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
     - name: Switch to PR branch
       env:
-        GITEA_URL: ${{ github.server_url }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.issue.number }}
-        GITEA_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
       run: |
         python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
     - name: Run reply handler
@@ -195,9 +210,7 @@ security-review-reply:
         REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
         REVIEWER_NAME: security-reviewer
         PR_NUMBER: ${{ github.event.issue.number }}
-        GITEA_URL: ${{ github.server_url }}
         GITHUB_REPOSITORY: ${{ github.repository }}
-        BASE_REF: ${{ github.base_ref }}
         REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
         REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
         REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
@@ -300,11 +313,12 @@ PRECOMMIT_REVIEW_ENGINE=claude PRECOMMIT_REVIEW_THINKING=low git commit -m "feat
 
 ## 6. CI (Gate 2) のカスタマイズ
 
-PR レビュー（Gate 2）のエンジン・モデル・思考量は、Gitea の **Variables** で設定します。
+PR レビュー（Gate 2）のエンジン・モデル・思考量は、GitHub の **Variables** で設定します。
 
-### 6-1. Gitea Variables の設定
+### 6-1. GitHub Variables の設定
 
-Gitea のリポジトリ設定 > Variables から以下の変数を登録します。
+GitHub のリポジトリ設定 > Settings > Secrets and variables > Actions >
+Variables から以下の変数を登録します。
 
 | 変数名            | 説明                  | 有効値                                        |
 | ----------------- | --------------------- | --------------------------------------------- |
@@ -312,19 +326,19 @@ Gitea のリポジトリ設定 > Variables から以下の変数を登録しま�
 | `REVIEW_MODEL`    | 使用するモデル        | エンジンに応じて指定（例: `sonnet`, `gpt-5`） |
 | `REVIEW_THINKING` | 思考量                | `high`, `medium`, `low`                       |
 
-> [!NOTE] 環境変数の優先順位は **Gitea Variables > `config.user.json` >
+> [!NOTE] 環境変数の優先順位は **GitHub Variables > `config.user.json` >
 > `config.json` > デフォルト値** です。Variables に設定した値が最も優先されます。
 
-### 6-2. 認証情報の設定（Gitea Secrets）
+### 6-2. 認証情報の設定（GitHub Secrets）
 
-各エンジンの認証情報は Gitea Secrets に Base64 エンコードして登録します。
+各エンジンの認証情報は GitHub Secrets に Base64 エンコードして登録します。
 
 #### Claude（長期トークン方式）
 
 ホスト側で `claude setup-token` を実行し、長期トークンを生成します。
 
 ```bash
-# WSL の場合: クリップボードへ自動コピー → Gitea UI の該当 Secret に貼り付け
+# WSL の場合: クリップボードへ自動コピー → GitHub UI の該当 Secret に貼り付け
 base64 -w0 ~/.claude.json | tr -d '\n' | clip.exe               # → CLAUDE_CONFIG_B64
 base64 -w0 ~/.claude/.credentials.json | tr -d '\n' | clip.exe   # → CLAUDE_CREDENTIALS_B64
 ```
@@ -353,9 +367,12 @@ base64 -w0 ~/.gemini/oauth_creds.json | tr -d '\n' | clip.exe  # → GEMINI_OAUT
 
 ### 6-3. Secrets の登録手順
 
-1. Gitea のリポジトリ設定 > Secrets を開く
+1. GitHub リポジトリの **Settings > Secrets and variables > Actions > Secrets** を開く
 2. 各 Secret を追加:
-   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用 Gitea Access Token
+   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用のトークン。GitHub
+     Personal Access Token (repo / pull-requests scope) を発行する。
+   - `GITHUB_PAT_TOKEN`: 通常操作用（PR checkout 等）の GitHub PAT。`AME_AI_REVIEWER_TOKEN`
+     と同じトークンを再利用可能。
    - `CLAUDE_CONFIG_B64`: `~/.claude.json` の Base64 エンコード値
    - `CLAUDE_CREDENTIALS_B64`: `~/.claude/.credentials.json` の Base64 エンコード値
    - `OPENCODE_AUTH_B64`: `~/.local/share/opencode/auth.json` の Base64 エンコード値
@@ -408,13 +425,13 @@ REVIEW_THINKING = low
 
 ### 6-5. Gate 1 と Gate 2 の設定比較
 
-| 設定項目 | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)         |
-| -------- | ------------------------------------------------- | ---------------------- |
-| 設定場所 | `config.json` / `config.user.json` または環境変数 | Gitea Variables        |
-| エンジン | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`        |
-| モデル   | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`         |
-| 思考量   | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`      |
-| 認証     | ホストの認証ファイルを直接使用                    | Gitea Secrets (Base64) |
+| 設定項目 | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)          |
+| -------- | ------------------------------------------------- | ----------------------- |
+| 設定場所 | `config.json` / `config.user.json` または環境変数 | GitHub Variables        |
+| エンジン | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`         |
+| モデル   | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`          |
+| 思考量   | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`       |
+| 認証     | ホストの認証ファイルを直接使用                    | GitHub Secrets (Base64) |
 
 > [!NOTE] Gate 1 と Gate 2 で異なるエンジン・モデルを使用できます。例えば、ローカルでは `opencode`
 > で開発し、CI では `claude` でレビューすることが可能です。

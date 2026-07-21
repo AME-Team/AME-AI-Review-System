@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_GITEA_URL: string | undefined;
+  readonly VITE_GITHUB_URL: string | undefined;
 }
 
 interface ImportMeta {

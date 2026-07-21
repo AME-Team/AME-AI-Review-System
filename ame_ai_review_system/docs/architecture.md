@@ -66,35 +66,35 @@ Breaker 機構を備えています。
 - **指摘スレッドへの開発者からの返信**
 
 > [!NOTE] **push 時の自動レビューはデフォルトで OFF** です。明示的に `/request-review`
-> でレビューを依頼するフローが基本となります。push 自動レビューを有効化したい場合は Gitea のリポジトリ設定
+> でレビューを依頼するフローが基本となります。push 自動レビューを有効化したい場合は GitHub のリポジトリ設定
 > **[Settings] → [Actions] → [Variables]** で `PUSH_REVIEW_ENABLED` を `true` に設定してください。
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Developer as 開発者
-    participant Gitea as Gitea Server
-    participant Actions as Gitea Actions
+    participant GitHub as GitHub
+    participant Actions as GitHub Actions
     participant Engine as LLM Engine (engine.py)
 
-    Note over Developer, Gitea: 1. レビュー依頼フロー（/request-review）
-    Developer->>Gitea: PR コメント `/request-review`
-    Gitea->>Actions: イベント: pull_request_comment (created)
+    Note over Developer, GitHub: 1. レビュー依頼フロー（/request-review）
+    Developer->>GitHub: PR コメント `/request-review`
+    GitHub->>Actions: イベント: issue_comment (created)
     Actions->>Actions: PR ブランチ取得 & diff抽出 (main.py checkout / review)
     Actions->>Engine: プロンプト + diff 入力 (stdin)
     Engine-->>Actions: 指摘事項のテキスト出力
     Actions->>Actions: APIペイロード変換 (payload.py)
-    Actions->>Gitea: PRレビューコメント投稿 (インライン)
-    Gitea-->>Developer: インラインコメントで通知
+    Actions->>GitHub: PRレビューコメント投稿 (インライン)
+    GitHub-->>Developer: インラインコメントで通知
 
-    Note over Developer, Gitea: 2. 返信・LGTM 判定フロー
-    Developer->>Gitea: コメント返信 "@ame-ai-reviewer 修正しました"
-    Gitea->>Actions: イベント: pull_request_comment (created)
+    Note over Developer, GitHub: 2. 返信・LGTM 判定フロー
+    Developer->>GitHub: コメント返信 "@ame-ai-reviewer 修正しました"
+    GitHub->>Actions: イベント: issue_comment (created)
     Actions->>Actions: スレッド・最新diffの取得 (reply.py)
     Actions->>Engine: スレッド履歴 + 最新diff
     Engine-->>Actions: LGTM判定結果 (テキスト)
-    Actions->>Gitea: スレッドへの返信投稿 (LGTM / 追加指摘)
-    Gitea-->>Developer: 返信で通知
+    Actions->>GitHub: スレッドへの返信投稿 (LGTM / 追加指摘)
+    GitHub-->>Developer: 返信で通知
 ```
 
 > すべての指摘スレッドが Resolve されたら、再度 `/request-review`
@@ -112,7 +112,7 @@ sequenceDiagram
 
 - **`main.py`** CLI エントリポイント。以下のサブコマンドを提供する。
   - `review` — PR レビュー本体。Git から差分 (diff) を抽出し、`review_prompt.txt` の内容と結合して
-    `engine.py` 経由で LLM エンジンを呼び出す。出力された指摘を `payload.py` に渡し、Gitea
+    `engine.py` 経由で LLM エンジンを呼び出す。出力された指摘を `payload.py` に渡し、GitHub
     API 経由でインラインレビューコメントを投稿する。`/request-review`
     トリガー（`review_command.yml`）と push トリガー（`review.yml`）の両方から呼ばれる。
   - `checkout` — PR コメント経由のトリガーで対象 PR のブランチを作業ツリーへ取り込み、`BASE_REF`
@@ -121,7 +121,7 @@ sequenceDiagram
   - `post-push` — ローカルプッシュ後のトリガー用（任意）。
   - `setup` — 開発環境セットアップ補助。
 - **`reply.py`** 開発者からの返信コメントを検知して起動（`reply run`
-  サブコマンド）。Gitea の PR コメントスレッドを走査し、AI宛てメンションでAIが未返信のスレッドを特定する。また、会話履歴と最新の Git
+  サブコマンド）。GitHub の PR コメントスレッドを走査し、AI宛てメンションでAIが未返信のスレッドを特定する。また、会話履歴と最新の Git
   diff から、Claude 用の返信判定プロンプトを生成し、`engine.py` 経由で LGTM か追加指摘かを判断する。
 - **`precommit_review.py`** pre-commit フック本体。 `git commit`
   実行時にステージ済み差分 + ブランチ差分 (`origin/<base>...HEAD`) を `review_prompt.txt` と結合して
@@ -145,8 +145,8 @@ sequenceDiagram
   が wrap 経由で再利用)。プロキシ起動失敗・非健在時はプロセスを終了させた上で `HEADROOM_ENABLED`
   を未設定に戻し、プロキシなし (passthrough) でコマンドを継続実行する。`headroom_proxy_enabled` が
   `false` (フェイルセーフ用既定値) ならプロキシを起動せずそのまま実行する。出荷 `config.json` では
-  `true` に設定済み。 **プロキシのライフサイクル**: Gitea
-  Actions はジョブ単位でコンテナが分離されるため、各ジョブが独立したプロキシを起動・終了する。
+  `true` に設定済み。 **プロキシのライフサイクル**: GitHub
+  Actions はジョブ単位でランナー（VM/コンテナ）が分離されるため、各ジョブが独立したプロキシを起動・終了する。
 
 ### 2. 設定・ビジネスロジック（Pythonスクリプト）
 
@@ -161,8 +161,9 @@ sequenceDiagram
   コマンドを判定するヘルパ。 `get <key>` で設定値を、`is-review-command <body>`
   でコマンド判定結果を出力する。設定の優先順位は `config.user.json` >
   `config.json` > 組み込みデフォルト。
-- **`payload.py`** モデル出力テキストをパースし、Gitea
-  API 用のインラインコメント（new_position を含む）のペイロードへ変換する。diff 行番号と API コメント位置のマッピングも行う。
+- **`payload.py`** モデル出力テキストをパースし、GitHub API 用のインラインコメント（`line` /
+  `side: "RIGHT"`
+  を含む）のペイロードへ変換する。AI 出力の実ファイル行番号を diff 内の有効行へスナップする検証も行う。
 - **`static_precheck.py`** PR レビュー前段の静的解析 pre-check（Circuit
   Breaker）。ruff/mypy/semgrep を実行し、エラーが1件でもあれば AI レビューをスキップする。
 - **`diff_utils.py`** git

@@ -156,18 +156,6 @@ def resolve_settings(role: str) -> dict[str, Any]:
         choices = ", ".join(ENGINES)
         sys.exit(f"[engine] Invalid engine: {engine!r}. Choose from: {choices}")
 
-    if engine != "claude":
-        # claude 専用名が config の model 系キーから漏れないよう非 claude では無視し REVIEW_MODEL を使う。
-        for cfg_key in ("model", _ROLE_MODEL_KEY[role]):
-            configured_model = review_config.user_overrides().get(cfg_key)
-            if configured_model:
-                model_env = _ROLE_MODEL_ENV[role]
-                print(
-                    f"[engine] WARNING: config {cfg_key!r} ({configured_model!r}) "
-                    f"is ignored for the {engine} engine; set {model_env} instead.",
-                    file=sys.stderr,
-                )
-
     model_env_key = _ROLE_MODEL_ENV[role]
     model_config_key = _ROLE_MODEL_KEY[role]
     model = _first_nonempty(os.environ.get(model_env_key))
@@ -181,6 +169,12 @@ def resolve_settings(role: str) -> dict[str, Any]:
         )
         if not model:
             sys.exit("[engine] model is not configured for the claude engine.")
+    if model is None and engine in {"opencode", "antigravity"}:
+        # opencode/antigravity は config からモデルを読み取る
+        model = _first_nonempty(
+            review_config.user_overrides().get(model_config_key),
+            config.get("model"),
+        )
     if model is not None and not _MODEL_RE.match(model):
         sys.exit(f"[engine] Invalid {model_env_key} value: {model!r}")
 

@@ -2,11 +2,14 @@
 # PR コメントで ``/request-review`` (エイリアス ``/review``) を投稿するとレビューを開始する。
 # push 時の自動レビュー (review.yml) とは独立しており、明示的なコマンドでのみ動作する。
 # workflow_dispatch はブートストラップ・再実行用途（PR 番号を入力して手動起動）。
+#
+# トリガー: issue_comment (PR 上のコメントで発火)。Issue コメントでは発火しないよう
+# github.event.issue.pull_request != null でフィルタする。
 
 name: AI Code Review (Command)
 
 "on":
-  pull_request_comment:
+  issue_comment:
     types: [created]
   workflow_dispatch:
     inputs:
@@ -14,14 +17,18 @@ name: AI Code Review (Command)
         description: "レビュー対象 PR 番号（手動実行時）"
         required: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   general-review-command:
     name: Review on /request-review (ame-ai-reviewer)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
-      github.event_name == 'workflow_dispatch' || (github.event.comment.user.login !=
-      'ame-ai-reviewer' &&
+      github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
+       github.event.comment.user.login != 'ame-ai-reviewer' &&
        startsWith(github.event.comment.body, '/'))
     steps:
       - name: Checkout
@@ -39,6 +46,10 @@ jobs:
           echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
           chmod 600 ~/.claude.json ~/.claude/.credentials.json
           chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Determine target PR and whether to run
         id: cmd
         env:
@@ -59,16 +70,14 @@ jobs:
       - name: Switch to PR branch
         if: steps.cmd.outputs.run_review == 'true'
         env:
-          GITEA_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
-          GITEA_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
+          GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
         run: |
           python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
       - name: Run General Review
         if: steps.cmd.outputs.run_review == 'true'
         env:
-          GITEA_URL: ${{ github.server_url }}
           AME_AI_REVIEWER_TOKEN: ${{ secrets.AME_AI_REVIEWER_TOKEN }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}

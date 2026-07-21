@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from ame_ai_review_system import pr_streak
+from ame_ai_review_system import github_client, pr_streak
 from ame_ai_review_system.pr_streak import (
     _current_head_sha as current_head_sha,
 )
@@ -144,8 +144,8 @@ def test_current_head_sha_empty_on_failure(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_pr_comments_url_includes_limit() -> None:
-    url = pr_comments_url(42, "http://localhost:3000", "Org/Repo")
-    assert "limit=" in url
+    url = pr_comments_url(42, "https://api.github.com", "Org/Repo")
+    assert "per_page=" in url
 
 
 # ---------------------------
@@ -160,8 +160,8 @@ def test_cmd_get_prints_streak(
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
     monkeypatch.setattr(
         pr_streak,
-        "_gitea_env",
-        lambda: ("http://localhost:3000", "Org/Repo"),
+        "_github_env",
+        lambda: ("https://api.github.com", "Org/Repo"),
     )
     monkeypatch.setattr(
         pr_streak,
@@ -183,7 +183,7 @@ def test_cmd_get_no_marker_prints_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
     rc = pr_streak.cmd_get(1)
     assert rc == 0
@@ -199,7 +199,7 @@ def test_cmd_check_approved_when_streak_reached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
@@ -213,7 +213,7 @@ def test_cmd_check_blocks_when_streak_below_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
@@ -224,7 +224,7 @@ def test_cmd_check_blocks_when_streak_below_threshold(
 
 def test_cmd_check_blocks_on_new_push(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
@@ -241,7 +241,7 @@ def test_cmd_check_blocks_on_new_push(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cmd_check_passes_when_head_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
@@ -278,7 +278,7 @@ def test_cmd_evaluate_zero_issues_passes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
     monkeypatch.setattr(pr_streak, "cmd_set", lambda *_: 0)
     review_path = _write_review(tmp_path, {"summary": "ok", "comments": []})
@@ -295,7 +295,7 @@ def test_cmd_evaluate_blocking_resets_streak(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
     monkeypatch.setattr(pr_streak, "cmd_set", lambda *_: 0)
     review_path = _write_review(
@@ -318,7 +318,7 @@ def test_cmd_evaluate_low_only_increments_streak(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
@@ -345,7 +345,7 @@ def test_cmd_evaluate_low_only_at_threshold_passes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
@@ -387,49 +387,54 @@ def test_cmd_set_includes_head_sha(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_request(
+        method: str,
         url: str,
-        _t: str,
-        data: bytes | None = None,
-        _method: str | None = None,
-    ) -> bytes:
-        captured["data"] = data
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        captured["method"] = method
         captured["url"] = url
-        return b"{}"
+        captured["body"] = body
+        return {}
 
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
     monkeypatch.setattr(pr_streak, "_current_head_sha", lambda: "deadbeef")
-    monkeypatch.setattr(pr_streak, "_request", fake_request)
+    monkeypatch.setattr(github_client, "http_request", fake_request)
     rc = pr_streak.cmd_set(1, 2)
     assert rc == 0
-    body = json.loads(captured["data"].decode())["body"]
-    assert "head: deadbeef" in body
-    assert "streak: 2" in body
+    assert captured["body"] is not None
+    body_str: str = captured["body"]["body"]
+    assert "head: deadbeef" in body_str
+    assert "streak: 2" in body_str
 
 
 def test_cmd_set_updates_existing_comment(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_request(
+        method: str,
         url: str,
-        _t: str,
-        _data: bytes | None = None,
-        method: str | None = None,
-    ) -> bytes:
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
         captured["method"] = method
         captured["url"] = url
-        return b"{}"
+        captured["body"] = body
+        return {}
 
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
-    monkeypatch.setattr(pr_streak, "_gitea_env", lambda: ("http://u", "r"))
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(
         pr_streak,
         "_read_pr_comments",
         lambda *_: [{"id": 99, "body": "<!-- ai-review-streak -->\nstreak: 1"}],
     )
     monkeypatch.setattr(pr_streak, "_current_head_sha", lambda: "")
-    monkeypatch.setattr(pr_streak, "_request", fake_request)
+    monkeypatch.setattr(github_client, "http_request", fake_request)
     rc = pr_streak.cmd_set(1, 2)
     assert rc == 0
     assert captured["method"] == "PATCH"
@@ -475,12 +480,14 @@ def test_token_reads_from_file(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_home = Path("/fake/home")
     monkeypatch.setattr(pathlib.Path, "home", lambda: fake_home)
     monkeypatch.setattr(Path, "exists", lambda _self: True)
+    monkeypatch.setattr(Path, "is_file", lambda _self: True)
     monkeypatch.setattr(Path, "read_text", lambda _self, **_kw: "secrettoken")
     monkeypatch.setattr(os, "environ", {})
     assert token() == "secrettoken"
 
 
 def test_token_fallback_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(os, "environ", {"GITEA_TOKEN": "envtoken"})
+    monkeypatch.setattr(os, "environ", {"GITHUB_PAT_TOKEN": "envtoken"})
     monkeypatch.setattr(Path, "exists", lambda _self: False)
+    monkeypatch.setattr(Path, "is_file", lambda _self: False)
     assert token() == "envtoken"

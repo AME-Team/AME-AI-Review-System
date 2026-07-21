@@ -1,4 +1,4 @@
-# CI (.gitea/workflows/ci.yml) とローカル開発環境の両方で使用する
+# CI (.github/workflows/ci.yml) とローカル開発環境の両方で使用する
 # Python lint / test ツールの正本。
 # pre-commit (.pre-commit-config.yaml) の language: system フックが
 # これらのコマンドを直接呼び出すため、すべて PATH 上に存在する必要がある。

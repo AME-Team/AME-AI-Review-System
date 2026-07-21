@@ -75,7 +75,8 @@ def parse_review_json(path: str) -> dict[str, Any]:
     return review
 
 
-def build_position_map(base_ref: str) -> dict[str, dict[int, int]]:
+def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
+    """Diff に含まれる実ファイル行番号を集計する（GitHub review API の line 検証用）."""
     try:
         diff_text = subprocess.check_output(
             ["git", "diff", f"origin/{base_ref}...HEAD"],
@@ -85,17 +86,15 @@ def build_position_map(base_ref: str) -> dict[str, dict[int, int]]:
     except subprocess.CalledProcessError:
         return {}
 
-    result: dict[str, dict[int, int]] = {}
+    result: dict[str, set[int]] = {}
     current_file: str | None = None
-    position = 0
     new_line_num = 0
 
     for line in diff_text.splitlines():
         m = re.match(r"^\+\+\+ b/(.+)$", line)
         if m:
             current_file = str(m.group(1))
-            result[current_file] = {}
-            position = 0
+            result[current_file] = set()
             new_line_num = 0
             continue
         if current_file is None:
@@ -103,17 +102,14 @@ def build_position_map(base_ref: str) -> dict[str, dict[int, int]]:
         if line.startswith(("diff ", "index ", "--- ")):
             continue
         if line.startswith("@@"):
-            position += 1
             m2 = re.search(r"\+(\d+)", line)
             if m2:
                 new_line_num = int(m2.group(1)) - 1
             continue
         if line.startswith("-"):
-            position += 1
             continue
-        position += 1
         new_line_num += 1
-        result[current_file][new_line_num] = position
+        result[current_file].add(new_line_num)
 
     return result
 
@@ -128,7 +124,16 @@ def main() -> None:
     base_ref = os.environ.get("BASE_REF", "main")
 
     review = parse_review_json(review_file)
-    pos_map = build_position_map(base_ref)
+    valid_lines = build_valid_lines_map(base_ref)
+
+    try:
+        head_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        sys.exit("[build_review_payload] ERROR: Failed to get HEAD SHA.")
 
     severity_icon = {
         "CRITICAL": "🔴",
@@ -145,38 +150,34 @@ def main() -> None:
         icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
         body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
 
-        file_map = pos_map.get(path, {})
-        new_pos = file_map.get(line)
-        if new_pos is None:
+        lines = valid_lines.get(path, set())
+        target_line = line if line in lines else None
+        if target_line is None:
             body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
-            if file_map:
-                closest = min(file_map.keys(), key=lambda x: abs(x - line))
-                new_pos = file_map[closest]
-            else:
-                new_pos = 1
+            target_line = min(lines, key=lambda x: abs(x - line)) if lines else 1
 
         individual_payloads.append(
             {
                 "event": "COMMENT",
                 "body": "",
-                "comments": [{"path": path, "new_position": new_pos, "body": body}],
+                "commit_id": head_sha,
+                "comments": [
+                    {"path": path, "line": target_line, "side": "RIGHT", "body": body}
+                ],
             },
         )
 
-    try:
-        head_sha = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        sys.exit("[build_review_payload] ERROR: Failed to get HEAD SHA.")
     summary_body = (
         f"### 総評\n{review.get('summary', '')}\n\n"
         f"---\n*{len(individual_payloads)} 件のインラインコメントを添付しています。*\n"
         f"<!-- reviewed-sha: {head_sha} -->"
     )
-    summary_payload = {"event": "COMMENT", "body": summary_body, "comments": []}
+    summary_payload = {
+        "event": "COMMENT",
+        "body": summary_body,
+        "commit_id": head_sha,
+        "comments": [],
+    }
 
     print(json.dumps([summary_payload, *individual_payloads]))
 

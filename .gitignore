@@ -50,3 +50,4 @@ config.user.json
 .serena/
 AGENTS.md
 .claude/
+.tokensave/
