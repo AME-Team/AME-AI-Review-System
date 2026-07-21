@@ -35,9 +35,13 @@ _ENV_KEYS = (
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for key in _ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+    # 開発者ローカルの config.user.json (Git 管理対象外) がテストに漏れ込むのを防ぐ。
+    monkeypatch.setenv(
+        "AME_REVIEW_USER_CONFIG", str(tmp_path / "unused_user_config.json")
+    )
 
 
 def _write_config(
@@ -135,46 +139,25 @@ def test_resolve_settings_config_model_override(
     assert settings["model"] == "opus"
 
 
-def test_resolve_settings_opencode_ignores_config_model(
+def test_resolve_settings_opencode_uses_config_model(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _write_config(monkeypatch, tmp_path, {"engine": "opencode", "model": "sonnet"})
+    _write_config(monkeypatch, tmp_path, {"engine": "opencode", "model": "zai/glm"})
     settings = resolve_settings("review")
     assert settings["engine"] == "opencode"
-    assert settings["model"] is None
+    assert settings["model"] == "zai/glm"
 
 
 def test_resolve_settings_opencode_ignores_claude_model(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     # CLAUDE_MODEL は Claude 専用名の可能性があるため claude 以外では参照しない。
-    monkeypatch.setenv("REVIEW_ENGINE", "opencode")
+    _write_config(monkeypatch, tmp_path, {"engine": "opencode", "model": "zai/glm"})
     monkeypatch.setenv("CLAUDE_MODEL", "sonnet")
     settings = resolve_settings("review")
-    assert settings["model"] is None
-
-
-def test_resolve_settings_warns_on_ignored_config_model(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    _write_config(monkeypatch, tmp_path, {"engine": "opencode", "model": "some-model"})
-    resolve_settings("review")
-    err = capsys.readouterr().err
-    assert "ignored" in err
-    assert "opencode" in err
-
-
-def test_resolve_settings_no_warning_without_explicit_model(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    _write_config(monkeypatch, tmp_path, {"engine": "opencode"})
-    resolve_settings("review")
-    assert "ignored" not in capsys.readouterr().err
+    assert settings["model"] == "zai/glm"
 
 
 def test_resolve_settings_env_model_for_opencode(
