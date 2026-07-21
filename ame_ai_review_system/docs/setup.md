@@ -138,25 +138,32 @@ cp -r .github/ <your-repo>/
 cp -r ame_ai_review_system/ <your-repo>/
 ```
 
-### Step 2: レビュアー用アカウントの作成とトークンの登録
+### Step 2: レビュアー用 GitHub App の作成と Secret 登録
 
-1. GitHub 上で AI レビュアー用アカウント（ボット用アカウント。例:
-   `ame-ai-reviewer`）を作成する（既存アカウントでも可）。
-2. レビュアーアカウントでログインする。**[Settings] → [Developer settings] → [Personal access
-   tokens]** を開く。Fine-grained または Classic トークンを生成する。
-   - 必須スコープ: `repo`（または同等の Fine-grained 権限: `Contents: RW`, `Pull requests: RW`,
-     `Issues: RW`）
-3. 導入先リポジトリの **[Settings] → [Secrets and variables] → [Actions] → [Secrets]**
-   から Secret を追加する。
-   - `AME_AI_REVIEWER_TOKEN` : 上記で生成したレビュアー PAT
-   - `GITHUB_PAT_TOKEN` : 通常操作（PR checkout 等）用 PAT。`AME_AI_REVIEWER_TOKEN`
-     と同じトークンを再利用可能。`GITHUB_TOKEN`（GitHub
-     Actions が自動予約する一時トークン）はボット PAT に使えないため別 Secret が必要。
+1. GitHub 上で AI レビュアー用の GitHub App を作成する。作成画面は [Settings] → [Developer settings]
+   → [GitHub Apps] → [New GitHub App]。App name は任意（例: `ame-ai-reviewer`）。
+2. App の権限を設定する（インストール時または App 設定画面で）。
+   - **Repository permissions**
+     - `Contents`: Read-only（PR checkout 用）
+     - `Pull requests`: Read & Write（レビュー/返信投稿用）
+     - `Issues`: Read & Write（Issue コメント投稿用）
+3. 作成後、App 設定画面で **Private key** を生成し、`.pem` ファイルをダウンロードする。
+4. App を対象リポジトリにインストールする。
+5. 導入先リポジトリの **[Settings] → [Secrets and variables] → [Actions] → [Secrets]**
+   から以下を追加する。
+   - `AME_AI_REVIEWER_APP_ID` : GitHub App の App ID（数値。App 設定画面に表示される）
+   - `AME_AI_REVIEWER_APP_PRIVATE_KEY` : 手順 3 でダウンロードした `.pem` ファイルの内容全体
 
 > [!NOTE] 本リポジトリのワークフロー（`review_command.yml` / `review.yml` / `review_reply.yml`）は
-> `AME_AI_REVIEWER_TOKEN` という Secret 名を参照します。別のレビュアーを追加する場合は
-> `<REVIEWER_NAME>_TOKEN`
-> のような命名規則で Secret を追加してください（[カスタマイズガイド](customization.md)参照）。
+> `actions/create-github-app-token@v2` を使い、上記 Secret から都度インストールトークンを発行して
+> `GITHUB_PAT_TOKEN` / `AME_AI_REVIEWER_TOKEN`
+> env 変数に設定します（Python コードは PAT/App の違いを意識せず動作します）。別のレビュアーを追加する場合は
+> `<REVIEWER_NAME_UPPER>_APP_ID` / `<REVIEWER_NAME_UPPER>_APP_PRIVATE_KEY`
+> の命名規則で Secret を追加してください（[カスタマイズガイド](customization.md)参照）。
+
+> [!IMPORTANT] ローカル開発で `pre-commit` 時の AI レビューを利用する場合は、従来通り
+> `~/.config/ame-ai-review-system/<name>.token`（PAT）または環境変数 `GITHUB_PAT_TOKEN` /
+> `<NAME>_TOKEN` を使います。CI のみ GitHub App 認証に切り替わっています。
 
 ### Step 3: ワークフローの設定確認と修正
 
@@ -266,7 +273,7 @@ env:
    - `AI Code Review (Command)`
      ジョブが起動し、PR にインラインコメント（レビュー）が投稿されることを確認する。
 3. **返信とResolveの検証**
-   - 投稿されたコメントのスレッドに対して、修正を加えた後に `@ame-ai-reviewer 修正しました`
+   - 投稿されたコメントのスレッドに対して、修正を加えた後に `@ame-ai-reviewer[bot] 修正しました`
      のように返信する。
    - `AI Review Reply` ジョブが起動し、自動的に `LGTM` または追加指摘が返答されることを確認する。
    - `LGTM` が届いたスレッドを「Resolve（解決済み）」に変更し、全スレッド Resolve 後に再度

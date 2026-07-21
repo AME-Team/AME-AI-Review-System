@@ -236,14 +236,16 @@ def _get_pending_threads(
         replies = thread[1:]
 
         mention_replies = [
-            r for r in replies if f"@{reviewer_name}" in r.get("body", "")
+            r
+            for r in replies
+            if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
         ]
         if not mention_replies:
             continue
 
         latest_mention_time = max(r.get("created_at", "") for r in mention_replies)
         reviewer_replied_after = any(
-            r.get("user", {}).get("login") == reviewer_name
+            r.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
             and r.get("created_at", "") > latest_mention_time
             for r in replies
         )
@@ -276,7 +278,11 @@ def _cmd_build(pr: str, thread_id_str: str) -> None:
     parent = thread[0]
     replies = thread[1:]
 
-    mention_replies = [r for r in replies if f"@{reviewer_name}" in r.get("body", "")]
+    mention_replies = [
+        r
+        for r in replies
+        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
+    ]
     if not mention_replies:
         return
     latest_reply = mention_replies[-1]
@@ -371,7 +377,7 @@ def _cmd_stale_check(pr: str, thread_id_str: str) -> None:
     reviewer_replies = [
         str(c.get("body", ""))
         for c in thread[1:]
-        if c.get("user", {}).get("login") == reviewer_name
+        if c.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
     ]
 
     if is_stale_loop(reviewer_replies):
@@ -526,7 +532,7 @@ def _check_stale(
     reviewer_replies = [
         str(c.get("body", ""))
         for c in thread[1:]
-        if c.get("user", {}).get("login") == reviewer_name
+        if c.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
     ]
 
     if is_stale_loop(reviewer_replies):
@@ -553,7 +559,11 @@ def _build_prompt_for_thread(
     parent = thread[0]
     replies = thread[1:]
 
-    mention_replies = [r for r in replies if f"@{reviewer_name}" in r.get("body", "")]
+    mention_replies = [
+        r
+        for r in replies
+        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
+    ]
     if not mention_replies:
         return ""
     latest_reply = mention_replies[-1]

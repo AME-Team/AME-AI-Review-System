@@ -192,3 +192,27 @@ def test_resolved_root_ids_collects_resolved_thread_members(
 def test_resolved_root_ids_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github_client, "list_review_threads", lambda _pr, _tok: [])
     assert reply._resolved_root_ids(7, "tok") == set()
+
+
+# --- GitHub App [bot] suffix integration ----------------------------------
+
+
+def test_mention_detection_accepts_bot_form() -> None:
+    """reviewer_name='ame-ai-reviewer' でも @ame-ai-reviewer[bot] を検出できることを検証する。."""
+    assert github_client.mentions_reviewer(
+        "@ame-ai-reviewer[bot] 修正しました", "ame-ai-reviewer"
+    )
+
+
+def test_mention_detection_accepts_short_form() -> None:
+    """後方互換のため @ame-ai-reviewer (短縮形) も検出することを検証する。."""
+    assert github_client.mentions_reviewer(
+        "@ame-ai-reviewer 修正しました", "ame-ai-reviewer"
+    )
+
+
+def test_mention_detection_rejects_unrelated_mention() -> None:
+    """無関係なメンションは拒否することを検証する。."""
+    assert not github_client.mentions_reviewer(
+        "@other-user 修正しました", "ame-ai-reviewer"
+    )

@@ -20,11 +20,11 @@ AI レビュアーが返信を投稿すると、さらに `AI Review Reply`
 
 ```yaml
 if: >-
-  github.event.comment.user.login != 'ame-ai-reviewer' && contains(github.event.comment.body,
-  '@ame-ai-reviewer')
+  github.event.comment.user.login != 'ame-ai-reviewer[bot]' && contains(github.event.comment.body,
+  '@ame-ai-reviewer[bot]')
 ```
 
-もし複数のレビュアーを追加した場合は、**すべてのレビュアーのアカウント名** を `!=`
+もし複数のレビュアーを追加した場合は、**すべてのレビュアーの bot login（`<slug>[bot]`）** を `!=`
 で繋いで除外する必要があります。詳細は [カスタムガイド](./customization.md) を参照してください。
 
 ---
@@ -68,9 +68,13 @@ PR をプッシュ、またはコメントでメンションしたにもかか�
      `reviewed-sha` を検索して重複を防ぐ。
    - **対策**: コードを変更して再度プッシュしてから `/request-review`
      するか、開発者メンションによる返信判定機能（`review_reply.yml`）を利用する。
-2. **トークン (`AME_AI_REVIEWER_TOKEN` / `GITHUB_PAT_TOKEN`) が無効、またはスコープ不足**
-   - **対策**: GitHub で設定した PAT の有効期限が切れていないか、また `repo`
-     スコープ（または同等の Fine-grained 権限）が付与されているか確認する。
+2. **GitHub App 認証情報 (`AME_AI_REVIEWER_APP_ID` /
+   `AME_AI_REVIEWER_APP_PRIVATE_KEY`) が無効、または権限不足**
+   - **対策**: GitHub App の App ID / Private
+     Key が正しく Secrets に登録されているか確認。また App のインストール権限で `Contents: Read` /
+     `Pull requests: Read & Write` / `Issues: Read & Write`
+     が付与されているか確認する。ワークフローは `actions/create-github-app-token@v2`
+     でインストールトークンを発行する。
 3. **1つの PR に対する最大レビュー回数制限に達した**
    - **仕様**: 無駄な API 消費を防ぐため、1つの PR に対して最大 `10` 回までしかレビューしない制御が
      `main.py` 内にある。

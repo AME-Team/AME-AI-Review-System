@@ -88,7 +88,7 @@ sequenceDiagram
     GitHub-->>Developer: インラインコメントで通知
 
     Note over Developer, GitHub: 2. 返信・LGTM 判定フロー
-    Developer->>GitHub: コメント返信 "@ame-ai-reviewer 修正しました"
+    Developer->>GitHub: コメント返信 "@ame-ai-reviewer[bot] 修正しました"
     GitHub->>Actions: イベント: issue_comment (created)
     Actions->>Actions: スレッド・最新diffの取得 (reply.py)
     Actions->>Engine: スレッド履歴 + 最新diff

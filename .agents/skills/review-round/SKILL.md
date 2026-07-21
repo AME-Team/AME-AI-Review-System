@@ -55,10 +55,10 @@ PR 上で実行する品質ゲートです。以下のループを未解決ス�
 5. **レビューコメント取得**
    - `GET /repos/{owner}/{repo}/pulls/{pr}/comments`
 6. **コード修正・コミット・プッシュ** — 指摘事項に対応
-7. **スレッド返信** — 各スレッドに `@ame-ai-reviewer` メンション付きで対応内容を返信
+7. **スレッド返信** — 各スレッドに `@ame-ai-reviewer[bot]` メンション付きで対応内容を返信
    - API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
-   - 本文例: `@ame-ai-reviewer 指摘された例外処理を追加し、ログ出力を修正しました。`
-8. **LGTM 待ち** — `ame-ai-reviewer` がスレッドに返信
+   - 本文例: `@ame-ai-reviewer[bot] 指摘された例外処理を追加し、ログ出力を修正しました。`
+8. **LGTM 待ち** — `ame-ai-reviewer[bot]` がスレッドに返信
    - LGTM: `対応確認しました。LGTM ✅ Resolve してください。`
    - 追加指摘 → Step 6 に戻る
 9. **Resolve** — LGTM が届いたスレッドを解決済みに変更
@@ -87,11 +87,16 @@ GraphQL      : https://api.github.com/graphql
 リポジトリ    : tarminjapan/AME-AI-Review-System
 
 トークン取得（優先順位）:
-  1. ~/.config/ame-ai-review-system/github.token（またはレビュアー固有の <name>.token）
-  2. 環境変数 $GITHUB_PAT_TOKEN（または <NAME>_TOKEN）
+  CI (GitHub Actions):
+    1. actions/create-github-app-token@v2 が発行するインストールトークン
+       (Secrets: AME_AI_REVIEWER_APP_ID / AME_AI_REVIEWER_APP_PRIVATE_KEY)
+  ローカル:
+    1. ~/.config/ame-ai-review-system/github.token（またはレビュアー固有の <name>.token）
+    2. 環境変数 $GITHUB_PAT_TOKEN（または <NAME>_TOKEN）
 
 レビュアートークン:
-  ame-ai-reviewer : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
+  CI:        GitHub App インストールトークン（AME_AI_REVIEWER_TOKEN env に設定される）
+  ローカル:  ame-ai-reviewer : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
 
 レビュー依頼   : POST /repos/{repo}/issues/{pr}/comments
 コメント取得   : GET  /repos/{repo}/pulls/{pr}/comments

@@ -355,7 +355,7 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     reviewed_shas = set()
     for r in reviews_data:
-        if r.get("user", {}).get("login") == reviewer_name:
+        if r.get("user", {}).get("login") == github_client.bot_login(reviewer_name):
             body = r.get("body", "")
             m = re.search(r"<!--\s*reviewed-sha:\s*([0-9a-f]{40,64})\s*-->", body)
             if m:
@@ -562,7 +562,7 @@ def cmd_post_push(args: argparse.Namespace) -> int:
 
     print(f"[post_push] PR #{pr_num} detected. Waiting for reviewers...")
 
-    reviewers = ["ame-ai-reviewer"]
+    reviewers = [github_client.bot_login("ame-ai-reviewer")]
 
     def count_reviews(pr: int) -> int:
         url = f"{api_url}/repos/{repo}/pulls/{pr}/reviews?per_page=50"

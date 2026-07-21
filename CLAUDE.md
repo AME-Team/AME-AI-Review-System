@@ -7,16 +7,17 @@ PR をマージする前に、以下のフローをすべて完了すること�
 ### 1. インラインレビューコメントへの対応と返信
 
 PR に AI レビュアーからインラインレビューコメントが付いたら、次の手順を実施する。対象レビュアー:
-`ame-ai-reviewer`。
+`ame-ai-reviewer` (GitHub App のため、コメント作成者は `ame-ai-reviewer[bot]` になる)。
 
 1. **コードを修正する** — CRITICAL / HIGH / MIDDLE /
    LOW レベルの各指摘事項に対応した修正を加え、pre-commit を通過させてコミット・プッシュする。
-2. **各スレッドに返信する** — 対応内容を説明したメッセージを、必ず `@<レビュアー名>`
+2. **各スレッドに返信する** — 対応内容を説明したメッセージを、必ず `@<レビュアー名>[bot]`
    メンション付きで投稿する。
    - API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
    - トークン: `~/.config/ame-ai-review-system/github.token`（ユーザーアカウント）
 3. **レビュアーが LGTM 返信してくれる** — レビュアーが対応済みを確認し、返信を投稿してくれる。
-   - トークン: `~/.config/ame-ai-review-system/ame-ai-reviewer.token`
+   - CI 上のレビュアーは GitHub App (`AME_AI_REVIEWER_APP_ID` /
+     `AME_AI_REVIEWER_APP_PRIVATE_KEY`) から発行されたインストールトークンを使用
    - 本文例: `「対応確認しました。LGTM ✅ Resolve してください。」`
 4. **スレッドを Resolve する** — LGTM 返信が来たら Resolve する。
    - GitHub REST には対応エンドポイントが無い。GraphQL mutation `resolveReviewConversation`
@@ -30,8 +31,12 @@ GraphQL   : https://api.github.com/graphql
 リポジトリ : tarminjapan/AME-AI-Review-System
 通常トークン : ~/.config/ame-ai-review-system/github.token（なければ環境変数 $GITHUB_PAT_TOKEN を使用）
 
-レビュアートークン（レビュアーが LGTM 返信する際に使用）:
-  ame-ai-reviewer  : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
+CI 上のレビュアートークン（GitHub App インストールトークンを actions/create-github-app-token で取得）:
+  AME_AI_REVIEWER_APP_ID          : GitHub App の App ID（数値）
+  AME_AI_REVIEWER_APP_PRIVATE_KEY : Private Key (.pem)
+
+ローカル環境のレビュアートークン:
+  ame-ai-reviewer : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
 
 スレッド返信 : POST /repos/{repo}/pulls/{pr}/comments/{id}/replies
 Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
@@ -42,7 +47,9 @@ Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
 > 1. `~/.config/ame-ai-review-system/github.token`（またはレビュアー固有の `<name>.token`）
 > 2. 環境変数 `$GITHUB_PAT_TOKEN`（または `<NAME>_TOKEN`）
 >
-> GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL`
+> GitHub Actions 上では `actions/create-github-app-token@v2` がインストールトークンを発行し、それを
+> `GITHUB_PAT_TOKEN` / `AME_AI_REVIEWER_TOKEN` に設定して Python コードに渡す。`GITHUB_REPOSITORY` /
+> `GITHUB_API_URL`
 > が自動設定されるため、ワークフロー側での環境変数明示は不要（`github_client.resolve_env`
 > が解決する）。
 
@@ -71,11 +78,12 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
 0. PR コメントで `/request-review` を投稿してレビューを依頼する（`github.token`）。 `/review`
    も同じ意味。push 自動レビューはデフォルト OFF（GitHub Variables `PUSH_REVIEW_ENABLED`
    で有効化可）。
-1. `ame-ai-reviewer` のインラインコメント一覧を取得する。API:
+1. `ame-ai-reviewer[bot]` のインラインコメント一覧を取得する。API:
    `GET /repos/{repo}/pulls/{pr}/comments`。
 2. 未対応の CRITICAL / HIGH / MIDDLE / LOW コメントがあればコードを修正してコミット・プッシュする
-3. 各スレッドに `@ame-ai-reviewer` メンション付きで対応内容を返信する（`github.token`）
-4. `ame-ai-reviewer` が LGTM 返信を投稿してくれる（`ame-ai-reviewer.token`）
+3. 各スレッドに `@ame-ai-reviewer[bot]` メンション付きで対応内容を返信する（`github.token`）
+4. `ame-ai-reviewer[bot]` が LGTM 返信を投稿してくれる（`ame-ai-reviewer.token`
+   または CI 上の App インストールトークン）
 5. LGTM が届いたスレッドを Resolve する
 6. **未解決スレッドが残っていれば 1 に戻る**
 7. 全スレッドが Resolve されたら、**再度 `/request-review`
@@ -96,17 +104,18 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
 レビュー処理は `main review` サブコマンドが担う。`REVIEWER_NAME` / `REVIEWER_PROMPT_FILE`
 環境変数でパラメータ化されているため、コード追加なしで新レビュアーを追加できる。
 
-1. GitHub アカウント作成（またはボット用アカウント）・Personal Access Token 発行（repo /
-   pull-requests scope 必須）
-2. `~/.config/ame-ai-review-system/<レビュアー名>.token` にトークン保存
-3. GitHub Actions Secrets に `<SECRET_KEY>`（例: `SECURITY_REVIEWER_TOKEN`）を登録
-4. `.github/workflows/review_command.yml`（コマンドトリガー・標準）と `review_reply.yml`
+1. GitHub App を作成し、対象リポジトリにインストール。必要権限: `Contents: Read` /
+   `Pull requests: Read & Write` / `Issues: Read & Write`
+2. GitHub Actions Secrets に `<REVIEWER_NAME_UPPER>_APP_ID` と
+   `<REVIEWER_NAME_UPPER>_APP_PRIVATE_KEY` を登録（例: `SECURITY_REVIEWER_APP_ID` /
+   `SECURITY_REVIEWER_APP_PRIVATE_KEY`）
+3. `.github/workflows/review_command.yml`（コマンドトリガー・標準）と `review_reply.yml`
    に新ジョブを追加する。push 自動レビューを使う場合は `review.yml` にも追加。 `review_command.yml`
    / `review_reply.yml` の**既存全ジョブの `if`
    条件にも新レビュアー名を追加**する（カスケードループ防止）
-   - 現在のレビュアーは `ame-ai-reviewer` のみ。`if` 条件に
-     `github.event.comment.user.login != '<新レビュアー名>'` を追加する
-5. プロンプトファイル `ame_ai_review_system/<レビュアー名>_prompt.txt` を作成
+   - 現在のレビュアーは `ame-ai-reviewer`（App bot login は `ame-ai-reviewer[bot]`）。`if` 条件に
+     `github.event.comment.user.login != '<新レビュアーslug>[bot]'` を追加する
+4. プロンプトファイル `ame_ai_review_system/<レビュアー名>_prompt.txt` を作成
 
 ### 8. コーディング規約（レビューでよく指摘される点）
 

@@ -27,14 +27,25 @@ AI が指摘する観点や規約を変更するには、以下のファイル�
 `ame_ai_review_system/` 内に、新しいプロンプトファイル（例:
 `security_review_prompt.txt`）を配置します。
 
-### Step 2: GitHub Secrets の登録
+### Step 2: GitHub App の作成と Secret 登録
 
-新レビュアーアカウントの Personal Access Token (repo / pull-requests
-scope) を発行します。GitHub の Secret に追加します（例: `SECURITY_REVIEWER_TOKEN`）。
+新レビュアー用の GitHub App を作成し、対象リポジトリにインストールします。作成は [Settings] →
+[Developer settings] → [GitHub Apps] → [New GitHub App] から行います。必要な権限は以下の通りです。
 
-> [!NOTE] 本リポジトリの既定のレビュアー（`ame-ai-reviewer`）は `AME_AI_REVIEWER_TOKEN`
-> という Secret 名を参照します。新規レビュアーは `<NAME>_TOKEN`
-> の命名規則で Secret を追加してください。
+- `Contents`: Read-only
+- `Pull requests`: Read & Write
+- `Issues`: Read & Write
+
+Private Key を生成して `.pem` をダウンロードしたら、以下の Secret を登録します。
+
+- `SECURITY_REVIEWER_APP_ID` : GitHub App の App ID（数値）
+- `SECURITY_REVIEWER_APP_PRIVATE_KEY` : `.pem` 内容全体
+
+> [!NOTE] 本リポジトリの既定のレビュアー（`ame-ai-reviewer`）は `AME_AI_REVIEWER_APP_ID` /
+> `AME_AI_REVIEWER_APP_PRIVATE_KEY` という Secret 名を参照します。新規レビュアーは
+> `<NAME_UPPER>_APP_ID` / `<NAME_UPPER>_APP_PRIVATE_KEY`
+> の命名規則で Secret を追加してください。ワークフロー内では `actions/create-github-app-token@v2`
+> で都度インストールトークンを発行します。
 
 ### Step 3: `review_command.yml` にジョブを追加（コマンドトリガー・推奨）
 
@@ -50,8 +61,8 @@ security-review-command:
   timeout-minutes: 10
   if: >-
     github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
-     github.event.comment.user.login != 'ame-ai-reviewer' &&
-     github.event.comment.user.login != 'security-reviewer' &&
+     github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
+     github.event.comment.user.login != 'security-reviewer[bot]' &&
      startsWith(github.event.comment.body, '/'))
   steps:
     - name: Checkout
@@ -76,18 +87,28 @@ security-review-command:
         RUN_REVIEW=$(python3 -m ame_ai_review_system.review_config \
           is-review-command "${COMMENT_BODY}")
         echo "run_review=${RUN_REVIEW}" >> "$GITHUB_OUTPUT"
+    - name: Get GitHub App installation token
+      id: app_token
+      if: steps.cmd.outputs.run_review == 'true'
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ secrets.SECURITY_REVIEWER_APP_ID }}
+        private-key: ${{ secrets.SECURITY_REVIEWER_APP_PRIVATE_KEY }}
+        permission-contents: read
+        permission-pull-requests: write
+        permission-issues: write
     - name: Switch to PR branch
       if: steps.cmd.outputs.run_review == 'true'
       env:
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.issue.number }}
-        GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
+        GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
       run: |
         python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
     - name: Run Security Review
       if: steps.cmd.outputs.run_review == 'true'
       env:
-        SECURITY_REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        SECURITY_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
         REVIEWER_NAME: security-reviewer
         PR_NUMBER: ${{ github.event.issue.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
@@ -101,8 +122,9 @@ security-review-command:
 ```
 
 > [!IMPORTANT] コマンド判定は `review_config.py is-review-command`
-> で共通化されています。新レビュアーを追加する場合は、**既存ジョブの `if` 条件にも新レビュアー名を
-> `!=` で追加**し、自分自身のコマンドで再トリガーされないようにしてください。
+> で共通化されています。新レビュアーを追加する場合は、**既存ジョブの `if` 条件にも新レビュアーのbot
+> login（`<slug>[bot]`）を `!=`
+> で追加**し、自分自身のコマンドで再トリガーされないようにしてください。
 
 ### Step 4: `review.yml` にジョブを追加（push トリガー・任意）
 
@@ -131,9 +153,18 @@ security-review:
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
+    - name: Get GitHub App installation token
+      id: app_token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ secrets.SECURITY_REVIEWER_APP_ID }}
+        private-key: ${{ secrets.SECURITY_REVIEWER_APP_PRIVATE_KEY }}
+        permission-contents: read
+        permission-pull-requests: write
+        permission-issues: write
     - name: Run Security Review
       env:
-        SECURITY_REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        SECURITY_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
         REVIEWER_NAME: security-reviewer
         PR_NUMBER: ${{ github.event.pull_request.number }}
         PR_TITLE: ${{ github.event.pull_request.title }}
@@ -165,10 +196,10 @@ security-review:
 # 既存の一般レビュアー用ジョブの if 条件
 general-review-reply:
   if: >-
-    github.event.issue.pull_request != null && github.event.comment.user.login != 'ame-ai-reviewer'
-    && github.event.comment.user.login != 'security-reviewer' &&
+    github.event.issue.pull_request != null && github.event.comment.user.login !=
+    'ame-ai-reviewer[bot]' && github.event.comment.user.login != 'security-reviewer[bot]' &&
     !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
-    '@ame-ai-reviewer')
+    '@ame-ai-reviewer[bot]')
 ```
 
 また、セキュリティレビュアー用の返信ジョブを追加します。PR ブランチの取得は
@@ -179,10 +210,10 @@ security-review-reply:
   name: Security Review Reply (security-reviewer)
   runs-on: ubuntu-latest
   if: >-
-    github.event.issue.pull_request != null && github.event.comment.user.login != 'ame-ai-reviewer'
-    && github.event.comment.user.login != 'security-reviewer' &&
+    github.event.issue.pull_request != null && github.event.comment.user.login !=
+    'ame-ai-reviewer[bot]' && github.event.comment.user.login != 'security-reviewer[bot]' &&
     !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
-    '@security-reviewer')
+    '@security-reviewer[bot]')
   steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -198,16 +229,25 @@ security-review-reply:
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
+    - name: Get GitHub App installation token
+      id: app_token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ secrets.SECURITY_REVIEWER_APP_ID }}
+        private-key: ${{ secrets.SECURITY_REVIEWER_APP_PRIVATE_KEY }}
+        permission-contents: read
+        permission-pull-requests: write
+        permission-issues: write
     - name: Switch to PR branch
       env:
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.issue.number }}
-        GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_PAT_TOKEN }}
+        GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
       run: |
         python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
     - name: Run reply handler
       env:
-        REVIEWER_TOKEN: ${{ secrets.SECURITY_REVIEWER_TOKEN }}
+        REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
         REVIEWER_NAME: security-reviewer
         PR_NUMBER: ${{ github.event.issue.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
@@ -369,10 +409,11 @@ base64 -w0 ~/.gemini/oauth_creds.json | tr -d '\n' | clip.exe  # → GEMINI_OAUT
 
 1. GitHub リポジトリの **Settings > Secrets and variables > Actions > Secrets** を開く
 2. 各 Secret を追加:
-   - `AME_AI_REVIEWER_TOKEN`: デフォルトのレビュアー（`ame-ai-reviewer`）用のトークン。GitHub
-     Personal Access Token (repo / pull-requests scope) を発行する。
-   - `GITHUB_PAT_TOKEN`: 通常操作用（PR checkout 等）の GitHub PAT。`AME_AI_REVIEWER_TOKEN`
-     と同じトークンを再利用可能。
+   - `AME_AI_REVIEWER_APP_ID`: デフォルトのレビュアー（`ame-ai-reviewer` GitHub App）の App
+     ID（数値）。
+   - `AME_AI_REVIEWER_APP_PRIVATE_KEY`: 上記 App の Private Key（`.pem` 内容全体）。ワークフローは
+     `actions/create-github-app-token@v2` で都度インストールトークンを発行し、PR checkout
+     / レビュー / 返信の全操作をこのトークンで行う。
    - `CLAUDE_CONFIG_B64`: `~/.claude.json` の Base64 エンコード値
    - `CLAUDE_CREDENTIALS_B64`: `~/.claude/.credentials.json` の Base64 エンコード値
    - `OPENCODE_AUTH_B64`: `~/.local/share/opencode/auth.json` の Base64 エンコード値
