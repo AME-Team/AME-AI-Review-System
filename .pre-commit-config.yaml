@@ -6,6 +6,7 @@
 #       依存ゼロの衛生チェック(tools/precommit_hygiene.py) + シークレットスキャン(gitleaks) +
 #       プロジェクト固有ロジック検査(semgrep custom rules) +
 #       Conventional Commits(commitlint) + テスト(pytest, pre-push のみ)。
+#       fail-fast: 1フックでも失敗したら後続フックを実行せず即座に終了する (Issue #2)。
 #
 # 重要: GitHub からフックを取得しない（`repo: local` + `language: system`）。
 #       オフライン環境等でも確実に動作させるため、フックは「ローカルにグローバル
@@ -40,6 +41,7 @@
 minimum_pre_commit_version: "4.0.0"
 default_stages: [pre-commit, pre-merge-commit]
 default_install_hook_types: [pre-commit, commit-msg, pre-push, post-commit]
+fail_fast: true # 1フック失敗で後続フックを即停止 (Issue #2)
 
 # vendored ライブラリ（事前ビルド済み UMD 等）と圧縮成果物はどのフックも触らない。
 exclude: |
