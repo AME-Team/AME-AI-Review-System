@@ -224,26 +224,39 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 
 ## 4. 静的解析ツールのカスタマイズ
 
-本システムの前段ゲートで動作する静的解析ツールは、プロジェクトのコード規約や使用言語に合わせてカスタマイズ可能です。
+本システムの前段ゲートで動作する静的解析ツールは、プロジェクトのコード規約や使用言語に合わせてカスタマイズ可能です。約25種類のツール群がカテゴリ別に連携して動作します。
 
-### 4-1. Ruff (Python Linter / Formatter)
+### 4-1. プリセット静的解析ツール一覧
+
+| カテゴリ               | ツール名                                              | 検証内容                                                       | 主な設定ファイル                                            |
+| ---------------------- | ----------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Python**             | Ruff, mypy, pyright                                   | 構文エラー・未使用変数・厳格な型チェック (strict)              | `pyproject.toml`                                            |
+| **セキュリティ**       | Semgrep Custom, Gitleaks, detect-private-key          | 自作規約（ broad catch/kill 予防など）、機密情報・鍵検出       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
+| **フロントエンド**     | ESLint, tsc, Stylelint                                | TS/JS構文チェック（`--max-warnings=0`）、型不整合、CSS検証     | `eslint.config.js`, `tsconfig.json`                         |
+| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check | Markdown構文、誤字脱字、Mermaidダイアグラム構文検証            | `.markdownlint-cli2.yaml`, `.textlintrc`                    |
+| **設定/データ**        | yamllint, check-yaml/toml/json, SQLFluff              | YAML/TOML/JSON構文検証、SQLフォーマットチェック                | `.yamllint.yaml`, `.sqlfluff`                               |
+| **シェル/CI**          | ShellCheck, actionlint                                | bash/shスクリプトバグ検知、GitHub Actions構文検証              | `.shellcheckrc`, `.actionlint.yaml`                         |
+| **Git衛生**            | commitlint, check-merge-conflict, check-case-conflict | コミットメッセージ規約、マージコンフリクトマーカー検出         | `.commitlintrc.json`, pre-commit-hooks                      |
+| **フォーマット**       | Prettier                                              | 全体のフォーマットの一貫性確保                                 | `.prettierrc`                                               |
+| **自作リポジトリ規約** | prohibit-suppression-comments, repo-hygiene           | 警告抑制コメント（`# noqa`, `eslint-disable`）の無闇な使用禁止 | `scripts/check_suppression_comments.py`                     |
+| **テスト**             | pytest, vitest                                        | 単体テスト・統合テスト（pre-push フック連携）                  | `pyproject.toml`, `vitest.config.ts`                        |
+
+### 4-2. 主要ツールの詳細カスタマイズ
+
+#### Ruff (Python Linter / Formatter)
 
 - **設定ファイル**: `pyproject.toml`
-- Ruff のルール（警告やフォーマット規約）は `[tool.ruff]` 配下で定義されている。
-- `select` や `ignore` セクションを編集することで、検出する警告を増減できる。
+- `[tool.ruff]` 配下で `select` や `ignore` を編集し、検出警告を制御する。
 
-### 4-2. mypy (Python 静的型検査)
+#### mypy (Python 静的型検査)
 
 - **設定ファイル**: `pyproject.toml`
-- `[tool.mypy]` 配下で型チェックの厳格度（`strict = true`
-  など）を制御する。プロジェクトの型定義状況に合わせて設定を変更する。
+- `[tool.mypy]` 配下で `strict = true` 等の型チェック厳格度を制御する。
 
-### 4-3. Semgrep (プロジェクト固有ルール)
+#### Semgrep (プロジェクト固有ルール)
 
 - **ルール定義ファイル**: `ame_ai_review_system/.semgrep/rules.yml`
-- `CLAUDE.md` §8 のコーディング規約を Semgrep カスタムルールとして機械的に検出する。
-- 新たにチームの禁止事項や推奨パターンを追加したい場合は、この YAML ファイルに Semgrep の構文（`pattern`
-  や `patterns`）を用いてルールを追加する。
+- `CLAUDE.md` §8 のコーディング規約を Semgrep カスタムルールとして検出する。
 
 ---
 
@@ -313,7 +326,17 @@ Variables から以下の変数を登録します。
 > [!NOTE] 環境変数の優先順位は **GitHub Variables > `config.user.json` >
 > `config.json` > デフォルト値** です。Variables に設定した値が最も優先されます。
 
-### 6-2. 認証情報の設定（GitHub Secrets）
+### Coding Agent 選択のメリットと広範コンテキスト検証
+
+本システムは単なる API 連携ではなく、実機の **Claude Code**, **OpenCode**, **Antigravity CLI**
+などの Coding
+Agent と連携します。プロンプトカスタマイズにより、以下のような高度な全体最適化の検証を自動で実施できます。
+
+- **差分外ファイルの自発的参照**: 変更差分だけでは判断できない呼び出し元・呼び出し先の関連モジュールをエージェントが自発的に探索。
+- **ドキュメント (Documents) 更新の追従確認**: 「今回のコード修正に伴い、`docs/` や `README.md`
+  の仕様記述も更新されているか」をプロジェクト全体から走査・判定。
+
+---
 
 各エンジンの認証情報は GitHub Secrets に Base64 エンコードして登録します。
 

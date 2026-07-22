@@ -14,27 +14,43 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 ```text
 [ ローカル開発 (Git Commit) ]
   └── Gate 1: pre-commit ゲート (静的解析 + AI レビュー)
-        └── staged ファイルに対し ruff/mypy/semgrep を実行。パスした場合のみローカル AI レビューを実行。
+        └── staged ファイルに対し ruff/mypy/semgrep 等を実行。パスした場合のみローカル AI レビューを実行。
 
 [ CI/CD 環境 (Pull Request) ]
   └── Gate 2: PR ゲート (Circuit Breaker 静的解析 + AI レビュー)
-        └── コメント `/request-review` 時に ruff/mypy/semgrep を実行。エラーが 0 件の場合のみ AI レビューを実行。
+        └── コメント `/request-review` 時に ruff/mypy/semgrep 等を実行。エラーが 0 件の場合のみ AI レビューを実行。
 ```
+
+### 静的解析プリセット一覧
+
+本システムでは、機械的に検出可能な問題は LLM 呼び出し前に静的解析で 100% キャッチする思想を徹底しています。以下の約25個のツール群が既定の品質チェックとして動作します。
+
+| カテゴリ               | 採用ツール・検査内容                                                              | 主な設定ファイル                                            |
+| ---------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Python**             | ruff (lint, ALL+preview), ruff-format, mypy (strict), pyright                     | `pyproject.toml`                                            |
+| **セキュリティ**       | semgrep-custom（自作7ルール）, gitleaks, detect-private-key                       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
+| **フロントエンド**     | eslint (`--max-warnings=0`), tsc `--noEmit`, stylelint                            | `eslint.config.js`, `tsconfig.json`                         |
+| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check（自作）                     | `.markdownlint-cli2.yaml`, `.textlintrc`                    |
+| **設定/データ**        | yamllint (strict), check-yaml / check-toml / check-json, sqlfluff                 | `.yamllint.yaml`, `.sqlfluff`                               |
+| **シェル/CI**          | shellcheck, actionlint                                                            | `.shellcheckrc`, `.actionlint.yaml`                         |
+| **Git衛生**            | commitlint, check-merge-conflict, check-case-conflict, check-added-large-files 等 | `.commitlintrc.json`, pre-commit-hooks                      |
+| **フォーマット**       | prettier-root                                                                     | `.prettierrc`                                               |
+| **自作リポジトリ規約** | prohibit-suppression-comments, repo-hygiene                                       | `scripts/check_suppression_comments.py`                     |
+| **テスト**             | pytest, vitest（pre-push / pre-merge-commit 連携）                                | `pyproject.toml`, `vitest.config.ts`                        |
 
 本リポジトリは、別のプロジェクトへ `.github/` と `ame_ai_review_system/`
 をコピペするだけで、この仕組みを移植可能です。
 
 ## 特徴
 
-- **mainブランチとの全累積差分レビュー**: AIレビューは単一コミットごとの差分ではなく
-  `origin/main...HEAD`
-  の全累積差分を対象に実行する。複数コミットを含むPRでも変更全容を漏らさず正確に評価する。
+- **mainブランチとの全累積差分レビュー**: 従来のコミット単位の差分チェックでは複数コミットを含むPRの全容把握が困難であった。本システムは
+  `origin/main...HEAD` の全累積差分を評価対象とし、PR全体の整合性を正確に追跡・評価する。
 - **超厳格なデフォルト静的解析**: tsc / eslint (--max-warnings=0) / mypy / ruff /
-  semgrep などを標準装備。機械的に検出可能な指摘点は前段で100%キャッチする思想を徹底する。
+  semgrep 等の約25ツールを標準装備。機械的な問題は前段で100%捕捉する構造である。
 - **Gate 1（pre-commit）& Gate 2（PR）の二重品質ゲート**: ローカルコミット時（Gate 1）とCI/CD
   PR時（Gate 2）の二段階で静的解析とAIレビューを実施する。欠陥の早期検出（Shift-Left）を実現する。
 - **マルチCodingエージェント対応 & 広範なコンテキスト検証**: Claude Code / OpenCode / Antigravity
-  CLI 等を指定可能。リポジトリ全域を参照し「コード修正に伴うドキュメント更新有無」なども評価できる。
+  CLI 等を指定可能。Codingエージェントが差分外領域も自発的に探索し「コード修正に伴うドキュメント更新の有無」なども高度に検証する。
 - **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
 - **pre-commit 時の AI レビュー**: `git commit`
   時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で無限ループ回避の escape
