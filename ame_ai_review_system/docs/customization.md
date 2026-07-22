@@ -140,10 +140,10 @@ security-review-command:
 # 既存の一般レビュアー用ジョブの if 条件
 general-review-reply:
   if: >-
-    github.event.issue.pull_request != null && github.event.comment.user.login !=
-    'ame-ai-reviewer[bot]' && github.event.comment.user.login != 'security-reviewer[bot]' &&
-    !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
-    '@ame-ai-reviewer[bot]')
+    (github.event.issue.pull_request != null || github.event.pull_request != null) &&
+    github.event.comment.user.login != 'ame-ai-reviewer[bot]' && github.event.comment.user.login !=
+    'security-reviewer[bot]' && !startsWith(github.event.comment.body, '/') &&
+    contains(github.event.comment.body, '@ame-ai-reviewer')
 ```
 
 また、セキュリティレビュアー用の返信ジョブを追加します。PR ブランチの取得は
@@ -154,10 +154,10 @@ security-review-reply:
   name: Security Review Reply (security-reviewer)
   runs-on: ubuntu-latest
   if: >-
-    github.event.issue.pull_request != null && github.event.comment.user.login !=
-    'ame-ai-reviewer[bot]' && github.event.comment.user.login != 'security-reviewer[bot]' &&
-    !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
-    '@security-reviewer[bot]')
+    (github.event.issue.pull_request != null || github.event.pull_request != null) &&
+    github.event.comment.user.login != 'ame-ai-reviewer[bot]' && github.event.comment.user.login !=
+    'security-reviewer[bot]' && !startsWith(github.event.comment.body, '/') &&
+    contains(github.event.comment.body, '@security-reviewer')
   steps:
     - name: Checkout
       uses: actions/checkout@v4
