@@ -26,14 +26,24 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 
 ## 特徴
 
+- **mainブランチとの全累積差分レビュー**: AIレビューは単一コミットごとの差分ではなく
+  `origin/main...HEAD`
+  の全累積差分を対象に実行する。複数コミットを含むPRでも変更全容を漏らさず正確に評価する。
+- **超厳格なデフォルト静的解析**: tsc / eslint (--max-warnings=0) / mypy / ruff /
+  semgrep などを標準装備。機械的に検出可能な指摘点は前段で100%キャッチする思想を徹底する。
+- **Gate 1（pre-commit）& Gate 2（PR）の二重品質ゲート**: ローカルコミット時（Gate 1）とCI/CD
+  PR時（Gate 2）の二段階で静的解析とAIレビューを実施する。欠陥の早期検出（Shift-Left）を実現する。
+- **マルチCodingエージェント対応 & 広範なコンテキスト検証**: Claude Code / OpenCode / Antigravity
+  CLI 等を指定可能。リポジトリ全域を参照し「コード修正に伴うドキュメント更新有無」なども評価できる。
 - **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
 - **pre-commit 時の AI レビュー**: `git commit`
   時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で無限ループ回避の escape
-  hatch を用意。前段の静的解析 (ruff / mypy / semgrep) が全て pass した場合のみ AI レビューする。
-  `precommit_require_static_checks` で ON/OFF 可能（デフォルト ON）。
+  hatch を用意。前段の静的解析 (ruff / mypy /
+  semgrep) が全て pass した場合のみ AI レビューする。`precommit_require_static_checks`
+  で ON/OFF 可能（デフォルト ON）。
 - **PR レビューの Circuit Breaker**: `/request-review` 実行時に ruff / mypy /
-  semgrep の静的解析を先行実行する。1件でもエラーがあれば AI レビューをスキップしてトークン消費を抑制する。
-  `pr_review_require_static_checks` で ON/OFF 可能（デフォルト ON）。
+  semgrep の静的解析を先行実行する。1件でもエラーがあれば AI レビューをスキップしてトークン消費を抑制する。`pr_review_require_static_checks`
+  で ON/OFF 可能（デフォルト ON）。
 - **Semgrep カスタムルール**: CLAUDE.md §8 のコーディング規約を Semgrep で機械的に検出する。broad
   exception catch 禁止・kill -15 $pids 禁止・echo|python3 -c 禁止 等。ルールは
   `ame_ai_review_system/.semgrep/rules.yml`。
@@ -42,7 +52,7 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 - **Reasoning Effort の役割別制御**: レビュー時と返信判定時で model /
   thinking を個別設定可能。`review_model`/`reply_model`/
   `review_thinking`/`reply_thinking`。返信判定は haiku/low で推論トークンを削減。
-- **Stale-Loop 検出**: レビュアーが同じ指摘を言い換えて繰り返す膠着状態を Jaccard 類似度 (80%閾値) で検出し、強制 LGTM で胶着を打破する。
+- **Stale-Loop 検出**: レビュアーが同じ指摘を言い換えて繰り返す膠着状態を Jaccard 類似度 (80%閾値) で検出し、強制 LGTM で膠着を打破する。
 - **Diff 圧縮**: git
   diff のメタデータ行・バイナリ差分・連続空行を除去し（RTK アプローチ）、LLM 入力トークンを削減。
 - **実装エンジンの自動検出**: 実装に使っている AI ツールをプロセスツリーから自動検出する (`precommit_engine="auto"`)。OpenCode +

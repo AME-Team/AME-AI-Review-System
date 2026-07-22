@@ -31,14 +31,18 @@ interface TranslationResource {
   viewConfigBtn: string;
   secFeaturesTitle: string;
   secFeaturesDesc: string;
+  featureDiffTitle: string;
+  featureDiffDesc: string;
   featureCbTitle: string;
   featureCbDesc: string;
+  featureGateTitle: string;
+  featureGateDesc: string;
+  featureAgentTitle: string;
+  featureAgentDesc: string;
   featureCompressTitle: string;
   featureCompressDesc: string;
   featureLoopTitle: string;
   featureLoopDesc: string;
-  featureScopeTitle: string;
-  featureScopeDesc: string;
   demoTitle: string;
   demoDesc: string;
   demoCheckbox: string;
@@ -91,26 +95,33 @@ const translations: Record<Locale, TranslationResource> = {
     githubRepo: "GitHub リポジトリ",
     badgeVersion: "v2.0.0 厳格監視ゲート",
     heroTitle1: "デュアルゲートAIコードレビュー",
-    heroTitleAccent: "厳格なマルチ言語品質",
-    heroTitle2: "を保証する自動レビュー",
+    heroTitleAccent: "超厳格な静的解析とAIエージェント",
+    heroTitle2: "が品質を徹底保証",
     heroDesc:
-      "開発者のローカル環境におけるコミット前の検証（ゲート1）と、プルリクエスト時の自動レビュー（ゲート2）を組み合わせた品質管理システム。TypeScript、Python、および主要なテキストファイル（Markdown、JSON、YAMLなど）の品質を静的解析とAIで保証し、レビューコストを大幅に削減します。",
+      "開発者のローカル環境（Gate 1）とプルリクエスト（Gate 2）の二重ゲート構造。mainブランチとの全累積差分評価、超厳格な静的解析サーキットブレーカー、およびClaude Code / OpenCode / Antigravityなどの各種Codingエージェント連携により、コードとドキュメントの品質を保証します。",
     tryDemoBtn: "シミュレーターを試す",
     viewConfigBtn: "設定ファイルを見る",
-    secFeaturesTitle: "厳格さと速度を両立する設計",
-    secFeaturesDesc: "プロジェクトの品質と開発効率を高めるためのコアメカニズム",
-    featureCbTitle: "静的サーキットブレーカー",
+    secFeaturesTitle: "厳格さと柔軟性を備えたコアアーキテクチャ",
+    secFeaturesDesc:
+      "静的解析の超厳格性とAIエージェントの柔軟なコンテキスト評価を融合した品質管理機構",
+    featureDiffTitle: "mainブランチ累積差分レビュー",
+    featureDiffDesc:
+      "Commit単位の局所的な変更点ではなく origin/main...HEAD の全累積差分を評価。複数コミットを含むPRでも変更の全容を漏らさず正確に追跡・レビューします。",
+    featureCbTitle: "超厳格な静的サーキットブレーカー",
     featureCbDesc:
-      "TypeScript(tsc)、ESLint、Python(mypy/ruff) などの解析を事前に実行。エラー検出時はAIレビューを即時スキップし、不要なAPIトークン消費と開発者の待ち時間を徹底的に削減します。",
+      "TypeScript (tsc)、ESLint (--max-warnings=0)、Python (mypy/ruff)、Semgrep を前段で実行。機械的指摘を100%補獲し、エラー時はAI呼び出しを即時スキップします。",
+    featureGateTitle: "Dual-Gate 品質保証",
+    featureGateDesc:
+      "ローカルコミット時（Gate 1）とCI/CDのPR時（Gate 2）の二段階で静的解析とAIレビューを実行。早期検出（Shift-Left）とPRでの強固なガードを完璧に両立します。",
+    featureAgentTitle: "Codingエージェント & 広範コンテキスト検証",
+    featureAgentDesc:
+      "Claude Code, OpenCode, Antigravity CLIなどのCodingエージェントをエンジンに指定可能。差分外を含む全リポジトリを参照し「コード修正に伴うDocumentsの更新有無」なども自動チェック可能。",
     featureCompressTitle: "headroom トークン圧縮技術",
     featureCompressDesc:
-      "Gitメタデータ、バイナリ差分、冗長な空行、markdown/json/yaml等の構成ファイル内の不要セクションを自動でフィルタリングおよび圧縮。AIへの入力トークン量を最小限に抑え、プロンプトキャッシュを最適化します。",
-    featureLoopTitle: "停滞ループ検出",
+      "Gitメタデータ、バイナリ差分、冗長な空行、構成ファイル内の不要セクションを自動圧縮。AIへの入力トークン量を最小限に抑えプロンプトキャッシュを最適化します。",
+    featureLoopTitle: "停滞ループ自動検出",
     featureLoopDesc:
-      "直近の指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行し、チーム全体のデリバリー速度の低下を防ぎます。",
-    featureScopeTitle: "広範なファイル品質保証",
-    featureScopeDesc:
-      "ソースコード(TS, Python)だけでなく、主要な設定ファイル(JSON, YAML)やプロジェクトドキュメント(Markdown)までカバー。あらゆる構成ファイルの書き込み品質を一定に保ちます。",
+      "指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行しデリバリー速度の低下を防ぎます。",
     demoTitle: "ローカル検証の体験",
     demoDesc:
       "コミット時におけるローカル検証（ゲート1）が、どのようにコードや設定の欠陥を検知してコミットをブロックするかをシミュレートできます。以下のチェックを切り替えて、シミュレーションを実行してください。",
@@ -165,26 +176,33 @@ const translations: Record<Locale, TranslationResource> = {
     githubRepo: "GitHub Repo",
     badgeVersion: "v2.0.0 Strict Monitoring Gate",
     heroTitle1: "Dual-Gate AI Code Review",
-    heroTitleAccent: "Strict Multi-Language Quality",
-    heroTitle2: "Guaranteed by Automated Reviews",
+    heroTitleAccent: "Ultra-Strict Static Checks & AI Agents",
+    heroTitle2: "Guarantee Complete Quality",
     heroDesc:
-      "A quality management system combining pre-commit verification in the developer's local environment (Gate 1) and automated review during pull requests (Gate 2). It guarantees the quality of TypeScript, Python, and major text files (Markdown, JSON, YAML, etc.) using static analysis and AI, significantly reducing review costs.",
+      "A dual-gate quality control architecture combining local pre-commit (Gate 1) and pull request reviews (Gate 2). Evaluates cumulative main branch diffs, ultra-strict static circuit breakers, and integrates Coding agents like Claude Code, OpenCode, and Antigravity for code and document assurance.",
     tryDemoBtn: "Try Simulator",
     viewConfigBtn: "View Config Files",
-    secFeaturesTitle: "Designed for Both Rigidity and Speed",
-    secFeaturesDesc: "Core mechanisms for elevating project quality and development efficiency",
-    featureCbTitle: "Static Circuit Breaker",
+    secFeaturesTitle: "Core Architecture Designed for Rigidity & Flexibility",
+    secFeaturesDesc:
+      "A quality management system combining ultra-strict static analysis with flexible AI agent context evaluations",
+    featureDiffTitle: "Main Branch Cumulative Diff Review",
+    featureDiffDesc:
+      "Evaluates cumulative diffs (origin/main...HEAD) instead of per-commit fragments, capturing the full scope of multi-commit PRs accurately.",
+    featureCbTitle: "Ultra-Strict Static Circuit Breaker",
     featureCbDesc:
-      "Executes static analysis (tsc, ESLint, mypy, ruff) beforehand. Skips AI review immediately if errors are detected, minimizing API token consumption and developer wait time.",
+      "Executes tsc, ESLint (--max-warnings=0), mypy/ruff, and Semgrep upfront. Catches 100% of static issues early and skips AI calls when errors occur.",
+    featureGateTitle: "Dual-Gate Quality Assurance",
+    featureGateDesc:
+      "Combines local pre-commit verification (Gate 1) with CI pull request reviews (Gate 2), ensuring local Shift-Left and solid CI gating.",
+    featureAgentTitle: "Coding Agent & Full Context Analysis",
+    featureAgentDesc:
+      "Supports Claude Code, OpenCode, and Antigravity CLI. Refers to full repository context to automatically check if documentation updates match code changes.",
     featureCompressTitle: "headroom Token Compression",
     featureCompressDesc:
-      "Automatically filters and compresses Git metadata, binary diffs, redundant empty lines, and unnecessary sections in configuration files (JSON, YAML, Markdown), maximizing Claude's prompt caching efficiency.",
+      "Automatically filters Git metadata and redundant lines, compressing LLM input tokens and maximizing prompt caching efficiency.",
     featureLoopTitle: "Stagnation Loop Detection",
     featureLoopDesc:
-      "Automatically evaluates the Jaccard similarity of the last review comments. Emits a forced LGTM when progress-less circular discussions (infinite loops) are detected, ensuring team velocity.",
-    featureScopeTitle: "Broad File Quality Assurance",
-    featureScopeDesc:
-      "Guarantees quality not only for source code (TS, Python) but also for major configuration files (JSON, YAML) and documentation (Markdown). Keeps standard formatting consistent.",
+      "Evaluates comment Jaccard similarity to catch circular discussions, issuing forced LGTMs to maintain team velocity.",
     demoTitle: "Experience Local Verification",
     demoDesc:
       "Simulate how Gate 1 (pre-commit hook) catches flaws in code or configurations and blocks commits. Toggle the option below and start the verification.",
@@ -833,10 +851,21 @@ if ts_files:
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t.secFeaturesDesc}</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
               <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
-                ✓
+                🔀
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t.featureDiffTitle}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t.featureDiffDesc}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
+                ⚡
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {t.featureCbTitle}
@@ -846,8 +875,30 @@ if ts_files:
               </p>
             </div>
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-stable-green/10 text-stable-green flex items-center justify-center font-bold text-lg shadow-sm">
-                ⚡
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
+                🛡️
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t.featureGateTitle}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t.featureGateDesc}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
+                🤖
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t.featureAgentTitle}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t.featureAgentDesc}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
+                📦
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {t.featureCompressTitle}
@@ -857,25 +908,14 @@ if ts_files:
               </p>
             </div>
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-indigo-sophisticated/10 text-indigo-sophisticated flex items-center justify-center font-bold text-lg shadow-sm">
-                ∞
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
+                🔄
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {t.featureLoopTitle}
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
                 {t.featureLoopDesc}
-              </p>
-            </div>
-            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-teal-clarity/10 text-teal-clarity flex items-center justify-center font-bold text-lg shadow-sm">
-                📁
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {t.featureScopeTitle}
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                {t.featureScopeDesc}
               </p>
             </div>
           </div>
