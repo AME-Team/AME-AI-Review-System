@@ -315,6 +315,306 @@ function loadSavedSettings(): AppSettings {
   }
 }
 
+const GateCustomNode: React.FC<{
+  data: { title: string; desc: string; badges: string[]; isGate1?: boolean };
+}> = ({ data }) => {
+  return (
+    <div className="px-4 py-3 rounded-xl bg-white dark:bg-gray-800 border-2 border-primary/40 shadow-lg min-w-[260px] max-w-[300px]">
+      <Handle type="target" position={Position.Left} className="!bg-primary !w-3 !h-3" />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-2">
+          <span className="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-primary inline-block"></span>
+            {data.title}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
+            {data.isGate1 === true ? "Local" : "CI/CD"}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 font-sans">{data.desc}</p>
+        <div className="flex flex-wrap gap-1 mt-1">
+          {data.badges.map((b, i) => (
+            <span
+              key={i}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 font-mono"
+            >
+              {b}
+            </span>
+          ))}
+        </div>
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="pass"
+        className="!bg-emerald-500 !w-3 !h-3"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="fail"
+        className="!bg-rose-500 !w-3 !h-3"
+      />
+    </div>
+  );
+};
+
+const ActionCustomNode: React.FC<{ data: { label: string; sub: string } }> = ({ data }) => {
+  return (
+    <div className="px-4 py-2.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-semibold text-xs shadow-md border border-gray-700 dark:border-gray-300 min-w-[130px] text-center">
+      <Handle type="target" position={Position.Left} className="!bg-gray-400 !w-2.5 !h-2.5" />
+      <div>{data.label}</div>
+      <div className="text-[10px] opacity-75 font-normal font-sans mt-0.5">{data.sub}</div>
+      <Handle type="source" position={Position.Right} className="!bg-gray-400 !w-2.5 !h-2.5" />
+    </div>
+  );
+};
+
+const FailCustomNode: React.FC<{ data: { label: string; sub: string } }> = ({ data }) => {
+  return (
+    <div className="px-3 py-2 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs shadow-sm text-center font-sans">
+      <Handle type="target" position={Position.Top} className="!bg-rose-500 !w-2.5 !h-2.5" />
+      <div className="font-bold">{data.label}</div>
+      <div className="text-[10px] text-rose-500 dark:text-rose-400 mt-0.5">{data.sub}</div>
+    </div>
+  );
+};
+
+const flowNodeTypes = {
+  gate: GateCustomNode,
+  action: ActionCustomNode,
+  fail: FailCustomNode,
+};
+
+const DualGateFlowDiagram: React.FC<{ locale: Locale }> = ({ locale }) => {
+  const isJa = locale === "ja";
+
+  const nodes = [
+    {
+      id: "commit",
+      type: "action",
+      position: { x: 20, y: 110 },
+      data: {
+        label: "git commit",
+        sub: isJa ? "ローカルコミット" : "Local Commit",
+      },
+    },
+    {
+      id: "gate1",
+      type: "gate",
+      position: { x: 200, y: 30 },
+      data: {
+        title: "Gate 1: pre-commit",
+        desc: isJa ? "静的解析 (25+ツール) ＋ AI レビュー" : "Static Check (25+ tools) + AI Review",
+        badges: ["Python", "Security", "Frontend", "Docs", "Config", "Shell/CI", "Git", "Test"],
+        isGate1: true,
+      },
+    },
+    {
+      id: "gate1-fail",
+      type: "fail",
+      position: { x: 235, y: 240 },
+      data: {
+        label: isJa ? "コミットブロック ❌" : "Commit Blocked ❌",
+        sub: isJa ? "静的解析エラー / 重大指摘" : "Static Error / Major Issue",
+      },
+    },
+    {
+      id: "pr",
+      type: "action",
+      position: { x: 550, y: 110 },
+      data: {
+        label: "PR / /request-review",
+        sub: isJa ? "GitHub Actions 起動" : "Trigger CI Workflow",
+      },
+    },
+    {
+      id: "gate2",
+      type: "gate",
+      position: { x: 770, y: 30 },
+      data: {
+        title: "Gate 2: PR (CI/CD)",
+        desc: isJa
+          ? "Circuit Breaker 静的解析 ＋ AI レビュー"
+          : "Circuit Breaker Static Check + AI Review",
+        badges: ["ruff/mypy/semgrep", "Circuit Breaker", "Multi-Agent", "Reply Sync"],
+        isGate1: false,
+      },
+    },
+    {
+      id: "gate2-fail",
+      type: "fail",
+      position: { x: 805, y: 240 },
+      data: {
+        label: isJa ? "AIレビュー スキップ ⚠️" : "AI Review Skipped ⚠️",
+        sub: isJa ? "Circuit Breaker 発動" : "Circuit Breaker Triggered",
+      },
+    },
+    {
+      id: "merge",
+      type: "action",
+      position: { x: 1120, y: 110 },
+      data: {
+        label: isJa ? "PR マージ 🎉" : "PR Merged 🎉",
+        sub: isJa ? "品質保証パス" : "Quality Passed",
+      },
+    },
+  ];
+
+  const edges = [
+    {
+      id: "e1",
+      source: "commit",
+      target: "gate1",
+      animated: true,
+      style: { stroke: "#6366f1", strokeWidth: 2 },
+    },
+    {
+      id: "e-g1-fail",
+      source: "gate1",
+      sourceHandle: "fail",
+      target: "gate1-fail",
+      label: "FAIL",
+      style: { stroke: "#f43f5e", strokeDasharray: "4,4", strokeWidth: 2 },
+    },
+    {
+      id: "e-g1-pass",
+      source: "gate1",
+      sourceHandle: "pass",
+      target: "pr",
+      label: "PASS",
+      style: { stroke: "#10b981", strokeWidth: 2 },
+    },
+    {
+      id: "e2",
+      source: "pr",
+      target: "gate2",
+      animated: true,
+      style: { stroke: "#6366f1", strokeWidth: 2 },
+    },
+    {
+      id: "e-g2-fail",
+      source: "gate2",
+      sourceHandle: "fail",
+      target: "gate2-fail",
+      label: "FAIL (Circuit Breaker)",
+      style: { stroke: "#f43f5e", strokeDasharray: "4,4", strokeWidth: 2 },
+    },
+    {
+      id: "e-g2-pass",
+      source: "gate2",
+      sourceHandle: "pass",
+      target: "merge",
+      label: "PASS (LGTM)",
+      style: { stroke: "#10b981", strokeWidth: 2 },
+    },
+  ];
+
+  return (
+    <div className="w-full h-[360px] rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 overflow-hidden shadow-inner relative">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={flowNodeTypes}
+        fitView
+        nodesDraggable={false}
+        nodesConnectable={false}
+        zoomOnScroll={false}
+        panOnScroll={false}
+        preventScrolling={false}
+      >
+        <Background color="#888888" gap={16} size={1} style={{ opacity: 0.15 }} />
+        <Controls
+          showInteractive={false}
+          className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 shadow-sm"
+        />
+      </ReactFlow>
+    </div>
+  );
+};
+
+const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) => {
+  return (
+    <section id="engines" className="flex flex-col gap-8 my-4">
+      <div className="flex flex-col gap-2">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold w-fit">
+          Multi-Engine Integration
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.enginesTitle}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{t.enginesDesc}</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Claude Code */}
+        <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xl">
+            Cc
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+              {t.engineClaudeTitle}
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-normal">
+                Anthropic
+              </span>
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+              {t.engineClaudeDesc}
+            </p>
+          </div>
+          <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <code>claude -p</code> / Budget limit
+          </div>
+        </div>
+
+        {/* OpenCode */}
+        <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xl">
+            Oc
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+              {t.engineOpencodeTitle}
+              <span className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-normal">
+                Multi-Provider
+              </span>
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+              {t.engineOpencodeDesc}
+            </p>
+          </div>
+          <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <code>opencode run</code> / OpenRouter
+          </div>
+        </div>
+
+        {/* Antigravity CLI */}
+        <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xl">
+            Ag
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+              {t.engineAntigravityTitle}
+              <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-normal">
+                Google DeepMind
+              </span>
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+              {t.engineAntigravityDesc}
+            </p>
+          </div>
+          <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <code>agy</code> / Gemini Reasoning
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 export default function App(): React.JSX.Element {
   const [simulateBug, setSimulateBug] = useState<boolean>(false);
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -604,308 +904,6 @@ if ts_files:
             sys.exit(1) # Fails early if static checks fail, skipping AI review`;
       }
     }
-  };
-
-  const GateCustomNode: React.FC<{
-    data: { title: string; desc: string; badges: string[]; isGate1?: boolean };
-  }> = ({ data }) => {
-    return (
-      <div className="px-4 py-3 rounded-xl bg-white dark:bg-gray-800 border-2 border-primary/40 shadow-lg min-w-[260px] max-w-[300px]">
-        <Handle type="target" position={Position.Left} className="!bg-primary !w-3 !h-3" />
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-2">
-            <span className="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-primary inline-block"></span>
-              {data.title}
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
-              {data.isGate1 === true ? "Local" : "CI/CD"}
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-sans">{data.desc}</p>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {data.badges.map((b, i) => (
-              <span
-                key={i}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 font-mono"
-              >
-                {b}
-              </span>
-            ))}
-          </div>
-        </div>
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="pass"
-          className="!bg-emerald-500 !w-3 !h-3"
-        />
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          id="fail"
-          className="!bg-rose-500 !w-3 !h-3"
-        />
-      </div>
-    );
-  };
-
-  const ActionCustomNode: React.FC<{ data: { label: string; sub: string } }> = ({ data }) => {
-    return (
-      <div className="px-4 py-2.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-semibold text-xs shadow-md border border-gray-700 dark:border-gray-300 min-w-[130px] text-center">
-        <Handle type="target" position={Position.Left} className="!bg-gray-400 !w-2.5 !h-2.5" />
-        <div>{data.label}</div>
-        <div className="text-[10px] opacity-75 font-normal font-sans mt-0.5">{data.sub}</div>
-        <Handle type="source" position={Position.Right} className="!bg-gray-400 !w-2.5 !h-2.5" />
-      </div>
-    );
-  };
-
-  const FailCustomNode: React.FC<{ data: { label: string; sub: string } }> = ({ data }) => {
-    return (
-      <div className="px-3 py-2 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs shadow-sm text-center font-sans">
-        <Handle type="target" position={Position.Top} className="!bg-rose-500 !w-2.5 !h-2.5" />
-        <div className="font-bold">{data.label}</div>
-        <div className="text-[10px] text-rose-500 dark:text-rose-400 mt-0.5">{data.sub}</div>
-      </div>
-    );
-  };
-
-  const flowNodeTypes = {
-    gate: GateCustomNode,
-    action: ActionCustomNode,
-    fail: FailCustomNode,
-  };
-
-  const DualGateFlowDiagram: React.FC<{ locale: Locale }> = ({ locale }) => {
-    const isJa = locale === "ja";
-
-    const nodes = [
-      {
-        id: "commit",
-        type: "action",
-        position: { x: 20, y: 110 },
-        data: {
-          label: "git commit",
-          sub: isJa ? "ローカルコミット" : "Local Commit",
-        },
-      },
-      {
-        id: "gate1",
-        type: "gate",
-        position: { x: 200, y: 30 },
-        data: {
-          title: "Gate 1: pre-commit",
-          desc: isJa
-            ? "静的解析 (25+ツール) ＋ AI レビュー"
-            : "Static Check (25+ tools) + AI Review",
-          badges: ["Python", "Security", "Frontend", "Docs", "Config", "Shell/CI", "Git", "Test"],
-          isGate1: true,
-        },
-      },
-      {
-        id: "gate1-fail",
-        type: "fail",
-        position: { x: 235, y: 240 },
-        data: {
-          label: isJa ? "コミットブロック ❌" : "Commit Blocked ❌",
-          sub: isJa ? "静的解析エラー / 重大指摘" : "Static Error / Major Issue",
-        },
-      },
-      {
-        id: "pr",
-        type: "action",
-        position: { x: 550, y: 110 },
-        data: {
-          label: "PR / /request-review",
-          sub: isJa ? "GitHub Actions 起動" : "Trigger CI Workflow",
-        },
-      },
-      {
-        id: "gate2",
-        type: "gate",
-        position: { x: 770, y: 30 },
-        data: {
-          title: "Gate 2: PR (CI/CD)",
-          desc: isJa
-            ? "Circuit Breaker 静的解析 ＋ AI レビュー"
-            : "Circuit Breaker Static Check + AI Review",
-          badges: ["ruff/mypy/semgrep", "Circuit Breaker", "Multi-Agent", "Reply Sync"],
-          isGate1: false,
-        },
-      },
-      {
-        id: "gate2-fail",
-        type: "fail",
-        position: { x: 805, y: 240 },
-        data: {
-          label: isJa ? "AIレビュー スキップ ⚠️" : "AI Review Skipped ⚠️",
-          sub: isJa ? "Circuit Breaker 発動" : "Circuit Breaker Triggered",
-        },
-      },
-      {
-        id: "merge",
-        type: "action",
-        position: { x: 1120, y: 110 },
-        data: {
-          label: isJa ? "PR マージ 🎉" : "PR Merged 🎉",
-          sub: isJa ? "品質保証パス" : "Quality Passed",
-        },
-      },
-    ];
-
-    const edges = [
-      {
-        id: "e1",
-        source: "commit",
-        target: "gate1",
-        animated: true,
-        style: { stroke: "#6366f1", strokeWidth: 2 },
-      },
-      {
-        id: "e-g1-fail",
-        source: "gate1",
-        sourceHandle: "fail",
-        target: "gate1-fail",
-        label: "FAIL",
-        style: { stroke: "#f43f5e", strokeDasharray: "4,4", strokeWidth: 2 },
-      },
-      {
-        id: "e-g1-pass",
-        source: "gate1",
-        sourceHandle: "pass",
-        target: "pr",
-        label: "PASS",
-        style: { stroke: "#10b981", strokeWidth: 2 },
-      },
-      {
-        id: "e2",
-        source: "pr",
-        target: "gate2",
-        animated: true,
-        style: { stroke: "#6366f1", strokeWidth: 2 },
-      },
-      {
-        id: "e-g2-fail",
-        source: "gate2",
-        sourceHandle: "fail",
-        target: "gate2-fail",
-        label: "FAIL (Circuit Breaker)",
-        style: { stroke: "#f43f5e", strokeDasharray: "4,4", strokeWidth: 2 },
-      },
-      {
-        id: "e-g2-pass",
-        source: "gate2",
-        sourceHandle: "pass",
-        target: "merge",
-        label: "PASS (LGTM)",
-        style: { stroke: "#10b981", strokeWidth: 2 },
-      },
-    ];
-
-    return (
-      <div className="w-full h-[360px] rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 overflow-hidden shadow-inner relative">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={flowNodeTypes}
-          fitView
-          nodesDraggable={false}
-          nodesConnectable={false}
-          zoomOnScroll={false}
-          panOnScroll={false}
-          preventScrolling={false}
-        >
-          <Background color="#888888" gap={16} size={1} style={{ opacity: 0.15 }} />
-          <Controls
-            showInteractive={false}
-            className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 shadow-sm"
-          />
-        </ReactFlow>
-      </div>
-    );
-  };
-
-  const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) => {
-    return (
-      <section id="engines" className="flex flex-col gap-8 my-4">
-        <div className="flex flex-col gap-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold w-fit">
-            Multi-Engine Integration
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.enginesTitle}</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t.enginesDesc}</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Claude Code */}
-          <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xl">
-              Cc
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
-                {t.engineClaudeTitle}
-                <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-normal">
-                  Anthropic
-                </span>
-              </h3>
-              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
-                {t.engineClaudeDesc}
-              </p>
-            </div>
-            <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <code>claude -p</code> / Budget limit
-            </div>
-          </div>
-
-          {/* OpenCode */}
-          <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xl">
-              Oc
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
-                {t.engineOpencodeTitle}
-                <span className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-normal">
-                  Multi-Provider
-                </span>
-              </h3>
-              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
-                {t.engineOpencodeDesc}
-              </p>
-            </div>
-            <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <code>opencode run</code> / OpenRouter
-            </div>
-          </div>
-
-          {/* Antigravity CLI */}
-          <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
-            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xl">
-              Ag
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
-                {t.engineAntigravityTitle}
-                <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-normal">
-                  Google DeepMind
-                </span>
-              </h3>
-              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
-                {t.engineAntigravityDesc}
-              </p>
-            </div>
-            <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <code>agy</code> / Gemini Reasoning
-            </div>
-          </div>
-        </div>
-      </section>
-    );
   };
 
   const getDiagramSteps = (lang: Locale): { id: number; title: string; desc: string }[] => {
