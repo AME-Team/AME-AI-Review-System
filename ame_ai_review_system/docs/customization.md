@@ -126,63 +126,7 @@ security-review-command:
 > login（`<slug>[bot]`）を `!=`
 > で追加**し、自分自身のコマンドで再トリガーされないようにしてください。
 
-### Step 4: `review.yml` にジョブを追加（push トリガー・任意）
-
-push 自動レビューを使う場合は `.github/workflows/review.yml`
-にもジョブを追加します。有効化には GitHub のリポジトリ設定 **[Settings] → [Actions] → [Variables]**
-を開きます。 `PUSH_REVIEW_ENABLED` を `true`
-に設定する必要があります。デフォルトは OFF なので、通常は Step 3 のみで十分です。
-
-```yaml
-security-review:
-  name: Security Review (security-reviewer)
-  runs-on: ubuntu-latest
-  timeout-minutes: 10
-  steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Restore engine credentials
-      run: |
-        mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
-        echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
-        echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
-        chmod 600 ~/.claude.json ~/.claude/.credentials.json
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-    - name: Get GitHub App installation token
-      id: app_token
-      uses: actions/create-github-app-token@v2
-      with:
-        app-id: ${{ secrets.SECURITY_REVIEWER_APP_ID }}
-        private-key: ${{ secrets.SECURITY_REVIEWER_APP_PRIVATE_KEY }}
-        permission-contents: read
-        permission-pull-requests: write
-        permission-issues: write
-    - name: Run Security Review
-      env:
-        SECURITY_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
-        REVIEWER_NAME: security-reviewer
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-        PR_TITLE: ${{ github.event.pull_request.title }}
-        PR_BODY: ${{ github.event.pull_request.body }}
-        BASE_REF: ${{ github.base_ref }}
-        REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
-        REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
-        REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
-      run: |
-        scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
-          "$PR_NUMBER" \
-          --base-ref "$BASE_REF" \
-          --pr-title "$PR_TITLE" \
-          --pr-body "$PR_BODY" \
-          --prompt-file ame_ai_review_system/security_review_prompt.txt
-```
-
-### Step 5: `review_reply.yml` の修正（重要）
+### Step 4: `review_reply.yml` の修正（重要）
 
 新レビュアーからの返信も判定対象とするため、`.github/workflows/review_reply.yml` へ `if`
 条件およびジョブを追加する。

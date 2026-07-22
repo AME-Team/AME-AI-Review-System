@@ -154,7 +154,7 @@ cp -r ame_ai_review_system/ <your-repo>/
    - `AME_AI_REVIEWER_APP_ID` : GitHub App の App ID（数値。App 設定画面に表示される）
    - `AME_AI_REVIEWER_APP_PRIVATE_KEY` : 手順 3 でダウンロードした `.pem` ファイルの内容全体
 
-> [!NOTE] 本リポジトリのワークフロー（`review_command.yml` / `review.yml` / `review_reply.yml`）は
+> [!NOTE] 本リポジトリのワークフロー（`review_command.yml` / `review_reply.yml`）は
 > `actions/create-github-app-token@v2` を使い、上記 Secret から都度インストールトークンを発行して
 > `GITHUB_PAT_TOKEN` / `AME_AI_REVIEWER_TOKEN`
 > env 変数に設定します（Python コードは PAT/App の違いを意識せず動作します）。別のレビュアーを追加する場合は
@@ -194,10 +194,6 @@ env:
 | `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値 (opencode なら実装で使っているモデル)。                                    |
 | `precommit_thinking`              | (なし)     | pre-commit レビューの思考量。省略時は PR の `thinking` を継承。                                                                          |
 | `precommit_review_budget_usd`     | (なし)     | pre-commit レビュー専用の予算 (Claude のみ効果)。省略時は PR の `review_budget_usd` を継承。                                             |
-
-> [!NOTE] **push 時の自動レビュー**は GitHub のリポジトリ変数で制御します。 **[Settings] → [Actions]
-> → [Variables]** で `PUSH_REVIEW_ENABLED` を作成し、有効化したい場合のみ値を `true`
-> にしてください（未設定 = OFF がデフォルトのまま維持される）。
 
 > [!NOTE] **pre-commit AI レビューのエンジン自動検出** `precommit_engine: "auto"`
 > (既定) の場合、pre-commit フックが自身のプロセスツリーを親方向へたどり、`opencode` / `claude` /

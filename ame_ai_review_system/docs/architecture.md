@@ -65,10 +65,6 @@ Breaker 機構を備えています。
 - **`/request-review` コマンドによるレビュー依頼**
 - **指摘スレッドへの開発者からの返信**
 
-> [!NOTE] **push 時の自動レビューはデフォルトで OFF** です。明示的に `/request-review`
-> でレビューを依頼するフローが基本となります。push 自動レビューを有効化したい場合は GitHub のリポジトリ設定
-> **[Settings] → [Actions] → [Variables]** で `PUSH_REVIEW_ENABLED` を `true` に設定してください。
-
 ```mermaid
 sequenceDiagram
     autonumber
@@ -114,11 +110,10 @@ sequenceDiagram
   - `review` — PR レビュー本体。Git から差分 (diff) を抽出し、`review_prompt.txt` の内容と結合して
     `engine.py` 経由で LLM エンジンを呼び出す。出力された指摘を `payload.py` に渡し、GitHub
     API 経由でインラインレビューコメントを投稿する。`/request-review`
-    トリガー（`review_command.yml`）と push トリガー（`review.yml`）の両方から呼ばれる。
+    トリガー（`review_command.yml`）から呼ばれる。
   - `checkout` — PR コメント経由のトリガーで対象 PR のブランチを作業ツリーへ取り込み、`BASE_REF`
     や PR メタデータを後続ステップへ渡す共通ヘルパ。`review_command.yml` / `review_reply.yml`
     で利用する。
-  - `post-push` — ローカルプッシュ後のトリガー用（任意）。
   - `setup` — 開発環境セットアップ補助。
 - **`reply.py`** 開発者からの返信コメントを検知して起動（`reply run`
   サブコマンド）。GitHub の PR コメントスレッドを走査し、AI宛てメンションでAIが未返信のスレッドを特定する。また、会話履歴と最新の Git
@@ -137,8 +132,8 @@ sequenceDiagram
 - **`precommit_state.py`** pre-commit レビューの状態管理モジュール。 `precommit_review.py` /
   `post_commit_reset.py` 両方から利用される。
 - **`scripts/linux/with_headroom.sh`**
-  AI レビューコマンドを headroom プロキシ経由で実行するラッパー。3 ワークフロー (`review_command.yml`
-  / `review.yml` / `review_reply.yml`) のエントリポイントで、データ経路は
+  AI レビューコマンドを headroom プロキシ経由で実行するラッパー。2 ワークフロー (`review_command.yml`
+  / `review_reply.yml`) のエントリポイントで、データ経路は
   `workflow → with_headroom.sh → 共有プロキシ (headroom proxy) → headroom wrap → CLI`
   となる。`config.json` の `headroom_proxy_enabled` が `true` のときだけプロキシを 1 つ起動し
   `HEADROOM_ENABLED=1` を export する (`engine.py`

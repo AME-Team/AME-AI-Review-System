@@ -21,18 +21,12 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
         └── コメント `/request-review` 時に ruff/mypy/semgrep を実行。エラーが 0 件の場合のみ AI レビューを実行。
 ```
 
-> [!NOTE]
-> **push時の自動レビューはデフォルトでOFF**です。コメントでの依頼を推奨します。有効化はリポジトリ設定
-> **[Settings] → [Actions] → [Variables]** で `PUSH_REVIEW_ENABLED` を `true` に設定してください。
-
 本リポジトリは、別のプロジェクトへ `.github/` と `ame_ai_review_system/`
 をコピペするだけで、この仕組みを移植可能です。
 
 ## 特徴
 
-- **コマンド駆動のレビュー**: PR コメントで `/request-review`
-  を入力したタイミングでレビューが走る。push 時の自動実行は GitHub Variables `PUSH_REVIEW_ENABLED`
-  で ON/OFF 可能（デフォルト OFF）。
+- **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
 - **pre-commit 時の AI レビュー**: `git commit`
   時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で無限ループ回避の escape
   hatch を用意。前段の静的解析 (ruff / mypy / semgrep) が全て pass した場合のみ AI レビューする。
@@ -93,13 +87,12 @@ npm run preview --workspace=landing-page
 ```text
 .github/
   workflows/
-    review.yml            # PR作成/プッシュ時にレビューを実行するワークフロー（設定で OFF 可能）
     review_command.yml    # `/request-review` コメントでレビューを実行するワークフロー
     review_reply.yml      # コメント返信時に自動返答を実行するワークフロー
     ci.yml                # 本リポジトリのCI設定（pre-commit / pytest / pyright）
 
 ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする資材
-  main.py                # CLI エントリポイント（review / checkout / post-push / setup サブコマンド）
+  main.py                # CLI エントリポイント（review / checkout / setup サブコマンド）
   reply.py               # 返信プロンプト生成・スレッド解析・stale-loop検出
   github_client.py       # GitHub REST/GraphQL API 共通クライアント（Resolve 等の GraphQL 操作を含む）
   engine.py              # LLM エンジンアダプタ（claude/opencode/antigravity を切替・role別設定）
