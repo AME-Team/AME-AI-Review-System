@@ -46,6 +46,8 @@ jobs:
           echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
           chmod 600 ~/.claude.json ~/.claude/.credentials.json
           chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Install claude-code / opencode-ai
+        run: npm install -g @anthropic-ai/claude-code@2.1.214 opencode-ai@1.18.3
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
