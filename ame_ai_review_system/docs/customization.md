@@ -135,6 +135,10 @@ security-review-command:
 > 条件にも互いのレビュアーのアカウント名を除外するように設定する必要があります。また
 > `/request-review` のようなスラッシュコマンドが返信判定をトリガーしないよう
 > `!startsWith(github.event.comment.body, '/')` を含めてください。
+>
+> `contains()` による判定は部分文字列一致のため、`'@ame-ai-reviewer'` または
+> `'@ame-ai-reviewer[bot]'` のどちらの指定でも開発者からのメンション（`@ame-ai-reviewer` /
+> `@ame-ai-reviewer[bot]`）を問題なく検知可能です。
 
 ```yaml
 # 既存の一般レビュアー用ジョブの if 条件

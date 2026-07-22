@@ -28,7 +28,8 @@ if: >-
 
 もし複数のレビュアーを追加した場合は、**すべてのレビュアーの bot login（`<slug>[bot]`）** を `!=`
 で繋いで除外する必要があります。また、コード行差分へのインライン返信を拾うため、ワークフローのトリガーには
-`issue_comment` に加えて `pull_request_review_comment` の登録が必要です。詳細は
+`issue_comment` に加えて `pull_request_review_comment` の登録が必要です。なお `contains()`
+は部分一致のため `@ame-ai-reviewer` でも `@ame-ai-reviewer[bot]` でも検知可能です。詳細は
 [カスタムガイド](./customization.md) を参照してください。
 
 ---
