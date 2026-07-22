@@ -10,7 +10,7 @@ describe("App Component", () => {
     render(<App />);
     expect(screen.getAllByText(/AME AI Review/)[0]).toBeInTheDocument();
     expect(screen.getByText(/デュアルゲートAIコードレビュー/)).toBeInTheDocument();
-    expect(screen.getByText(/厳格なマルチ言語品質/)).toBeInTheDocument();
+    expect(screen.getByText(/超厳格な静的解析とAIエージェント/)).toBeInTheDocument();
   });
 
   it("toggles the simulated bug checkbox", () => {
