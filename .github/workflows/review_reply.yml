@@ -2,7 +2,8 @@
 # PR コメントへの返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
 #
 # トリガー: issue_comment / pull_request_review_comment (PR 上のコメント・インライン返信で発火)。
-# Issue コメントでは発火しないよう github.event.issue.pull_request != null || github.event.pull_request != null でフィルタする。
+# Issue コメントでは発火しないようフィルタする。
+# (github.event.issue.pull_request != null || github.event.pull_request != null)
 # BASE_REF は直前の checkout ステップが $GITHUB_ENV へ書き込む値を自然に使わせるため
 # ここでは明示上書きしない (issue_comment / pull_request_review_comment イベントでは github.base_ref は設定されない)。
 
