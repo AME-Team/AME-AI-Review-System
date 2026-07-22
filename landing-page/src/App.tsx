@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import { ReactFlow, Background, Controls, Handle, Position } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 
 interface LogMessage {
   type: "cmd" | "info" | "success" | "warning" | "error";
@@ -18,6 +20,7 @@ interface AppSettings {
 interface TranslationResource {
   title: string;
   navFeatures: string;
+  navEngines: string;
   navDemo: string;
   navWorkflow: string;
   navConfig: string;
@@ -31,14 +34,26 @@ interface TranslationResource {
   viewConfigBtn: string;
   secFeaturesTitle: string;
   secFeaturesDesc: string;
+  featureDiffTitle: string;
+  featureDiffDesc: string;
   featureCbTitle: string;
   featureCbDesc: string;
+  featureGateTitle: string;
+  featureGateDesc: string;
+  featureAgentTitle: string;
+  featureAgentDesc: string;
   featureCompressTitle: string;
   featureCompressDesc: string;
   featureLoopTitle: string;
   featureLoopDesc: string;
-  featureScopeTitle: string;
-  featureScopeDesc: string;
+  enginesTitle: string;
+  enginesDesc: string;
+  engineClaudeTitle: string;
+  engineClaudeDesc: string;
+  engineOpencodeTitle: string;
+  engineOpencodeDesc: string;
+  engineAntigravityTitle: string;
+  engineAntigravityDesc: string;
   demoTitle: string;
   demoDesc: string;
   demoCheckbox: string;
@@ -85,32 +100,51 @@ const translations: Record<Locale, TranslationResource> = {
   ja: {
     title: "AME AI Review",
     navFeatures: "主要機能",
+    navEngines: "Codingエージェント",
     navDemo: "動作デモ",
     navWorkflow: "ワークフロー",
     navConfig: "設定構成",
     githubRepo: "GitHub リポジトリ",
     badgeVersion: "v2.0.0 厳格監視ゲート",
     heroTitle1: "デュアルゲートAIコードレビュー",
-    heroTitleAccent: "厳格なマルチ言語品質",
-    heroTitle2: "を保証する自動レビュー",
+    heroTitleAccent: "超厳格な静的解析とAIエージェント",
+    heroTitle2: "が品質を徹底保証",
     heroDesc:
-      "開発者のローカル環境におけるコミット前の検証（ゲート1）と、プルリクエスト時の自動レビュー（ゲート2）を組み合わせた品質管理システム。TypeScript、Python、および主要なテキストファイル（Markdown、JSON、YAMLなど）の品質を静的解析とAIで保証し、レビューコストを大幅に削減します。",
+      "開発者のローカル環境（Gate 1）とプルリクエスト（Gate 2）の二重ゲート構造。mainブランチとの全累積差分評価、超厳格な静的解析サーキットブレーカー、およびClaude Code / OpenCode / Antigravityなどの各種Codingエージェント連携により、コードとドキュメントの品質を保証します。",
     tryDemoBtn: "シミュレーターを試す",
     viewConfigBtn: "設定ファイルを見る",
-    secFeaturesTitle: "厳格さと速度を両立する設計",
-    secFeaturesDesc: "プロジェクトの品質と開発効率を高めるためのコアメカニズム",
-    featureCbTitle: "静的サーキットブレーカー",
+    secFeaturesTitle: "厳格さと柔軟性を備えたコアアーキテクチャ",
+    secFeaturesDesc:
+      "静的解析の超厳格性とAIエージェントの柔軟なコンテキスト評価を融合した品質管理機構",
+    featureDiffTitle: "mainブランチ累積差分レビュー",
+    featureDiffDesc:
+      "Commit単位の局所的な変更点ではなく origin/main...HEAD の全累積差分を評価。複数コミットを含むPRでも変更の全容を漏らさず正確に追跡・レビューします。",
+    featureCbTitle: "超厳格な静的サーキットブレーカー",
     featureCbDesc:
-      "TypeScript(tsc)、ESLint、Python(mypy/ruff) などの解析を事前に実行。エラー検出時はAIレビューを即時スキップし、不要なAPIトークン消費と開発者の待ち時間を徹底的に削減します。",
+      "TypeScript (tsc)、ESLint (--max-warnings=0)、Python (mypy/ruff)、Semgrep を前段で実行。機械的指摘を100%捕捉し、エラー時はAI呼び出しを即時スキップします。",
+    featureGateTitle: "Dual-Gate 品質保証",
+    featureGateDesc:
+      "ローカルコミット時（Gate 1）とCI/CDのPR時（Gate 2）の二段階で静的解析とAIレビューを実行。早期検出（Shift-Left）とPRでの強固なガードを完璧に両立します。",
+    featureAgentTitle: "Codingエージェント & 広範コンテキスト検証",
+    featureAgentDesc:
+      "Claude Code, OpenCode, Antigravity CLIなどのCodingエージェントをエンジンに指定可能。差分外を含む全リポジトリを参照し「コード修正に伴うDocumentsの更新有無」なども自動チェック可能。",
     featureCompressTitle: "headroom トークン圧縮技術",
     featureCompressDesc:
-      "Gitメタデータ、バイナリ差分、冗長な空行、markdown/json/yaml等の構成ファイル内の不要セクションを自動でフィルタリングおよび圧縮。AIへの入力トークン量を最小限に抑え、プロンプトキャッシュを最適化します。",
-    featureLoopTitle: "停滞ループ検出",
+      "Gitメタデータ、バイナリ差分、冗長な空行、構成ファイル内の不要セクションを自動圧縮。AIへの入力トークン量を最小限に抑えプロンプトキャッシュを最適化します。",
+    featureLoopTitle: "停滞ループ自動検出",
     featureLoopDesc:
-      "直近の指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行し、チーム全体のデリバリー速度の低下を防ぎます。",
-    featureScopeTitle: "広範なファイル品質保証",
-    featureScopeDesc:
-      "ソースコード(TS, Python)だけでなく、主要な設定ファイル(JSON, YAML)やプロジェクトドキュメント(Markdown)までカバー。あらゆる構成ファイルの書き込み品質を一定に保ちます。",
+      "指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行しデリバリー速度の低下を防ぎます。",
+    enginesTitle: "対応 Coding エージェント",
+    enginesDesc: "開発スタイルや環境に合わせて切り替え可能なマルチエンジン構造",
+    engineClaudeTitle: "Claude Code",
+    engineClaudeDesc:
+      "Anthropic開発のエージェント。リポジトリ全域のコンテキスト参照・プロンプトキャッシュ最適化・予算上限管理に対応。",
+    engineOpencodeTitle: "OpenCode",
+    engineOpencodeDesc:
+      "オープンソースエージェント。Anthropic, OpenRouter, DeepSeek, Tencent など多種多様なLLMプロバイダーを統合利用可能。",
+    engineAntigravityTitle: "Antigravity CLI",
+    engineAntigravityDesc:
+      "Google DeepMind開発の高度なAIエージェント。広範なコンテキスト検証と段階的なReasoning Effort(High/Medium/Low)に対応。",
     demoTitle: "ローカル検証の体験",
     demoDesc:
       "コミット時におけるローカル検証（ゲート1）が、どのようにコードや設定の欠陥を検知してコミットをブロックするかをシミュレートできます。以下のチェックを切り替えて、シミュレーションを実行してください。",
@@ -159,32 +193,51 @@ const translations: Record<Locale, TranslationResource> = {
   en: {
     title: "AME AI Review",
     navFeatures: "Features",
+    navEngines: "Coding Agents",
     navDemo: "Interactive Demo",
     navWorkflow: "Workflow",
     navConfig: "Configuration",
     githubRepo: "GitHub Repo",
     badgeVersion: "v2.0.0 Strict Monitoring Gate",
     heroTitle1: "Dual-Gate AI Code Review",
-    heroTitleAccent: "Strict Multi-Language Quality",
-    heroTitle2: "Guaranteed by Automated Reviews",
+    heroTitleAccent: "Ultra-Strict Static Checks & AI Agents",
+    heroTitle2: "Guarantee Complete Quality",
     heroDesc:
-      "A quality management system combining pre-commit verification in the developer's local environment (Gate 1) and automated review during pull requests (Gate 2). It guarantees the quality of TypeScript, Python, and major text files (Markdown, JSON, YAML, etc.) using static analysis and AI, significantly reducing review costs.",
+      "A dual-gate quality control architecture combining local pre-commit (Gate 1) and pull request reviews (Gate 2). Evaluates cumulative main branch diffs, ultra-strict static circuit breakers, and integrates Coding agents like Claude Code, OpenCode, and Antigravity for code and document assurance.",
     tryDemoBtn: "Try Simulator",
     viewConfigBtn: "View Config Files",
-    secFeaturesTitle: "Designed for Both Rigidity and Speed",
-    secFeaturesDesc: "Core mechanisms for elevating project quality and development efficiency",
-    featureCbTitle: "Static Circuit Breaker",
+    secFeaturesTitle: "Core Architecture Designed for Rigidity & Flexibility",
+    secFeaturesDesc:
+      "A quality management system combining ultra-strict static analysis with flexible AI agent context evaluations",
+    featureDiffTitle: "Main Branch Cumulative Diff Review",
+    featureDiffDesc:
+      "Evaluates cumulative diffs (origin/main...HEAD) instead of per-commit fragments, capturing the full scope of multi-commit PRs accurately.",
+    featureCbTitle: "Ultra-Strict Static Circuit Breaker",
     featureCbDesc:
-      "Executes static analysis (tsc, ESLint, mypy, ruff) beforehand. Skips AI review immediately if errors are detected, minimizing API token consumption and developer wait time.",
+      "Executes tsc, ESLint (--max-warnings=0), mypy/ruff, and Semgrep upfront. Catches 100% of static issues early and skips AI calls when errors occur.",
+    featureGateTitle: "Dual-Gate Quality Assurance",
+    featureGateDesc:
+      "Combines local pre-commit verification (Gate 1) with CI pull request reviews (Gate 2), ensuring local Shift-Left and solid CI gating.",
+    featureAgentTitle: "Coding Agent & Full Context Analysis",
+    featureAgentDesc:
+      "Supports Claude Code, OpenCode, and Antigravity CLI. Refers to full repository context to automatically check if documentation updates match code changes.",
     featureCompressTitle: "headroom Token Compression",
     featureCompressDesc:
-      "Automatically filters and compresses Git metadata, binary diffs, redundant empty lines, and unnecessary sections in configuration files (JSON, YAML, Markdown), maximizing Claude's prompt caching efficiency.",
+      "Automatically filters Git metadata and redundant lines, compressing LLM input tokens and maximizing prompt caching efficiency.",
     featureLoopTitle: "Stagnation Loop Detection",
     featureLoopDesc:
-      "Automatically evaluates the Jaccard similarity of the last review comments. Emits a forced LGTM when progress-less circular discussions (infinite loops) are detected, ensuring team velocity.",
-    featureScopeTitle: "Broad File Quality Assurance",
-    featureScopeDesc:
-      "Guarantees quality not only for source code (TS, Python) but also for major configuration files (JSON, YAML) and documentation (Markdown). Keeps standard formatting consistent.",
+      "Evaluates comment Jaccard similarity to catch circular discussions, issuing forced LGTMs to maintain team velocity.",
+    enginesTitle: "Supported Coding Agents",
+    enginesDesc: "Multi-engine architecture adaptable to your team's workflow and AI stack",
+    engineClaudeTitle: "Claude Code",
+    engineClaudeDesc:
+      "Powered by Anthropic. Features deep repository-wide context, prompt caching, and per-run budget caps.",
+    engineOpencodeTitle: "OpenCode",
+    engineOpencodeDesc:
+      "Open-source agent engine supporting multi-provider models (Anthropic, OpenRouter, DeepSeek, Tencent, etc.).",
+    engineAntigravityTitle: "Antigravity CLI",
+    engineAntigravityDesc:
+      "Next-gen agent by Google DeepMind with deep context reasoning and configurable effort controls.",
     demoTitle: "Experience Local Verification",
     demoDesc:
       "Simulate how Gate 1 (pre-commit hook) catches flaws in code or configurations and blocks commits. Toggle the option below and start the verification.",
@@ -261,6 +314,306 @@ function loadSavedSettings(): AppSettings {
     return defaults;
   }
 }
+
+const GateCustomNode: React.FC<{
+  data: { title: string; desc: string; badges: string[]; isGate1?: boolean };
+}> = ({ data }) => {
+  return (
+    <div className="px-4 py-3 rounded-xl bg-white dark:bg-gray-800 border-2 border-primary/40 shadow-lg min-w-[260px] max-w-[300px]">
+      <Handle type="target" position={Position.Left} className="!bg-primary !w-3 !h-3" />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-2">
+          <span className="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-primary inline-block"></span>
+            {data.title}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
+            {data.isGate1 === true ? "Local" : "CI/CD"}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 font-sans">{data.desc}</p>
+        <div className="flex flex-wrap gap-1 mt-1">
+          {data.badges.map((b, i) => (
+            <span
+              key={i}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 font-mono"
+            >
+              {b}
+            </span>
+          ))}
+        </div>
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="pass"
+        className="!bg-emerald-500 !w-3 !h-3"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="fail"
+        className="!bg-rose-500 !w-3 !h-3"
+      />
+    </div>
+  );
+};
+
+const ActionCustomNode: React.FC<{ data: { label: string; sub: string } }> = ({ data }) => {
+  return (
+    <div className="px-4 py-2.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-semibold text-xs shadow-md border border-gray-700 dark:border-gray-300 min-w-[130px] text-center">
+      <Handle type="target" position={Position.Left} className="!bg-gray-400 !w-2.5 !h-2.5" />
+      <div>{data.label}</div>
+      <div className="text-[10px] opacity-75 font-normal font-sans mt-0.5">{data.sub}</div>
+      <Handle type="source" position={Position.Right} className="!bg-gray-400 !w-2.5 !h-2.5" />
+    </div>
+  );
+};
+
+const FailCustomNode: React.FC<{ data: { label: string; sub: string } }> = ({ data }) => {
+  return (
+    <div className="px-3 py-2 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs shadow-sm text-center font-sans">
+      <Handle type="target" position={Position.Top} className="!bg-rose-500 !w-2.5 !h-2.5" />
+      <div className="font-bold">{data.label}</div>
+      <div className="text-[10px] text-rose-500 dark:text-rose-400 mt-0.5">{data.sub}</div>
+    </div>
+  );
+};
+
+const flowNodeTypes = {
+  gate: GateCustomNode,
+  action: ActionCustomNode,
+  fail: FailCustomNode,
+};
+
+const DualGateFlowDiagram: React.FC<{ locale: Locale }> = ({ locale }) => {
+  const isJa = locale === "ja";
+
+  const nodes = [
+    {
+      id: "commit",
+      type: "action",
+      position: { x: 20, y: 110 },
+      data: {
+        label: "git commit",
+        sub: isJa ? "ローカルコミット" : "Local Commit",
+      },
+    },
+    {
+      id: "gate1",
+      type: "gate",
+      position: { x: 200, y: 30 },
+      data: {
+        title: "Gate 1: pre-commit",
+        desc: isJa ? "静的解析 (25+ツール) ＋ AI レビュー" : "Static Check (25+ tools) + AI Review",
+        badges: ["Python", "Security", "Frontend", "Docs", "Config", "Shell/CI", "Git", "Test"],
+        isGate1: true,
+      },
+    },
+    {
+      id: "gate1-fail",
+      type: "fail",
+      position: { x: 235, y: 240 },
+      data: {
+        label: isJa ? "コミットブロック ❌" : "Commit Blocked ❌",
+        sub: isJa ? "静的解析エラー / 重大指摘" : "Static Error / Major Issue",
+      },
+    },
+    {
+      id: "pr",
+      type: "action",
+      position: { x: 550, y: 110 },
+      data: {
+        label: "PR / /request-review",
+        sub: isJa ? "GitHub Actions 起動" : "Trigger CI Workflow",
+      },
+    },
+    {
+      id: "gate2",
+      type: "gate",
+      position: { x: 770, y: 30 },
+      data: {
+        title: "Gate 2: PR (CI/CD)",
+        desc: isJa
+          ? "Circuit Breaker 静的解析 ＋ AI レビュー"
+          : "Circuit Breaker Static Check + AI Review",
+        badges: ["ruff/mypy/semgrep", "Circuit Breaker", "Multi-Agent", "Reply Sync"],
+        isGate1: false,
+      },
+    },
+    {
+      id: "gate2-fail",
+      type: "fail",
+      position: { x: 805, y: 240 },
+      data: {
+        label: isJa ? "AIレビュー スキップ ⚠️" : "AI Review Skipped ⚠️",
+        sub: isJa ? "Circuit Breaker 発動" : "Circuit Breaker Triggered",
+      },
+    },
+    {
+      id: "merge",
+      type: "action",
+      position: { x: 1120, y: 110 },
+      data: {
+        label: isJa ? "PR マージ 🎉" : "PR Merged 🎉",
+        sub: isJa ? "品質保証パス" : "Quality Passed",
+      },
+    },
+  ];
+
+  const edges = [
+    {
+      id: "e1",
+      source: "commit",
+      target: "gate1",
+      animated: true,
+      style: { stroke: "#6366f1", strokeWidth: 2 },
+    },
+    {
+      id: "e-g1-fail",
+      source: "gate1",
+      sourceHandle: "fail",
+      target: "gate1-fail",
+      label: "FAIL",
+      style: { stroke: "#f43f5e", strokeDasharray: "4,4", strokeWidth: 2 },
+    },
+    {
+      id: "e-g1-pass",
+      source: "gate1",
+      sourceHandle: "pass",
+      target: "pr",
+      label: "PASS",
+      style: { stroke: "#10b981", strokeWidth: 2 },
+    },
+    {
+      id: "e2",
+      source: "pr",
+      target: "gate2",
+      animated: true,
+      style: { stroke: "#6366f1", strokeWidth: 2 },
+    },
+    {
+      id: "e-g2-fail",
+      source: "gate2",
+      sourceHandle: "fail",
+      target: "gate2-fail",
+      label: "FAIL (Circuit Breaker)",
+      style: { stroke: "#f43f5e", strokeDasharray: "4,4", strokeWidth: 2 },
+    },
+    {
+      id: "e-g2-pass",
+      source: "gate2",
+      sourceHandle: "pass",
+      target: "merge",
+      label: "PASS (LGTM)",
+      style: { stroke: "#10b981", strokeWidth: 2 },
+    },
+  ];
+
+  return (
+    <div className="w-full h-[360px] rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 overflow-hidden shadow-inner relative">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={flowNodeTypes}
+        fitView
+        nodesDraggable={false}
+        nodesConnectable={false}
+        zoomOnScroll={false}
+        panOnScroll={false}
+        preventScrolling={false}
+      >
+        <Background color="#888888" gap={16} size={1} style={{ opacity: 0.15 }} />
+        <Controls
+          showInteractive={false}
+          className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 shadow-sm"
+        />
+      </ReactFlow>
+    </div>
+  );
+};
+
+const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) => {
+  return (
+    <section id="engines" className="flex flex-col gap-8 my-4">
+      <div className="flex flex-col gap-2">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold w-fit">
+          Multi-Engine Integration
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.enginesTitle}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{t.enginesDesc}</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Claude Code */}
+        <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xl">
+            Cc
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+              {t.engineClaudeTitle}
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-normal">
+                Anthropic
+              </span>
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+              {t.engineClaudeDesc}
+            </p>
+          </div>
+          <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <code>claude -p</code> / Budget limit
+          </div>
+        </div>
+
+        {/* OpenCode */}
+        <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xl">
+            Oc
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+              {t.engineOpencodeTitle}
+              <span className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-normal">
+                Multi-Provider
+              </span>
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+              {t.engineOpencodeDesc}
+            </p>
+          </div>
+          <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <code>opencode run</code> / OpenRouter
+          </div>
+        </div>
+
+        {/* Antigravity CLI */}
+        <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xl">
+            Ag
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+              {t.engineAntigravityTitle}
+              <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-normal">
+                Google DeepMind
+              </span>
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+              {t.engineAntigravityDesc}
+            </p>
+          </div>
+          <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <code>agy</code> / Gemini Reasoning
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
 
 export default function App(): React.JSX.Element {
   const [simulateBug, setSimulateBug] = useState<boolean>(false);
@@ -621,6 +974,12 @@ if ts_files:
               {t.navFeatures}
             </a>
             <a
+              href="#engines"
+              className="text-sm font-medium text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary transition-colors duration-150"
+            >
+              {t.navEngines}
+            </a>
+            <a
               href="#demo"
               className="text-sm font-medium text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary transition-colors duration-150"
             >
@@ -833,10 +1192,45 @@ if ts_files:
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t.secFeaturesDesc}</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shadow-sm">
-                ✓
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-base shadow-sm">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t.featureDiffTitle}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t.featureDiffDesc}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
+              <div className="w-10 h-10 rounded-md bg-grounded-orange/10 text-grounded-orange flex items-center justify-center font-bold text-base shadow-sm">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {t.featureCbTitle}
@@ -846,8 +1240,66 @@ if ts_files:
               </p>
             </div>
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-stable-green/10 text-stable-green flex items-center justify-center font-bold text-lg shadow-sm">
-                ⚡
+              <div className="w-10 h-10 rounded-md bg-stable-green/10 text-stable-green flex items-center justify-center font-bold text-base shadow-sm">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t.featureGateTitle}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t.featureGateDesc}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
+              <div className="w-10 h-10 rounded-md bg-indigo-sophisticated/10 text-indigo-sophisticated flex items-center justify-center font-bold text-base shadow-sm">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t.featureAgentTitle}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t.featureAgentDesc}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
+              <div className="w-10 h-10 rounded-md bg-teal-clarity/10 text-teal-clarity flex items-center justify-center font-bold text-base shadow-sm">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                  />
+                </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {t.featureCompressTitle}
@@ -857,25 +1309,26 @@ if ts_files:
               </p>
             </div>
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-indigo-sophisticated/10 text-indigo-sophisticated flex items-center justify-center font-bold text-lg shadow-sm">
-                ∞
+              <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-base shadow-sm">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {t.featureLoopTitle}
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
                 {t.featureLoopDesc}
-              </p>
-            </div>
-            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-teal-clarity/10 text-teal-clarity flex items-center justify-center font-bold text-lg shadow-sm">
-                📁
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {t.featureScopeTitle}
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                {t.featureScopeDesc}
               </p>
             </div>
           </div>
@@ -936,6 +1389,9 @@ if ts_files:
             </p>
           </div>
         </section>
+
+        {/* Multi-Engine Comparison Section */}
+        <EngineComparisonSection t={t} />
 
         {/* Interactive Simulator Sandbox */}
         <section
@@ -1025,33 +1481,30 @@ if ts_files:
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.workflowTitle}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t.workflowDesc}</p>
           </div>
-          <div className="flex flex-col gap-6 max-w-3xl">
-            <div className="flex gap-6 items-start text-left">
-              <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20 shadow-sm">
-                01
-              </div>
-              <div className="flex flex-col gap-1">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {t.workflowStep1Title}
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
-                  {t.workflowStep1Desc}
-                </p>
-              </div>
+          <DualGateFlowDiagram locale={locale} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
+            <div className="p-5 rounded-xl bg-white dark:bg-gray-800/60 border border-gray-200/80 dark:border-gray-700/80 shadow-sm flex flex-col gap-2">
+              <h3 className="font-bold text-base text-gray-900 dark:text-white flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold">
+                  01
+                </span>
+                {t.workflowStep1Title}
+              </h3>
+              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+                {t.workflowStep1Desc}
+              </p>
             </div>
-            <div className="w-0.5 h-8 bg-gray-200 dark:bg-gray-800 ml-5"></div>
-            <div className="flex gap-6 items-start text-left">
-              <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20 shadow-sm">
-                02
-              </div>
-              <div className="flex flex-col gap-1">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {t.workflowStep2Title}
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
-                  {t.workflowStep2Desc}
-                </p>
-              </div>
+            <div className="p-5 rounded-xl bg-white dark:bg-gray-800/60 border border-gray-200/80 dark:border-gray-700/80 shadow-sm flex flex-col gap-2">
+              <h3 className="font-bold text-base text-gray-900 dark:text-white flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold">
+                  02
+                </span>
+                {t.workflowStep2Title}
+              </h3>
+              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-sans">
+                {t.workflowStep2Desc}
+              </p>
             </div>
           </div>
         </section>

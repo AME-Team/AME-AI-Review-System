@@ -20,12 +20,17 @@ AI レビュアーが返信を投稿すると、さらに `AI Review Reply`
 
 ```yaml
 if: >-
-  github.event.comment.user.login != 'ame-ai-reviewer[bot]' && contains(github.event.comment.body,
-  '@ame-ai-reviewer[bot]')
+  (github.event.issue.pull_request != null || github.event.pull_request != null) &&
+  github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
+  !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
+  '@ame-ai-reviewer')
 ```
 
 もし複数のレビュアーを追加した場合は、**すべてのレビュアーの bot login（`<slug>[bot]`）** を `!=`
-で繋いで除外する必要があります。詳細は [カスタムガイド](./customization.md) を参照してください。
+で繋いで除外する必要があります。また、コード行差分へのインライン返信を拾うため、ワークフローのトリガーには
+`issue_comment` に加えて `pull_request_review_comment` の登録が必要です。なお `contains()`
+は部分一致のため `@ame-ai-reviewer` でも `@ame-ai-reviewer[bot]` でも検知可能です。詳細は
+[カスタムガイド](./customization.md) を参照してください。
 
 ---
 

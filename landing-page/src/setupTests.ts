@@ -20,3 +20,21 @@ if (typeof globalThis.localStorage === "undefined") {
     key: (index: number): string | null => Array.from(store.keys())[index] ?? null,
   };
 }
+
+class ResizeObserverMock {
+  observe(): void {
+    // mock implementation
+  }
+
+  unobserve(): void {
+    // mock implementation
+  }
+
+  disconnect(): void {
+    // mock implementation
+  }
+}
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = ResizeObserverMock;
+}

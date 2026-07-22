@@ -14,26 +14,52 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 ```text
 [ ローカル開発 (Git Commit) ]
   └── Gate 1: pre-commit ゲート (静的解析 + AI レビュー)
-        └── staged ファイルに対し ruff/mypy/semgrep を実行。パスした場合のみローカル AI レビューを実行。
+        └── staged ファイルに対し ruff/mypy/semgrep 等を実行。パスした場合のみローカル AI レビューを実行。
 
 [ CI/CD 環境 (Pull Request) ]
   └── Gate 2: PR ゲート (Circuit Breaker 静的解析 + AI レビュー)
-        └── コメント `/request-review` 時に ruff/mypy/semgrep を実行。エラーが 0 件の場合のみ AI レビューを実行。
+        └── コメント `/request-review` 時に ruff/mypy/semgrep 等を実行。エラーが 0 件の場合のみ AI レビューを実行。
 ```
+
+### 静的解析プリセット一覧
+
+本システムでは、機械的に検出可能な問題は LLM 呼び出し前に静的解析で 100% キャッチする思想を徹底しています。以下の約25個のツール群が既定の品質チェックとして動作します。
+
+| カテゴリ               | 採用ツール・検査内容                                                              | 主な設定ファイル                                            |
+| ---------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Python**             | ruff (lint, ALL+preview), ruff-format, mypy (strict), pyright                     | `pyproject.toml`                                            |
+| **セキュリティ**       | semgrep-custom（自作7ルール）, gitleaks, detect-private-key                       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
+| **フロントエンド**     | eslint (`--max-warnings=0`), tsc `--noEmit`, stylelint                            | `eslint.config.js`, `tsconfig.json`                         |
+| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check（自作）                     | `.markdownlint-cli2.yaml`, `.textlintrc`                    |
+| **設定/データ**        | yamllint (strict), check-yaml / check-toml / check-json, sqlfluff                 | `.yamllint.yaml`, `.sqlfluff`                               |
+| **シェル/CI**          | shellcheck, actionlint                                                            | `.shellcheckrc`, `.actionlint.yaml`                         |
+| **Git衛生**            | commitlint, check-merge-conflict, check-case-conflict, check-added-large-files 等 | `.commitlintrc.json`, pre-commit-hooks                      |
+| **フォーマット**       | prettier-root                                                                     | `.prettierrc`                                               |
+| **自作リポジトリ規約** | prohibit-suppression-comments, repo-hygiene                                       | `scripts/check_suppression_comments.py`                     |
+| **テスト**             | pytest, vitest（pre-push / pre-merge-commit 連携）                                | `pyproject.toml`, `vitest.config.ts`                        |
 
 本リポジトリは、別のプロジェクトへ `.github/` と `ame_ai_review_system/`
 をコピペするだけで、この仕組みを移植可能です。
 
 ## 特徴
 
+- **mainブランチとの全累積差分レビュー**: 従来のコミット単位の差分チェックでは複数コミットを含むPRの全容把握が困難であった。本システムは
+  `origin/main...HEAD` の全累積差分を評価対象とし、PR全体の整合性を正確に追跡・評価する。
+- **超厳格なデフォルト静的解析**: tsc / eslint (--max-warnings=0) / mypy / ruff /
+  semgrep 等の約25ツールを標準装備。機械的な問題は前段で100%捕捉する構造である。
+- **Gate 1（pre-commit）& Gate 2（PR）の二重品質ゲート**: ローカルコミット時（Gate 1）とCI/CD
+  PR時（Gate 2）の二段階で静的解析とAIレビューを実施する。欠陥の早期検出（Shift-Left）を実現する。
+- **マルチCodingエージェント対応 & 広範なコンテキスト検証**: Claude Code / OpenCode / Antigravity
+  CLI 等を指定可能。Codingエージェントが差分外領域も自発的に探索し「コード修正に伴うドキュメント更新の有無」なども高度に検証する。
 - **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
 - **pre-commit 時の AI レビュー**: `git commit`
   時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で無限ループ回避の escape
-  hatch を用意。前段の静的解析 (ruff / mypy / semgrep) が全て pass した場合のみ AI レビューする。
-  `precommit_require_static_checks` で ON/OFF 可能（デフォルト ON）。
+  hatch を用意。前段の静的解析 (ruff / mypy /
+  semgrep) が全て pass した場合のみ AI レビューする。`precommit_require_static_checks`
+  で ON/OFF 可能（デフォルト ON）。
 - **PR レビューの Circuit Breaker**: `/request-review` 実行時に ruff / mypy /
-  semgrep の静的解析を先行実行する。1件でもエラーがあれば AI レビューをスキップしてトークン消費を抑制する。
-  `pr_review_require_static_checks` で ON/OFF 可能（デフォルト ON）。
+  semgrep の静的解析を先行実行する。1件でもエラーがあれば AI レビューをスキップしてトークン消費を抑制する。`pr_review_require_static_checks`
+  で ON/OFF 可能（デフォルト ON）。
 - **Semgrep カスタムルール**: CLAUDE.md §8 のコーディング規約を Semgrep で機械的に検出する。broad
   exception catch 禁止・kill -15 $pids 禁止・echo|python3 -c 禁止 等。ルールは
   `ame_ai_review_system/.semgrep/rules.yml`。
@@ -42,7 +68,7 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 - **Reasoning Effort の役割別制御**: レビュー時と返信判定時で model /
   thinking を個別設定可能。`review_model`/`reply_model`/
   `review_thinking`/`reply_thinking`。返信判定は haiku/low で推論トークンを削減。
-- **Stale-Loop 検出**: レビュアーが同じ指摘を言い換えて繰り返す膠着状態を Jaccard 類似度 (80%閾値) で検出し、強制 LGTM で胶着を打破する。
+- **Stale-Loop 検出**: レビュアーが同じ指摘を言い換えて繰り返す膠着状態を Jaccard 類似度 (80%閾値) で検出し、強制 LGTM で膠着を打破する。
 - **Diff 圧縮**: git
   diff のメタデータ行・バイナリ差分・連続空行を除去し（RTK アプローチ）、LLM 入力トークンを削減。
 - **実装エンジンの自動検出**: 実装に使っている AI ツールをプロセスツリーから自動検出する (`precommit_engine="auto"`)。OpenCode +
