@@ -59,8 +59,7 @@ Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
 
 1. **レビュー実行**: PR コメントで `/request-review`
    が入力されたときにインラインコメントを投稿する（`review_command.yml`）。`/review`
-   も同じコマンドのエイリアス。なお push 時の自動実行（`review.yml`）は GitHub Variables
-   `PUSH_REVIEW_ENABLED` で ON/OFF 可能で、**デフォルトは OFF**。
+   も同じコマンドのエイリアス。
 2. **返信判断**: `issue_comment: created` イベントで `@<レビュアー名>`
    宛ての返信を検知する。**実際の diff を読んで LGTM か追加指摘かを判断**して返信する（`review_reply.yml`）。ただし
    `/` で始まるコメント（コマンド）は返信判定の対象外。
@@ -76,8 +75,7 @@ Sonnet のフローで実行される。Claude はレビュアーとして「元
 PR を作成・プッシュしたら、以下のループを完遂すること。
 
 0. PR コメントで `/request-review` を投稿してレビューを依頼する（`github.token`）。 `/review`
-   も同じ意味。push 自動レビューはデフォルト OFF（GitHub Variables `PUSH_REVIEW_ENABLED`
-   で有効化可）。
+   も同じ意味。
 1. `ame-ai-reviewer[bot]` のインラインコメント一覧を取得する。API:
    `GET /repos/{repo}/pulls/{pr}/comments`。
 2. 未対応の CRITICAL / HIGH / MIDDLE / LOW コメントがあればコードを修正してコミット・プッシュする
@@ -110,8 +108,7 @@ PR を作成・プッシュしたら、以下のループを完遂すること�
    `<REVIEWER_NAME_UPPER>_APP_PRIVATE_KEY` を登録（例: `SECURITY_REVIEWER_APP_ID` /
    `SECURITY_REVIEWER_APP_PRIVATE_KEY`）
 3. `.github/workflows/review_command.yml`（コマンドトリガー・標準）と `review_reply.yml`
-   に新ジョブを追加する。push 自動レビューを使う場合は `review.yml` にも追加。 `review_command.yml`
-   / `review_reply.yml` の**既存全ジョブの `if`
+   に新ジョブを追加する。`review_command.yml` / `review_reply.yml` の**既存全ジョブの `if`
    条件にも新レビュアー名を追加**する（カスケードループ防止）
    - 現在のレビュアーは `ame-ai-reviewer`（App bot login は `ame-ai-reviewer[bot]`）。`if` 条件に
      `github.event.comment.user.login != '<新レビュアーslug>[bot]'` を追加する

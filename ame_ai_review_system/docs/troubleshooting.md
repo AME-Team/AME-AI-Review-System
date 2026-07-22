@@ -58,11 +58,9 @@ PR をプッシュ、またはコメントでメンションしたにもかか�
 ### 原因と対策
 
 0. **`/request-review` を入力していない**
-   - **仕様**: push 時の自動レビューは**デフォルトで OFF**。PR コメントで `/request-review`
-     （エイリアス `/review`）を入力して明示的にレビューを依頼する必要がある。
-   - **対策**: PR コメントに `/request-review`
-     を投稿する。なお push 自動レビューを有効化するには、リポジトリ設定で `PUSH_REVIEW_ENABLED` を
-     `true` に設定する。 **[Settings] → [Actions] → [Variables]** から変更可能。
+   - **仕様**: PR コメントで `/request-review` （エイリアス
+     `/review`）を入力して明示的にレビューを依頼する必要がある。
+   - **対策**: PR コメントに `/request-review` を投稿する。
 1. **すでに同一の HEAD SHA に対するレビューが存在する**
    - **仕様**: `main.py review` は同一コミットに複数回レビューしないよう、過去のコメントの
      `reviewed-sha` を検索して重複を防ぐ。

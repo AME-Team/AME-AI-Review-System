@@ -1,10 +1,9 @@
 """Main CLI entrypoint for AME AI Review System.
 
-Replaces: pr_review.sh, post_push_review.sh, checkout_pr.sh
+Replaces: pr_review.sh, checkout_pr.sh
 
 Subcommands:
   review       Run AI review on PR (replaces pr_review.sh)
-  post-push    Post-push review trigger (replaces post_push_review.sh)
   checkout     Checkout PR branch (replaces checkout_pr.sh)
   setup        Install dependencies (replaces setup.sh)
 """
@@ -21,7 +20,7 @@ import sys
 import tempfile
 from typing import Any
 
-from . import github_client, pr_streak, reply, review_config, static_precheck
+from . import github_client, pr_streak, review_config, static_precheck
 from . import payload as payload_module
 from .engine import resolve_settings, run_engine
 
@@ -33,7 +32,6 @@ PROJ_ROOT = pathlib.Path(__file__).resolve().parent.parent
 STALE_ROUND_THRESHOLD = 3
 MAX_REVIEWS = 10
 MAX_DIFF_LINES = 4000
-POST_PUSH_WAIT_SECONDS = 90
 HTTP_STATUS_OK = 200
 
 
@@ -516,118 +514,6 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 
 # ============================================================================
-# post-push command (replaces post_push_review.sh)
-# ============================================================================
-
-
-def cmd_post_push(args: argparse.Namespace) -> int:
-    api_url, repo = github_client.resolve_env()
-
-    # Get token
-    token_file = (
-        pathlib.Path.home() / ".config" / "ame-ai-review-system" / "github.token"
-    )
-    try:
-        token = github_client.get_token(str(token_file))
-    except RuntimeError:
-        print("[post_push] No GitHub token, exiting.")
-        return 0
-
-    # Get current branch
-    branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"])
-    if not branch or branch in {"HEAD", "main"}:
-        print("[post_push] Not on a feature branch, exiting.")
-        return 0
-
-    # Find PR for this branch
-    prs_url = f"{api_url}/repos/{repo}/pulls?state=open&per_page=20"
-    try:
-        prs_data = github_client.http_request("GET", prs_url, token)
-    except RuntimeError:
-        return 0
-
-    if not isinstance(prs_data, list):
-        return 0
-
-    pr_num = None
-    for pr in prs_data:
-        head = pr.get("head", {})
-        if head.get("ref") == branch or head.get("label", "").endswith(":" + branch):
-            pr_num = pr.get("number")
-            break
-
-    if not pr_num:
-        print("[post_push] No PR found for this branch.")
-        return 0
-
-    print(f"[post_push] PR #{pr_num} detected. Waiting for reviewers...")
-
-    reviewers = [github_client.bot_login("ame-ai-reviewer")]
-
-    def count_reviews(pr: int) -> int:
-        url = f"{api_url}/repos/{repo}/pulls/{pr}/reviews?per_page=50"
-        try:
-            data = github_client.http_request("GET", url, token)
-            if not isinstance(data, list):
-                return 0
-            return sum(1 for r in data if r.get("user", {}).get("login") in reviewers)
-        except RuntimeError:
-            return 0
-
-    initial_reviews = count_reviews(pr_num)
-    waited = 0
-
-    while waited < POST_PUSH_WAIT_SECONDS:
-        import time
-
-        time.sleep(10)
-        waited += 10
-        current_reviews = count_reviews(pr_num)
-        if current_reviews > initial_reviews:
-            print("[post_push] New review(s) detected. Running reply handlers...")
-            break
-    else:
-        print("[post_push] No new reviews after 90s, skipping.")
-        return 0
-
-    # Run reply handlers for each reviewer
-    for reviewer_name in reviewers:
-        token_file = (
-            pathlib.Path.home()
-            / ".config"
-            / "ame-ai-review-system"
-            / f"{reviewer_name}.token"
-        )
-        try:
-            reviewer_token = github_client.get_token(
-                str(token_file),
-                reviewer_name.upper().replace("-", "_") + "_TOKEN",
-            )
-        except RuntimeError:
-            print(f"[post_push] Token not found for {reviewer_name}, skipping.")
-            continue
-
-        os.environ["REVIEWER_TOKEN"] = reviewer_token
-        os.environ["REVIEWER_NAME"] = reviewer_name
-        os.environ["PR_NUMBER"] = str(pr_num)
-        os.environ["BASE_REF"] = args.base_ref or "main"
-        os.environ["GITHUB_API_URL"] = api_url
-        os.environ["GITHUB_REPOSITORY"] = repo
-
-        # Run reply handler
-        try:
-            reply.main(["run", str(pr_num)])
-        except SystemExit as e:
-            if e.code != 0:
-                print(
-                    f"[post_push] Reply handler failed for {reviewer_name}: {e}",
-                    file=sys.stderr,
-                )
-
-    return 0
-
-
-# ============================================================================
 # setup command (replaces setup.sh)
 # ============================================================================
 
@@ -704,10 +590,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_review.add_argument("--token", help="Reviewer token (or use token file/env)")
 
-    # post-push
-    p_post = subparsers.add_parser("post-push", help="Post-push review trigger")
-    p_post.add_argument("--base-ref", default="main")
-
     # setup
     subparsers.add_parser("setup", help="Install dependencies and configure hooks")
 
@@ -717,8 +599,6 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_checkout(args)
     if args.command == "review":
         return cmd_review(args)
-    if args.command == "post-push":
-        return cmd_post_push(args)
     if args.command == "setup":
         return cmd_setup(args)
     parser.print_help()
