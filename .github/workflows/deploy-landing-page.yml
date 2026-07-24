@@ -1,0 +1,78 @@
+---
+# GitHub Pages デプロイワークフロー — ランディングページ
+#
+# main ブランチへ push された際、landing-page/ をビルドして
+# GitHub Pages (https://tarminjapan.github.io/AME-AI-Review-System/) に公開する。
+#
+# 参考: GitHub 公式の Pages Actions (configure-pages / upload-pages-artifact /
+# deploy-pages) を使用し、ビルド成果物のみをアーティファクト経由でデプロイする
+# ベストプラクティス構成。
+
+name: Deploy Landing Page
+
+"on":
+  push:
+    branches:
+      - main
+    paths:
+      - "landing-page/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-landing-page.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一 Pages 環境への同時デプロイ競合を防ぐため直列化する。
+# 新しいデプロイが開始されたら進行中の古いデプロイをキャンセルする。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build landing page
+    runs-on: ubuntu-latest
+
+    env:
+      npm_config_cache: ${{ github.workspace }}/.cache/npm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build landing page
+        run: npm run build --workspace=landing-page
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./landing-page/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
