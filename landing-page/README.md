@@ -79,6 +79,41 @@ npm run preview
 
 ---
 
+## GitHub Pages へのデプロイ
+
+本ランディングページは GitHub Pages で公開されています。
+
+- **公開URL**: <https://tarminjapan.github.io/AME-AI-Review-System/>
+- **デプロイワークフロー**: `.github/workflows/deploy-landing-page.yml`
+
+### デプロイの仕組み
+
+main ブランチに push されると、`deploy-landing-page`
+ワークフローが自動的に landing-page をビルドします。そして GitHub
+Pages 環境にデプロイします。GitHub 公式の Pages Actions を使用した標準構成です。
+
+- `actions/configure-pages`
+- `actions/upload-pages-artifact`
+- `actions/deploy-pages`
+
+GitHub Pages はプロジェクトサイトとして公開されます。そのため本番ビルド時は base
+path にリポジトリ名 (`/AME-AI-Review-System/`) が付与されます。この設定は `vite.config.ts` の `base`
+オプションで、ビルド時 (`command === "build"`) のみ適用されます。開発サーバー (`vite dev`) とテスト (`vitest`) ではルート
+`/` を使用します。
+
+### Pages の有効化（初回のみ）
+
+リポジトリの `Settings > Pages > Build and deployment` の `Source` を **GitHub Actions**
+に設定してください。ワークフローが自動デプロイを担当します。
+
+### 手動デプロイ
+
+GitHub リポジトリの `Actions` タブから `Deploy Landing Page`
+ワークフローを選択します。`Run workflow`
+で任意のタイミングに手動デプロイできます (`workflow_dispatch`)。
+
+---
+
 ## テストの実行
 
 Vitest によるユニットテストを実行します。

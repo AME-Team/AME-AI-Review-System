@@ -92,6 +92,9 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 プロダクトの設計概要や、コミット前（Gate 1）およびプルリクエスト時（Gate
 2）の品質チェックフローをブラウザ上でシミュレーションできるインタラクティブな紹介サイトを同梱しています。
 
+公開サイト: <https://tarminjapan.github.io/AME-AI-Review-System/> （main ブランチへの push で GitHub
+Pages に自動デプロイされます）
+
 ### 起動・ビルドコマンド
 
 ```bash
