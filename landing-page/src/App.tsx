@@ -203,7 +203,7 @@ const translations: Record<Locale, TranslationResource> = {
     heroTitleAccent: "Strict Static Checks & AI Agents",
     heroTitle2: "Support Quality Improvement",
     heroDesc:
-      "A dual-gate quality control architecture combining local pre-commit (Gate 1) and pull request reviews (Gate 2). Evaluates cumulative main branch diffs, strict static circuit breakers, and integrates Coding agents like Claude Code, OpenCode, and Antigravity to support code and document quality.",
+      "A dual-gate quality control architecture combining local pre-commit (Gate 1) and pull request reviews (Gate 2). Evaluates cumulative main branch diffs, strict static circuit breakers, and integrates Coding agents like Claude Code, OpenCode, and Antigravity to support quality improvement for code and documents.",
     tryDemoBtn: "Try Simulator",
     viewConfigBtn: "View Config Files",
     secFeaturesTitle: "Core Architecture Designed for Rigidity & Flexibility",
