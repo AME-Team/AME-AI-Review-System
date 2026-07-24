@@ -6,8 +6,8 @@
 ### 本レビューシステムの特徴
 
 - **mainブランチ全累積差分レビュー (`origin/main...HEAD`)**: 複数コミットを含むPRでも差分の全容を漏らさず正確に評価。
-- **超厳格なデフォルト静的解析**: 機械的指摘は前段の静的解析 (tsc / eslint / mypy / ruff /
-  semgrep) で100%捕捉。
+- **厳格なデフォルト静的解析**: 機械的指摘は前段の静的解析 (tsc / eslint / mypy / ruff /
+  semgrep) で高い精度で捕捉。
 - **Gate 1 (ローカル) & Gate 2
   (PR) 二重品質ゲート**: ローカルでの早期検出とCI環境でのダブルチェック。
 - **マルチCodingエージェント（Claude Code / OpenCode / Antigravity
