@@ -12,9 +12,9 @@ Code / OpenCode / Antigravity CLI）と接続する `engine.py` を通じて実�
    - コミット単位の差分評価のみでは、複数コミットを含む PR における変更の全容や整合性の把握が困難である。本システムでは
      `git diff origin/{base_ref}...HEAD` （`main.py`
      内で抽出）により全累積差分を網羅的に抽出し、PR 全体の変更意図を一貫して評価する。
-2. **超厳格なデフォルト静的解析 (Static Circuit Breaker)**
+2. **厳格なデフォルト静的解析 (Static Circuit Breaker)**
    - 機械的な問題は静的解析（tsc / eslint / mypy / ruff /
-     semgrep 等の約25ツール）で100%捕捉する。エラー時はAIレビューを自動スキップしコスト削減とフィードバックを両立する。
+     semgrep 等の約25ツール）により高い精度で捕捉する。エラー時はAIレビューを自動スキップしコスト削減とフィードバックを両立する。
 3. **二重ゲート（Gate 1 / Gate 2）アーキテクチャ**
    - ローカルコミット時（Gate 1）と CI/CD PR時（Gate
      2）の二段階で品質を検証する。欠陥をローカルで早期検知（Shift-Left）しつつCIで確実なガードを展開する。
@@ -142,9 +142,8 @@ sequenceDiagram
   に渡す。PR レビューと同じプロンプトを再用。出力をパースし、指摘 0 件なら PASS、LOW/INFO 以外の severity（CRITICAL/HIGH/MIDDLE 等）を含めば FAIL、LOW/INFO のみの場合は streak カウンタを進めて 2 回連続で PASS とする（無限ループ回避）。エンジン失敗時は fail-closed でブロック。streak はブランチ単位で
   `~/.config/ame-ai-review-system/precommit_state_<hash>.json` に保存される。
 - **`precommit_engine.py`**
-  pre-commit レビュー専用のエンジン解決モジュール。PR レビューと異なり、開発端末で動く pre-commit では「現在実装に使っている AI ツール」を親プロセスから自動検出する (`precommit_engine="auto"`)。例えば OpenCode +
-  GLM-5.2 で実装しているなら、同じ組合せでレビューする。解決順: 環境変数 `PRECOMMIT_REVIEW_*` >
-  `config.user.json` / `config.json` の `precommit_*` > 自動検出 > PR 設定。
+  pre-commit レビュー専用のエンジン解決モジュール。PR レビューと異なり、開発端末で動く pre-commit では「現在実装に使っている AI ツール」を親プロセスから自動検出する (`precommit_engine="auto"`)。例えば OpenCode で実装しているなら、使用したモデルに応じて同じ組合せでレビューする。解決順: 環境変数
+  `PRECOMMIT_REVIEW_*` > `config.user.json` / `config.json` の `precommit_*` > 自動検出 > PR 設定。
 - **`post_commit_reset.py`** post-commit フック。コミット成功時に `precommit_review.py`
   が管理する streak カウンタを 0 にリセットする。
 - **`precommit_state.py`** pre-commit レビューの状態管理モジュール。 `precommit_review.py` /

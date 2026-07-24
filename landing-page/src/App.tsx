@@ -107,24 +107,24 @@ const translations: Record<Locale, TranslationResource> = {
     githubRepo: "GitHub リポジトリ",
     badgeVersion: "v2.0.0 厳格監視ゲート",
     heroTitle1: "デュアルゲートAIコードレビュー",
-    heroTitleAccent: "超厳格な静的解析とAIエージェント",
-    heroTitle2: "が品質を徹底保証",
+    heroTitleAccent: "厳格な静的解析とAIエージェント",
+    heroTitle2: "が品質向上をサポート",
     heroDesc:
-      "開発者のローカル環境（Gate 1）とプルリクエスト（Gate 2）の二重ゲート構造。mainブランチとの全累積差分評価、超厳格な静的解析サーキットブレーカー、およびClaude Code / OpenCode / Antigravityなどの各種Codingエージェント連携により、コードとドキュメントの品質を保証します。",
+      "開発者のローカル環境（Gate 1）とプルリクエスト（Gate 2）の二重ゲート構造。mainブランチとの全累積差分評価、厳格な静的解析サーキットブレーカー、およびClaude Code / OpenCode / Antigravityなどの各種Codingエージェント連携により、コードとドキュメントの品質向上をサポートします。",
     tryDemoBtn: "シミュレーターを試す",
     viewConfigBtn: "設定ファイルを見る",
     secFeaturesTitle: "厳格さと柔軟性を備えたコアアーキテクチャ",
     secFeaturesDesc:
-      "静的解析の超厳格性とAIエージェントの柔軟なコンテキスト評価を融合した品質管理機構",
+      "静的解析の厳格性とAIエージェントの柔軟なコンテキスト評価を融合した品質管理機構",
     featureDiffTitle: "mainブランチ累積差分レビュー",
     featureDiffDesc:
       "Commit単位の局所的な変更点ではなく origin/main...HEAD の全累積差分を評価。複数コミットを含むPRでも変更の全容を漏らさず正確に追跡・レビューします。",
-    featureCbTitle: "超厳格な静的サーキットブレーカー",
+    featureCbTitle: "厳格な静的サーキットブレーカー",
     featureCbDesc:
-      "TypeScript (tsc)、ESLint (--max-warnings=0)、Python (mypy/ruff)、Semgrep を前段で実行。機械的指摘を100%捕捉し、エラー時はAI呼び出しを即時スキップします。",
-    featureGateTitle: "Dual-Gate 品質保証",
+      "TypeScript (tsc)、ESLint (--max-warnings=0)、Python (mypy/ruff)、Semgrep を前段で実行。機械的指摘を高い精度で捕捉し、エラー時はAI呼び出しを即時スキップします。",
+    featureGateTitle: "Dual-Gate 品質チェック",
     featureGateDesc:
-      "ローカルコミット時（Gate 1）とCI/CDのPR時（Gate 2）の二段階で静的解析とAIレビューを実行。早期検出（Shift-Left）とPRでの強固なガードを完璧に両立します。",
+      "ローカルコミット時（Gate 1）とCI/CDのPR時（Gate 2）の二段階で静的解析とAIレビューを実行。早期検出（Shift-Left）とPRでの強固なガードを両立します。",
     featureAgentTitle: "Codingエージェント & 広範コンテキスト検証",
     featureAgentDesc:
       "Claude Code, OpenCode, Antigravity CLIなどのCodingエージェントをエンジンに指定可能。差分外を含む全リポジトリを参照し「コード修正に伴うDocumentsの更新有無」なども自動チェック可能。",
@@ -173,7 +173,7 @@ const translations: Record<Locale, TranslationResource> = {
     diagramStepCommitDesc: "検証通過でのみコミットを許可",
     diagramStepGate2: "5. ゲート2 (PRレビュー)",
     diagramStepGate2Desc: "/request-review による指摘",
-    configTitle: "品質保証の設定構成",
+    configTitle: "品質チェックの設定構成",
     configDesc: "チーム全体で共有され、高い品質を維持するための標準設定ファイル",
     configTabPrecommit: "pre-commit 設定",
     configTabEslint: "ESLint 設定",
@@ -200,22 +200,22 @@ const translations: Record<Locale, TranslationResource> = {
     githubRepo: "GitHub Repo",
     badgeVersion: "v2.0.0 Strict Monitoring Gate",
     heroTitle1: "Dual-Gate AI Code Review",
-    heroTitleAccent: "Ultra-Strict Static Checks & AI Agents",
-    heroTitle2: "Guarantee Complete Quality",
+    heroTitleAccent: "Strict Static Checks & AI Agents",
+    heroTitle2: "Support Quality Improvement",
     heroDesc:
-      "A dual-gate quality control architecture combining local pre-commit (Gate 1) and pull request reviews (Gate 2). Evaluates cumulative main branch diffs, ultra-strict static circuit breakers, and integrates Coding agents like Claude Code, OpenCode, and Antigravity for code and document assurance.",
+      "A dual-gate quality control architecture combining local pre-commit (Gate 1) and pull request reviews (Gate 2). Evaluates cumulative main branch diffs, strict static circuit breakers, and integrates Coding agents like Claude Code, OpenCode, and Antigravity to support quality improvement for code and documents.",
     tryDemoBtn: "Try Simulator",
     viewConfigBtn: "View Config Files",
     secFeaturesTitle: "Core Architecture Designed for Rigidity & Flexibility",
     secFeaturesDesc:
-      "A quality management system combining ultra-strict static analysis with flexible AI agent context evaluations",
+      "A quality management system combining strict static analysis with flexible AI agent context evaluations",
     featureDiffTitle: "Main Branch Cumulative Diff Review",
     featureDiffDesc:
       "Evaluates cumulative diffs (origin/main...HEAD) instead of per-commit fragments, capturing the full scope of multi-commit PRs accurately.",
-    featureCbTitle: "Ultra-Strict Static Circuit Breaker",
+    featureCbTitle: "Strict Static Circuit Breaker",
     featureCbDesc:
-      "Executes tsc, ESLint (--max-warnings=0), mypy/ruff, and Semgrep upfront. Catches 100% of static issues early and skips AI calls when errors occur.",
-    featureGateTitle: "Dual-Gate Quality Assurance",
+      "Executes tsc, ESLint (--max-warnings=0), mypy/ruff, and Semgrep upfront. Catches static issues early with high precision and skips AI calls when errors occur.",
+    featureGateTitle: "Dual-Gate Quality Checks",
     featureGateDesc:
       "Combines local pre-commit verification (Gate 1) with CI pull request reviews (Gate 2), ensuring local Shift-Left and solid CI gating.",
     featureAgentTitle: "Coding Agent & Full Context Analysis",
@@ -266,7 +266,7 @@ const translations: Record<Locale, TranslationResource> = {
     diagramStepCommitDesc: "Allows commit execution only when local checks pass",
     diagramStepGate2: "5. Gate 2 (PR Review)",
     diagramStepGate2Desc: "Triggers AI feedback on CI via /request-review",
-    configTitle: "Quality Assurance Settings",
+    configTitle: "Quality Check Settings",
     configDesc: "Shared, standard configuration files maintaining code and review policies",
     configTabPrecommit: "pre-commit Config",
     configTabEslint: "ESLint Config",
@@ -456,7 +456,7 @@ const DualGateFlowDiagram: React.FC<{ locale: Locale }> = ({ locale }) => {
       position: { x: 1120, y: 110 },
       data: {
         label: isJa ? "PR マージ 🎉" : "PR Merged 🎉",
-        sub: isJa ? "品質保証パス" : "Quality Passed",
+        sub: isJa ? "品質チェックパス" : "Quality Checked",
       },
     },
   ];
