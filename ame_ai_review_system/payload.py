@@ -166,6 +166,18 @@ def main() -> None:
             continue
 
         lines = valid_lines[path]
+        if not lines:
+            body = f"📍 **指摘対象: `{path}` L{line}（追加行なし）**\n\n{body}"
+            individual_payloads.append(
+                {
+                    "event": "COMMENT",
+                    "body": body,
+                    "commit_id": head_sha,
+                    "comments": [],
+                },
+            )
+            body_only_count += 1
+            continue
         target_line = line if line in lines else None
         if target_line is None:
             body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
@@ -188,11 +200,12 @@ def main() -> None:
         parts.append(f"*{inline_count} 件のインラインコメントを添付しています。*")
     if body_only_count:
         parts.append(
-            f"*{body_only_count} 件は diff 外ファイルのためレビューボディに記載。*"
+            f"*{body_only_count} 件は diff 外または追加行なしのためレビューボディに記載。*"
         )
+    separator = "\n"
     summary_body = (
         f"### 総評\n{review.get('summary', '')}\n\n"
-        f"---\n{''.join(parts)}\n"
+        f"---\n{separator.join(parts)}\n"
         f"<!-- reviewed-sha: {head_sha} -->"
     )
     summary_payload = {
