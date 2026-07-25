@@ -202,10 +202,10 @@ def main() -> None:
         parts.append(
             f"*{body_only_count} 件は diff 外または追加行なしのためレビューボディに記載。*"
         )
-    separator = "\n"
+    joined = "\n".join(parts)
     summary_body = (
         f"### 総評\n{review.get('summary', '')}\n\n"
-        f"---\n{separator.join(parts)}\n"
+        f"---\n{joined}\n"
         f"<!-- reviewed-sha: {head_sha} -->"
     )
     summary_payload = {
