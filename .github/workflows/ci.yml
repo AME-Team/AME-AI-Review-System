@@ -6,7 +6,7 @@
 #
 # ランナー: GitHub-hosted ubuntu-latest。
 # ツールチェーン (Python 3.12 / Node 22 / uv / shellcheck / actionlint /
-# gitleaks / claude-code / opencode-ai / headroom) は steps: で明示的に
+# gitleaks / claude-code / opencode-ai) は steps: で明示的に
 # セットアップする（旧 Dockerfile 相当）。
 
 name: CI
@@ -125,12 +125,6 @@ jobs:
 
       - name: Install claude-code / opencode-ai
         run: npm install -g @anthropic-ai/claude-code@2.1.214 opencode-ai@1.18.3
-
-      - name: Install headroom
-        run: |
-          uv venv /opt/headroom --python 3.12
-          uv pip install --python /opt/headroom/bin/python "headroom-ai[all]==0.31.0"
-          sudo ln -s /opt/headroom/bin/headroom /usr/local/bin/headroom
 
       # ==========================================================================
       # Fetch base ref (PR diff scope)

@@ -148,27 +148,12 @@ sequenceDiagram
   が管理する streak カウンタを 0 にリセットする。
 - **`precommit_state.py`** pre-commit レビューの状態管理モジュール。 `precommit_review.py` /
   `post_commit_reset.py` 両方から利用される。
-- **`scripts/linux/with_headroom.sh`**
-  AI レビューコマンドを headroom プロキシ経由で実行するラッパー。2 ワークフロー (`review_command.yml`
-  / `review_reply.yml`) のエントリポイントで、データ経路は
-  `workflow → with_headroom.sh → 共有プロキシ (headroom proxy) → headroom wrap → CLI`
-  となる。`config.json` の `headroom_proxy_enabled` が `true` のときだけプロキシを 1 つ起動し
-  `HEADROOM_ENABLED=1` を export する (`engine.py`
-  が wrap 経由で再利用)。プロキシ起動失敗・非健在時はプロセスを終了させた上で `HEADROOM_ENABLED`
-  を未設定に戻し、プロキシなし (passthrough) でコマンドを継続実行する。`headroom_proxy_enabled` が
-  `false` (フェイルセーフ用既定値) ならプロキシを起動せずそのまま実行する。出荷 `config.json` では
-  `true` に設定済み。 **プロキシのライフサイクル**: GitHub
-  Actions はジョブ単位でランナー（VM/コンテナ）が分離されるため、各ジョブが独立したプロキシを起動・終了する。
 
 ### 2. 設定・ビジネスロジック（Pythonスクリプト）
 
 - **`engine.py`** LLM エンジンアダプタ。プロンプトを stdin で受け取り、設定に応じて `claude` /
   `opencode run` / `agy`
   のいずれかを起動し、モデルのテキスト応答を stdout へ出力する。各エンジンごとの出力形式の違いはここで吸収し、呼び出し側はエンジンの種類を意識しなくてよい。
-  `HEADROOM_ENABLED=1` のとき `claude` / `opencode` は
-  `headroom wrap <engine> --no-proxy -- <元のCLI引数>`
-  で包み、共有プロキシ経由で圧縮する (OAuth/サブスクの bearer 転送は wrap が処理)。`antigravity`
-  (agy) は wrap 非対応かつプロキシ経路の指定方法が未検証のため、圧縮なしで直接実行する。
 - **`review_config.py`** `config.json` / `config.user.json` の読み込みと `/request-review`
   コマンドを判定するヘルパ。 `get <key>` で設定値を、`is-review-command <body>`
   でコマンド判定結果を出力する。設定の優先順位は `config.user.json` >
@@ -230,10 +215,7 @@ sequenceDiagram
   "model": "sonnet",
   "thinking": "high",
   "review_budget_usd": 2.0,
-  "reply_budget_usd": 0.2,
-  "headroom_proxy_enabled": true,
-  "headroom_proxy_port": 8787,
-  "headroom_output_shaper": true
+  "reply_budget_usd": 0.2
 }
 ```
 
@@ -252,17 +234,14 @@ sequenceDiagram
 
 環境変数でワークフローや Secrets から上書きできます。
 
-| 環境変数                 | 内容                                                                                                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REVIEW_ENGINE`          | `claude` / `opencode` / `antigravity`                                                                                                                               |
-| `REVIEW_MODEL`           | エンジン固有のモデル名（後方互換: `CLAUDE_MODEL` も可）                                                                                                             |
-| `REVIEW_THINKING`        | `high` / `medium` / `low`                                                                                                                                           |
-| `REVIEW_BUDGET_USD`      | クラウド予算。Claude の `--max-budget-usd` のみ効果あり。                                                                                                           |
-| `REPLY_BUDGET_USD`       | 返信ロール専用の予算。未設定時は `REVIEW_BUDGET_USD` にフォールバック。                                                                                             |
-| `REVIEW_TIMEOUT_SECONDS` | エンジン実行のタイムアウト（既定 600 秒）。                                                                                                                         |
-| `HEADROOM_ENABLED`       | headroom プロキシ経由起動の ON/OFF。`with_headroom.sh` が設定する内部変数（`1`/`true`/`yes`）。ユーザは `config.json` の `headroom_proxy_enabled` で制御する。      |
-| `HEADROOM_PORT`          | headroom プロキシのポート（既定 8787）。`with_headroom.sh` が `config.json` の `headroom_proxy_port` から export する内部変数。                                     |
-| `HEADROOM_OUTPUT_SHAPER` | 出力トークン削減（verbosity steering / effort routing）の ON/OFF（`1`）。`with_headroom.sh` が `config.json` の `headroom_output_shaper` から export する内部変数。 |
+| 環境変数                 | 内容                                                                    |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `REVIEW_ENGINE`          | `claude` / `opencode` / `antigravity`                                   |
+| `REVIEW_MODEL`           | エンジン固有のモデル名（後方互換: `CLAUDE_MODEL` も可）                 |
+| `REVIEW_THINKING`        | `high` / `medium` / `low`                                               |
+| `REVIEW_BUDGET_USD`      | クラウド予算。Claude の `--max-budget-usd` のみ効果あり。               |
+| `REPLY_BUDGET_USD`       | 返信ロール専用の予算。未設定時は `REVIEW_BUDGET_USD` にフォールバック。 |
+| `REVIEW_TIMEOUT_SECONDS` | エンジン実行のタイムアウト（既定 600 秒）。                             |
 
 ### なぜ CLI 呼び出しを採用しているか？
 

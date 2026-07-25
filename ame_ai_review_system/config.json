@@ -11,8 +11,5 @@
   "review_thinking": "high",
   "reply_thinking": "low",
   "review_budget_usd": 2.0,
-  "reply_budget_usd": 0.2,
-  "headroom_proxy_enabled": true,
-  "headroom_proxy_port": 8787,
-  "headroom_output_shaper": true
+  "reply_budget_usd": 0.2
 }

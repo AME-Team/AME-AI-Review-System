@@ -400,7 +400,7 @@ repos:
       # =========================================================================
       - id: ai-precommit-review
         name: "AI Code Review (pre-commit)"
-        entry: scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.precommit_review
+        entry: python3 -m ame_ai_review_system.precommit_review
         language: system
         pass_filenames: false
         always_run: true

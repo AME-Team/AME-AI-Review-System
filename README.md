@@ -149,7 +149,6 @@ ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする�
 
 scripts/
   linux/
-    with_headroom.sh           # AI レビューコマンドを headroom プロキシ経由で実行するラッパー
     pr_review_reply.sh         # レビュー返信ワークフロー互換のレガシーパス（互換ラッパ）
   precommit_hygiene.py         # pre-commit 関連の補助スクリプト
   check_suppression_comments.py  # 抑制コメント検証スクリプト

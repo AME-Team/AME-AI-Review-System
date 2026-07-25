@@ -37,9 +37,6 @@ _DEFAULTS: dict[str, Any] = {
     "reply_thinking": "low",
     "review_budget_usd": 2.00,
     "reply_budget_usd": 0.20,
-    "headroom_proxy_enabled": False,
-    "headroom_proxy_port": 8787,
-    "headroom_output_shaper": True,
 }
 
 _REVIEW_COMMANDS = ("/request-review", "/review")
