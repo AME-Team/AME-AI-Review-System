@@ -143,7 +143,7 @@ def main() -> None:
         "WARNING": "🟡",
         "INFO": "🟢",
     }
-    individual_payloads: list[dict] = []
+    individual_payloads: list[dict[str, Any]] = []
     inline_count = 0
     body_only_count = 0
     for c in review.get("comments", []):

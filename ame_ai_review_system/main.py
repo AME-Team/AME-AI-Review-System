@@ -332,7 +332,7 @@ def _build_review_payloads(
 def cmd_review(args: argparse.Namespace) -> int:
     api_url, repo = github_client.resolve_env()
     pr_number = args.pr_number
-    base_ref = args.base_ref or os.environ.get("BASE_REF", "main")
+    base_ref = args.base_ref
     pr_title = args.pr_title or ""
     pr_body = args.pr_body or ""
     reviewer_name = _get_env("REVIEWER_NAME", "ame-ai-reviewer")

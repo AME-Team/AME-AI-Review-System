@@ -115,3 +115,6 @@ Resolve       : GraphQL mutation resolveReviewConversation(input: {threadId: ID!
 - **未解決スレッドがゼロになるまで絶対に作業を止めない。**
   ユーザーから「止めていい」と明示的に言われない限り、何があってもループを継続する。
 - `/` で始まるコメント（コマンド）は返信判定の対象外。
+- **`SKIP=ai-precommit-review` を絶対に使わない。** AI pre-commit review（Gate
+  1）は Dual-Gate アーキテクチャの第一関門である。フックが遅い、タイムアウトする等の理由で迂回してはならない。タイムアウトが発生した場合は、`timeout`
+  パラメータを増やす等の対応をし、必ず Gate 1 を通過してからコミットする。
