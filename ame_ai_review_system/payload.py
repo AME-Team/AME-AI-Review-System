@@ -143,18 +143,33 @@ def main() -> None:
         "WARNING": "🟡",
         "INFO": "🟢",
     }
-    individual_payloads = []
+    individual_payloads: list[dict] = []
+    inline_count = 0
+    body_only_count = 0
     for c in review.get("comments", []):
         path = c.get("path", "")
         line = int(c.get("line", 1))
         icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
         body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
 
-        lines = valid_lines.get(path, set())
+        if path not in valid_lines:
+            body = f"📍 **指摘対象: `{path}` L{line}（diff 外のファイル）**\n\n{body}"
+            individual_payloads.append(
+                {
+                    "event": "COMMENT",
+                    "body": body,
+                    "commit_id": head_sha,
+                    "comments": [],
+                },
+            )
+            body_only_count += 1
+            continue
+
+        lines = valid_lines[path]
         target_line = line if line in lines else None
         if target_line is None:
             body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
-            target_line = min(lines, key=lambda x: abs(x - line)) if lines else 1
+            target_line = min(lines, key=lambda x: abs(x - line))
 
         individual_payloads.append(
             {
@@ -166,10 +181,18 @@ def main() -> None:
                 ],
             },
         )
+        inline_count += 1
 
+    parts = []
+    if inline_count:
+        parts.append(f"*{inline_count} 件のインラインコメントを添付しています。*")
+    if body_only_count:
+        parts.append(
+            f"*{body_only_count} 件は diff 外ファイルのためレビューボディに記載。*"
+        )
     summary_body = (
         f"### 総評\n{review.get('summary', '')}\n\n"
-        f"---\n*{len(individual_payloads)} 件のインラインコメントを添付しています。*\n"
+        f"---\n{''.join(parts)}\n"
         f"<!-- reviewed-sha: {head_sha} -->"
     )
     summary_payload = {

@@ -9,6 +9,16 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+
+class HttpError(RuntimeError):
+    """GitHub API の HTTP エラー。ステータスコードを保持する."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        """HTTP ステータスコードとメッセージを保持する."""
+        super().__init__(message)
+        self.status_code = status_code
+
+
 _REVIEW_THREADS_QUERY = """
 query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
   repository(owner: $owner, name: $repo) {
@@ -105,7 +115,7 @@ def http_request(
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")
         msg = f"GitHub API error {e.code} for {method} {url}: {detail}"
-        raise RuntimeError(msg) from e
+        raise HttpError(e.code, msg) from e
     if not raw:
         return None
     if accept == "application/vnd.github.diff":
