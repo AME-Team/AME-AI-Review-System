@@ -237,6 +237,12 @@ def _post_review(
     url = f"{api_url}/repos/{repo}/pulls/{pr_number}/reviews"
     try:
         resp = github_client.http_request("POST", url, token, body=payload_data)
+    except github_client.HttpError as e:
+        print(
+            f"[review] Failed to post review (HTTP {e.status_code}): {e}",
+            file=sys.stderr,
+        )
+        return e.status_code, {}
     except RuntimeError as e:
         print(f"[review] Failed to post review: {e}", file=sys.stderr)
         return 0, {}
@@ -252,58 +258,13 @@ def _build_review_payloads(
     """Parse review JSON and build GitHub review payloads."""
     review, _ = payload_module.parse_review_json_with_flag(review_json)
     valid_lines = payload_module.build_valid_lines_map(base_ref)
-
-    severity_icon = {
-        "CRITICAL": "🔴",
-        "HIGH": "🟠",
-        "MIDDLE": "🟡",
-        "LOW": "🟢",
-        "WARNING": "🟡",
-        "INFO": "🟢",
-    }
-    individual_payloads = []
-    for c in review.get("comments", []):
-        path = c.get("path", "")
-        line = int(c.get("line", 1))
-        icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
-        body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
-
-        lines = valid_lines.get(path, set())
-        target_line = line if line in lines else None
-        if target_line is None:
-            body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
-            target_line = min(lines, key=lambda x: abs(x - line)) if lines else 1
-
-        individual_payloads.append(
-            {
-                "event": "COMMENT",
-                "body": "",
-                "commit_id": head_sha,
-                "comments": [
-                    {"path": path, "line": target_line, "side": "RIGHT", "body": body}
-                ],
-            },
-        )
-
-    summary_body = (
-        f"### 総評\n{review.get('summary', '')}\n\n"
-        f"---\n*{len(individual_payloads)} 件のインラインコメントを添付しています。*\n"
-        f"<!-- reviewed-sha: {head_sha} -->"
-    )
-    summary_payload = {
-        "event": "COMMENT",
-        "body": summary_body,
-        "commit_id": head_sha,
-        "comments": [],
-    }
-
-    return [summary_payload, *individual_payloads]
+    return payload_module.build_review_payloads(review, valid_lines, head_sha)
 
 
 def cmd_review(args: argparse.Namespace) -> int:
     api_url, repo = github_client.resolve_env()
     pr_number = args.pr_number
-    base_ref = args.base_ref or "main"
+    base_ref = args.base_ref
     pr_title = args.pr_title or ""
     pr_body = args.pr_body or ""
     reviewer_name = _get_env("REVIEWER_NAME", "ame-ai-reviewer")
@@ -580,7 +541,10 @@ def main(argv: list[str] | None = None) -> int:
     # review
     p_review = subparsers.add_parser("review", help="Run AI review on PR")
     p_review.add_argument("pr_number", type=int)
-    p_review.add_argument("--base-ref", default="main")
+    p_review.add_argument(
+        "--base-ref",
+        default=os.environ.get("BASE_REF", "main"),
+    )
     p_review.add_argument("--pr-title", default="")
     p_review.add_argument("--pr-body", default="")
     p_review.add_argument(

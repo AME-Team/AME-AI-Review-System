@@ -117,6 +117,95 @@ def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
 _REQUIRED_ARGS = 2
 
 
+def build_review_payloads(
+    review: dict[str, Any],
+    valid_lines: dict[str, set[int]],
+    head_sha: str,
+) -> list[dict[str, Any]]:
+    """レビューコメントから GitHub review API のペイロード一覧を構築する."""
+    severity_icon = {
+        "CRITICAL": "🔴",
+        "HIGH": "🟠",
+        "MIDDLE": "🟡",
+        "LOW": "🟢",
+        "WARNING": "🟡",
+        "INFO": "🟢",
+    }
+    individual_payloads: list[dict[str, Any]] = []
+    inline_count = 0
+    body_only_count = 0
+    for c in review.get("comments", []):
+        path = c.get("path", "")
+        line = int(c.get("line", 1))
+        icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
+        body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
+
+        if path not in valid_lines:
+            body = f"📍 **指摘対象: `{path}` L{line}（diff 外のファイル）**\n\n{body}"
+            individual_payloads.append(
+                {
+                    "event": "COMMENT",
+                    "body": body,
+                    "commit_id": head_sha,
+                    "comments": [],
+                },
+            )
+            body_only_count += 1
+            continue
+
+        lines = valid_lines[path]
+        if not lines:
+            body = f"📍 **指摘対象: `{path}` L{line}（追加行なし）**\n\n{body}"
+            individual_payloads.append(
+                {
+                    "event": "COMMENT",
+                    "body": body,
+                    "commit_id": head_sha,
+                    "comments": [],
+                },
+            )
+            body_only_count += 1
+            continue
+        target_line = line if line in lines else None
+        if target_line is None:
+            body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
+            target_line = min(lines, key=lambda x: abs(x - line))
+
+        individual_payloads.append(
+            {
+                "event": "COMMENT",
+                "body": "",
+                "commit_id": head_sha,
+                "comments": [
+                    {"path": path, "line": target_line, "side": "RIGHT", "body": body}
+                ],
+            },
+        )
+        inline_count += 1
+
+    parts = []
+    if inline_count:
+        parts.append(f"*{inline_count} 件のインラインコメントを添付しています。*")
+    if body_only_count:
+        parts.append(
+            f"*{body_only_count} 件は diff 外または追加行なしのためレビューボディに記載。*"
+        )
+    joined = "\n".join(parts)
+    summary_body = (
+        f"### 総評\n{review.get('summary', '')}\n\n"
+        f"---\n{joined}\n"
+        f"<!-- reviewed-sha: {head_sha} -->"
+    )
+    summary_payload = {
+        "event": "COMMENT",
+        "body": summary_body,
+        "commit_id": head_sha,
+        "comments": [],
+    }
+
+    return [summary_payload, *individual_payloads]
+
+
 def main() -> None:
     if len(sys.argv) < _REQUIRED_ARGS:
         sys.exit("Usage: build_review_payload.py <review_file>")
@@ -135,51 +224,8 @@ def main() -> None:
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         sys.exit("[build_review_payload] ERROR: Failed to get HEAD SHA.")
 
-    severity_icon = {
-        "CRITICAL": "🔴",
-        "HIGH": "🟠",
-        "MIDDLE": "🟡",
-        "LOW": "🟢",
-        "WARNING": "🟡",
-        "INFO": "🟢",
-    }
-    individual_payloads = []
-    for c in review.get("comments", []):
-        path = c.get("path", "")
-        line = int(c.get("line", 1))
-        icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
-        body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
-
-        lines = valid_lines.get(path, set())
-        target_line = line if line in lines else None
-        if target_line is None:
-            body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
-            target_line = min(lines, key=lambda x: abs(x - line)) if lines else 1
-
-        individual_payloads.append(
-            {
-                "event": "COMMENT",
-                "body": "",
-                "commit_id": head_sha,
-                "comments": [
-                    {"path": path, "line": target_line, "side": "RIGHT", "body": body}
-                ],
-            },
-        )
-
-    summary_body = (
-        f"### 総評\n{review.get('summary', '')}\n\n"
-        f"---\n*{len(individual_payloads)} 件のインラインコメントを添付しています。*\n"
-        f"<!-- reviewed-sha: {head_sha} -->"
-    )
-    summary_payload = {
-        "event": "COMMENT",
-        "body": summary_body,
-        "commit_id": head_sha,
-        "comments": [],
-    }
-
-    print(json.dumps([summary_payload, *individual_payloads]))
+    payloads = build_review_payloads(review, valid_lines, head_sha)
+    print(json.dumps(payloads))
 
 
 if __name__ == "__main__":
