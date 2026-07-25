@@ -117,24 +117,12 @@ def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
 _REQUIRED_ARGS = 2
 
 
-def main() -> None:
-    if len(sys.argv) < _REQUIRED_ARGS:
-        sys.exit("Usage: build_review_payload.py <review_file>")
-    review_file = sys.argv[1]
-    base_ref = os.environ.get("BASE_REF", "main")
-
-    review = parse_review_json(review_file)
-    valid_lines = build_valid_lines_map(base_ref)
-
-    try:
-        head_sha = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        sys.exit("[build_review_payload] ERROR: Failed to get HEAD SHA.")
-
+def build_review_payloads(
+    review: dict[str, Any],
+    valid_lines: dict[str, set[int]],
+    head_sha: str,
+) -> list[dict[str, Any]]:
+    """レビューコメントから GitHub review API のペイロード一覧を構築する."""
     severity_icon = {
         "CRITICAL": "🔴",
         "HIGH": "🟠",
@@ -215,7 +203,29 @@ def main() -> None:
         "comments": [],
     }
 
-    print(json.dumps([summary_payload, *individual_payloads]))
+    return [summary_payload, *individual_payloads]
+
+
+def main() -> None:
+    if len(sys.argv) < _REQUIRED_ARGS:
+        sys.exit("Usage: build_review_payload.py <review_file>")
+    review_file = sys.argv[1]
+    base_ref = os.environ.get("BASE_REF", "main")
+
+    review = parse_review_json(review_file)
+    valid_lines = build_valid_lines_map(base_ref)
+
+    try:
+        head_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        sys.exit("[build_review_payload] ERROR: Failed to get HEAD SHA.")
+
+    payloads = build_review_payloads(review, valid_lines, head_sha)
+    print(json.dumps(payloads))
 
 
 if __name__ == "__main__":
