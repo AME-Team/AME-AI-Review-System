@@ -29,8 +29,6 @@ _ENV_KEYS = (
     "REVIEW_TIMEOUT_SECONDS",
     "CLAUDE_MODEL",
     "AME_REVIEW_CONFIG",
-    "HEADROOM_ENABLED",
-    "HEADROOM_PORT",
 )
 
 
@@ -354,81 +352,7 @@ def test_build_command_claude_requires_model() -> None:
         )
 
 
-def test_build_command_claude_wraps_with_headroom(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("HEADROOM_ENABLED", "1")
-    args, stdin_data = build_command(
-        {
-            "engine": "claude",
-            "model": "sonnet",
-            "thinking": "high",
-            "budget": 2.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert args[:3] == ["headroom", "wrap", "claude"]
-    # -- で wrap 独自フラグと対象 CLI のフラグを分離する
-    sep = args.index("--")
-    assert "--no-proxy" in args[:sep]
-    assert "--no-mcp" in args[:sep]
-    # -- の後ろは元の claude 引数 (バイナリ名は headroom wrap 側で解決されるため除外)
-    assert args[sep + 1] == "-p"
-    assert "--output-format" in args[sep + 1 :]
-    assert stdin_data == "PROMPT"
-
-
-def test_build_command_opencode_wraps_with_headroom(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("HEADROOM_ENABLED", "true")
-    args, _ = build_command(
-        {
-            "engine": "opencode",
-            "model": "zai-coding-plan/glm-5.2",
-            "thinking": "low",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert args[:3] == ["headroom", "wrap", "opencode"]
-    sep = args.index("--")
-    assert "--no-proxy" in args[:sep]
-    # バイナリ名は headroom wrap 側で解決されるため除外、run が先頭
-    assert args[sep + 1] == "run"
-
-
-def test_build_command_headroom_injects_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # headroom wrap は HEADROOM_PORT 環境変数を読まないため、
-    # -p <port> をフラグ領域へ明示的に注入する。
-    monkeypatch.setenv("HEADROOM_ENABLED", "1")
-    monkeypatch.setenv("HEADROOM_PORT", "9999")
-    args, _ = build_command(
-        {
-            "engine": "claude",
-            "model": "sonnet",
-            "thinking": "high",
-            "budget": 2.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    sep = args.index("--")
-    pre_sep = args[:sep]
-    assert "-p" in pre_sep
-    port_idx = pre_sep.index("-p")
-    assert pre_sep[port_idx + 1] == "9999"
-
-
-def test_build_command_antigravity_not_wrapped(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # antigravity は wrap 非対応: HEADROOM_ENABLED でも引数はそのまま。
-    monkeypatch.setenv("HEADROOM_ENABLED", "1")
+def test_build_command_antigravity_args() -> None:
     args, _ = build_command(
         {
             "engine": "antigravity",
@@ -440,7 +364,6 @@ def test_build_command_antigravity_not_wrapped(
         "PROMPT",
     )
     assert args[0] == "agy"
-    assert "headroom" not in args
 
 
 def test_build_command_antigravity_requires_model() -> None:
@@ -722,36 +645,10 @@ def test_run_engine_antigravity_strips_output(
     assert out.out.strip() == "raw antigravity text"
 
 
-def test_run_engine_antigravity_no_proxy_env_when_headroom(
+def test_run_engine_passes_through_parent_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # antigravity は headroom 非対応 (wrap 不可・経路未検証) のため、
-    # HEADROOM_ENABLED=1 でもプロキシ env を注入せず親 env を継承する。
-    # proc_env から HEADROOM_* を除去した env が渡されることを確認。
-    monkeypatch.setenv("HEADROOM_ENABLED", "1")
-    monkeypatch.setenv("HEADROOM_PORT", "8787")
-    captured = _patch_engine(monkeypatch, stdout="ok")
-    run_engine(
-        {
-            "engine": "antigravity",
-            "model": "Gemini 3.5 Pro",
-            "thinking": "high",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert captured["env"] is not None
-    assert "HEADROOM_ENABLED" not in captured["env"]
-    assert "HEADROOM_PORT" not in captured["env"]
-    assert "HEADROOM_OUTPUT_SHAPER" not in captured["env"]
-
-
-def test_run_engine_no_env_override_without_headroom(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # headroom 無効時は親プロセスの環境変数をそのまま継承する
-    # (proc_env をコピーして渡すが、HEADROOM_* は除去されない)
+    # subprocess には親プロセスの環境変数をそのままコピーして渡す
     captured = _patch_engine(monkeypatch, stdout="ok")
     run_engine(
         {

@@ -99,6 +99,6 @@ jobs:
           REPLY_MODEL: ${{ vars.REPLY_MODEL }}
           REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
         run: |
-          scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
+          python3 -m ame_ai_review_system.main review \
             "$PR_NUMBER" \
             --prompt-file ame_ai_review_system/review_prompt.txt

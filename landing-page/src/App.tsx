@@ -42,8 +42,6 @@ interface TranslationResource {
   featureGateDesc: string;
   featureAgentTitle: string;
   featureAgentDesc: string;
-  featureCompressTitle: string;
-  featureCompressDesc: string;
   featureLoopTitle: string;
   featureLoopDesc: string;
   enginesTitle: string;
@@ -72,8 +70,6 @@ interface TranslationResource {
   diagramStepFileDesc: string;
   diagramStepGate1: string;
   diagramStepGate1Desc: string;
-  diagramStepHeadroom: string;
-  diagramStepHeadroomDesc: string;
   diagramStepCommit: string;
   diagramStepCommitDesc: string;
   diagramStepGate2: string;
@@ -128,9 +124,6 @@ const translations: Record<Locale, TranslationResource> = {
     featureAgentTitle: "Codingエージェント & 広範コンテキスト検証",
     featureAgentDesc:
       "Claude Code, OpenCode, Antigravity CLIなどのCodingエージェントをエンジンに指定可能。差分外を含む全リポジトリを参照し「コード修正に伴うDocumentsの更新有無」なども自動チェック可能。",
-    featureCompressTitle: "headroom トークン圧縮技術",
-    featureCompressDesc:
-      "Gitメタデータ、バイナリ差分、冗長な空行、構成ファイル内の不要セクションを自動圧縮。AIへの入力トークン量を最小限に抑えプロンプトキャッシュを最適化します。",
     featureLoopTitle: "停滞ループ自動検出",
     featureLoopDesc:
       "指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行しデリバリー速度の低下を防ぎます。",
@@ -160,18 +153,16 @@ const translations: Record<Locale, TranslationResource> = {
     workflowStep2Title: "プルリクエスト自動レビュー (ゲート2)",
     workflowStep2Desc:
       "コードがリモートにプッシュされると、CIランナーが総合検証を起動。PRのコメントで /request-review と投稿するだけで、対話型のAIレビューコメントとディスカッションスレッドを自動生成します。",
-    diagramTitle: "デュアルゲート & headroom 処理フロー",
+    diagramTitle: "デュアルゲート処理フロー",
     diagramDesc:
       "コード変更からコミット、PRレビューまでの最適化パイプライン（いずれかのノードを選択して詳細情報を表示）",
     diagramStepFile: "1. ファイル変更検知",
     diagramStepFileDesc: "TS / Python / MD / JSON / YAML 等",
     diagramStepGate1: "2. ゲート1 (静的解析)",
     diagramStepGate1Desc: "並行静的チェッカー実行",
-    diagramStepHeadroom: "3. headroom 圧縮",
-    diagramStepHeadroomDesc: "メタデータ除去・差分最適化",
-    diagramStepCommit: "4. コミット実行",
+    diagramStepCommit: "3. コミット実行",
     diagramStepCommitDesc: "検証通過でのみコミットを許可",
-    diagramStepGate2: "5. ゲート2 (PRレビュー)",
+    diagramStepGate2: "4. ゲート2 (PRレビュー)",
     diagramStepGate2Desc: "/request-review による指摘",
     configTitle: "品質チェックの設定構成",
     configDesc: "チーム全体で共有され、高い品質を維持するための標準設定ファイル",
@@ -221,9 +212,6 @@ const translations: Record<Locale, TranslationResource> = {
     featureAgentTitle: "Coding Agent & Full Context Analysis",
     featureAgentDesc:
       "Supports Claude Code, OpenCode, and Antigravity CLI. Refers to full repository context to automatically check if documentation updates match code changes.",
-    featureCompressTitle: "headroom Token Compression",
-    featureCompressDesc:
-      "Automatically filters Git metadata and redundant lines, compressing LLM input tokens and maximizing prompt caching efficiency.",
     featureLoopTitle: "Stagnation Loop Detection",
     featureLoopDesc:
       "Evaluates comment Jaccard similarity to catch circular discussions, issuing forced LGTMs to maintain team velocity.",
@@ -253,18 +241,16 @@ const translations: Record<Locale, TranslationResource> = {
     workflowStep2Title: "Pull Request Auto-Review (Gate 2)",
     workflowStep2Desc:
       "Once pushed, CI runners trigger comprehensive tests. Developers can simply type /request-review in the PR comments to instantly generate interactive AI reviews and discussion threads.",
-    diagramTitle: "Dual-Gate & headroom Pipeline Flow",
+    diagramTitle: "Dual-Gate Pipeline Flow",
     diagramDesc:
       "Optimized pipeline from code modifications to commit and PR reviews (Select a node to view technical details)",
     diagramStepFile: "1. File Change Detect",
     diagramStepFileDesc: "TS / Python / MD / JSON / YAML etc.",
     diagramStepGate1: "2. Gate 1 (Static Check)",
     diagramStepGate1Desc: "Parallel static checkers execution",
-    diagramStepHeadroom: "3. headroom Compression",
-    diagramStepHeadroomDesc: "Strips metadata, optimizes diffs to save tokens",
-    diagramStepCommit: "4. Execute Commit",
+    diagramStepCommit: "3. Execute Commit",
     diagramStepCommitDesc: "Allows commit execution only when local checks pass",
-    diagramStepGate2: "5. Gate 2 (PR Review)",
+    diagramStepGate2: "4. Gate 2 (PR Review)",
     diagramStepGate2Desc: "Triggers AI feedback on CI via /request-review",
     configTitle: "Quality Check Settings",
     configDesc: "Shared, standard configuration files maintaining code and review policies",
@@ -620,7 +606,7 @@ export default function App(): React.JSX.Element {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [settings, setSettings] = useState<AppSettings>(loadSavedSettings);
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [activeStep, setActiveStep] = useState<number>(2); // Default to headroom token compression detail
+  const [activeStep, setActiveStep] = useState<number>(0);
 
   const [terminalLogs, setTerminalLogs] = useState<LogMessage[]>([]);
   const [activeTab, setActiveTab] = useState<"yaml" | "eslint" | "circuit">("yaml");
@@ -911,9 +897,8 @@ if ts_files:
     return [
       { id: 0, title: tDict.diagramStepFile, desc: tDict.diagramStepFileDesc },
       { id: 1, title: tDict.diagramStepGate1, desc: tDict.diagramStepGate1Desc },
-      { id: 2, title: tDict.diagramStepHeadroom, desc: tDict.diagramStepHeadroomDesc },
-      { id: 3, title: tDict.diagramStepCommit, desc: tDict.diagramStepCommitDesc },
-      { id: 4, title: tDict.diagramStepGate2, desc: tDict.diagramStepGate2Desc },
+      { id: 2, title: tDict.diagramStepCommit, desc: tDict.diagramStepCommitDesc },
+      { id: 3, title: tDict.diagramStepGate2, desc: tDict.diagramStepGate2Desc },
     ];
   };
 
@@ -925,10 +910,8 @@ if ts_files:
         case 1:
           return "【静的サーキットブレーカー】コミットフック（pre-commit）が働き、tsc(型チェック)、eslint(スタイル)、mypy/ruff(Python静的解析)を並行して実行します。ここでエラーが出た場合はAI APIの実行を即時中断し、不要なAPI利用と開発者の待機を防ぎます。";
         case 2:
-          return "【headroom による差分圧縮】git diff から余分なメタデータや長い連続改行、構成ファイル(json, yaml, md)内の冗長なブロックを自動除外。プロンプトサイズを圧縮し、Claude 3.5 へのトークン量を抑えることで、APIの応答速度とプロンプトキャッシュ効率を最大化します。";
+          return "【ローカルコミット許可】すべてのローカル静的検証と、AIローカル事前チェックを通過した場合にのみ、コミットが成功します。開発者はバグが混入していないクリーンな状態で作業を進められます。";
         case 3:
-          return "【ローカルコミット許可】すべてのローカル静的検証と、トークン圧縮されたコンテキストに基づくAIローカル事前チェックを通過した場合にのみ、コミットが成功します。開発者はバグが混入していないクリーンな状態で作業を進められます。";
-        case 4:
           return "【CI自動レビュー】コードがリモートにプッシュされPR（プルリクエスト）が作成されると、CI上のレビューシステム（ゲート2）が起動。/request-review コメントでAIのディスカッションスレッドが作られ、類似度比較による停滞ループ検知が作動します。";
         default:
           return "";
@@ -940,10 +923,8 @@ if ts_files:
         case 1:
           return "[Static Circuit Breaker] Pre-commit hooks run tsc (strict check), ESLint (linting), and mypy/ruff (Python static analysis) in parallel. Fails immediately to skip downstream AI API calls and save tokens.";
         case 2:
-          return "[headroom Token Compression] Automatically filters redundant metadata, excess blank lines, and boilerplate comments from configuration files (JSON/YAML/MD). Compresses input size to optimize Claude 3.5 caching.";
-        case 3:
           return "[Commit Approval] Only commits that pass all local static checks and local AI pre-check are permitted. Developers proceed confident that no bugs or type errors have slipped in.";
-        case 4:
+        case 3:
           return "[CI Automated Review] Upon pushing to remote and initiating a PR, Gate 2 starts. Commenting /request-review triggers deep AI analysis, creating review threads and deploying stagnation loop checks.";
         default:
           return "";
@@ -1286,29 +1267,6 @@ if ts_files:
               </p>
             </div>
             <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
-              <div className="w-10 h-10 rounded-md bg-teal-clarity/10 text-teal-clarity flex items-center justify-center font-bold text-base shadow-sm">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                  />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {t.featureCompressTitle}
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                {t.featureCompressDesc}
-              </p>
-            </div>
-            <div className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 flex flex-col gap-4 items-start text-left">
               <div className="w-10 h-10 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-base shadow-sm">
                 <svg
                   className="w-5 h-5"
@@ -1348,7 +1306,7 @@ if ts_files:
             {/* Background connection line */}
             <div className="absolute top-9 left-[10%] right-[10%] h-0.5 bg-gray-200 dark:bg-gray-800 z-0 hidden md:block"></div>
 
-            <div className="relative z-10 grid grid-cols-1 md:grid-cols-5 gap-6">
+            <div className="relative z-10 grid grid-cols-1 md:grid-cols-4 gap-6">
               {getDiagramSteps(locale).map((step) => {
                 const isActive = activeStep === step.id;
                 return (

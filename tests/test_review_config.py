@@ -47,9 +47,6 @@ def test_load_config_default_disabled() -> None:
     assert cfg["thinking"] == "high"
     assert cfg["review_budget_usd"] == pytest.approx(2.0)
     assert cfg["reply_budget_usd"] == pytest.approx(0.2)
-    assert cfg["headroom_proxy_enabled"] is True
-    assert cfg["headroom_proxy_port"] == 8787
-    assert cfg["headroom_output_shaper"] is True
 
 
 def test_load_config_reads_file() -> None:
@@ -77,22 +74,12 @@ def test_cli_get_prints_default() -> None:
         os.environ["AME_REVIEW_CONFIG"] = str(nonexistent)
         output = _capture(
             lambda: review_config.main(
-                ["review_config.py", "get", "headroom_proxy_enabled"],
+                ["review_config.py", "get", "engine"],
             ),
         )
     finally:
         _restore_env("AME_REVIEW_CONFIG", old)
-    assert output.strip() == "false"
-
-
-def test_cli_get_headroom_proxy_enabled_by_default() -> None:
-    os.environ.pop("AME_REVIEW_CONFIG", None)
-    output = _capture(
-        lambda: review_config.main(
-            ["review_config.py", "get", "headroom_proxy_enabled"],
-        ),
-    )
-    assert output.strip() == "true"
+    assert output.strip() == "claude"
 
 
 def test_cli_is_review_command() -> None:

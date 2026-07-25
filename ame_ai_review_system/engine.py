@@ -72,33 +72,6 @@ _BINARY: dict[str, str] = {
 # 許容文字は英数字・記号(./:@-)・空白に限定し、シェルメタ文字を弾く。
 _MODEL_RE = re.compile(r"^[-\w./:@ ]+$")
 
-# headroom プロキシ経由で LLM CLI を起動するかを env HEADROOM_ENABLED で切替える。
-# ラッパースクリプト (scripts/linux/with_headroom.sh) が共有プロキシを起動し、
-# この env を設定した上で本モジュールを起動する。
-_HEADROOM_ENV = "HEADROOM_ENABLED"
-
-# headroom wrap 経由で起動するエンジンと、コーディングエージェント向け
-# MCP/context ツールを無効化しつつ共有プロキシを再利用する (--no-proxy) フラグ。
-# レビューは非対話の単発実行のため retrieve/コードグラフトは不要で、純粋な
-# プロキシ圧縮 (CodeCompressor / SmartCrusher / Kompress) のみ適用する。
-# --no-tokensave は claude 専用 (tokensave code-graph MCP のスキップ)。
-# opencode は headroom wrap 側が当該フラグをサポートしないため除外している。
-_HEADROOM_WRAP_FLAGS: dict[str, tuple[str, ...]] = {
-    "claude": (
-        "--no-proxy",
-        "--no-mcp",
-        "--no-context-tool",
-        "--no-serena",
-        "--no-tokensave",
-    ),
-    "opencode": (
-        "--no-proxy",
-        "--no-mcp",
-        "--no-context-tool",
-        "--no-serena",
-    ),
-}
-
 
 def _first_nonempty(*values: str | None) -> str | None:
     for value in values:
@@ -108,38 +81,6 @@ def _first_nonempty(*values: str | None) -> str | None:
         if text:
             return text
     return None
-
-
-def _headroom_enabled() -> bool:
-    """Headroom プロキシ経由起動が有効か (env HEADROOM_ENABLED=1/true/yes)."""
-    return os.environ.get(_HEADROOM_ENV, "").lower() in {"1", "true", "yes"}
-
-
-def _wrap_with_headroom(engine: str, args: list[str]) -> list[str]:
-    """Wrap 対応エンジンなら ``headroom wrap <engine> --no-proxy -- <args>`` を返す.
-
-    HEADROOM_ENABLED が無効、または非対応 (antigravity 等) の場合は引数をそのまま返し、
-    呼び出し側がプロキシ env で経路制御する。 ``--`` で wrap 独自フラグと対象 CLI の
-    フラグを分離し、対象 CLI 側の ``-p`` 等との衝突 (wrap 側は ``-p`` = プロキシポート)
-    を防ぐ。
-
-    args[0] は対象バイナリ名 (例: "opencode") だが、 ``headroom wrap opencode``
-    が内部でバイナリを解決するため、重複を避けるために args[0] を除去してから ``--``
-    以降へ渡す。
-
-    ``headroom wrap`` は ``HEADROOM_PORT`` 環境変数を読まない (0.31.0 時点) ため、
-    ``-p <port>`` を明示的にフラグ領域へ注入する。
-    """
-    if not _headroom_enabled():
-        return args
-    flags = list(_HEADROOM_WRAP_FLAGS.get(engine, ()))
-    if not flags:
-        return args
-    port = os.environ.get("HEADROOM_PORT")
-    if port:
-        flags = ["-p", port, *flags]
-    inner_args = args[1:] if args and args[0] == engine else args
-    return ["headroom", "wrap", engine, *flags, "--", *inner_args]
 
 
 def resolve_settings(role: str) -> dict[str, Any]:
@@ -254,7 +195,7 @@ def build_command(
             "text",
             "--dangerously-skip-permissions",
         ]
-        return _wrap_with_headroom("claude", args), prompt
+        return args, prompt
 
     if engine == "opencode":
         # --auto は非インタラクティブ実行で権限プロンプトによりブロックしないため必須。
@@ -269,7 +210,7 @@ def build_command(
         ]
         if model:
             args.extend(["-m", str(model)])
-        return _wrap_with_headroom("opencode", args), prompt
+        return args, prompt
 
     assert engine == "antigravity", f"Unhandled engine: {engine}"
     if not model:
@@ -307,18 +248,6 @@ def _check_binary(engine: str) -> None:
         sys.exit(
             f"[engine] {binary!r} not found on PATH (engine={engine!r}). "
             "Install the CLI or change the 'engine' setting.",
-        )
-    # wrap 経由の場合は headroom 本体も必要。欠けていれば明確に失敗させる。
-    if (
-        _headroom_enabled()
-        and engine in _HEADROOM_WRAP_FLAGS
-        and not shutil.which(
-            "headroom",
-        )
-    ):
-        sys.exit(
-            "[engine] HEADROOM_ENABLED=1 but 'headroom' not found on PATH. "
-            "Install headroom-ai or unset HEADROOM_ENABLED.",
         )
 
 
@@ -371,16 +300,7 @@ def run_engine(settings: dict[str, Any], prompt: str) -> int:
     _check_binary(engine)
 
     args, stdin_data = build_command(settings, prompt)
-    # claude/opencode は wrap 側がプロキシ routing を設定するため env は継承する。
-    # antigravity は headroom 非対応 (wrap 不可・経路未検証) のため env 注入も行わない。
-    # 親プロセスの環境変数をコピーし、必要に応じて削除することで継承性を維持する。
-    # subprocess.run に env を渡さない場合は親プロセスの環境を継承するが、
-    # 明示的に制御するためにコピーを渡す（os.environ.copy() は親の環境をそのままコピー）。
     proc_env = os.environ.copy()
-    if settings.get("engine") == "antigravity":
-        proc_env.pop("HEADROOM_ENABLED", None)
-        proc_env.pop("HEADROOM_PORT", None)
-        proc_env.pop("HEADROOM_OUTPUT_SHAPER", None)
     timeout_raw = os.environ.get("REVIEW_TIMEOUT_SECONDS")
     if timeout_raw:
         try:
@@ -392,15 +312,8 @@ def run_engine(settings: dict[str, Any], prompt: str) -> int:
     if timeout <= 0:
         sys.exit(f"[engine] REVIEW_TIMEOUT_SECONDS must be positive, got {timeout}")
     model_display = settings["model"] or "<engine-default>"
-    # claude/opencode のみ wrap 経由で実際にプロキシ圧縮される。antigravity は
-    # 非対応 (wrap 不可・経路未検証) のため via 表示を出さない。
-    via = (
-        " via headroom"
-        if (_headroom_enabled() and engine in _HEADROOM_WRAP_FLAGS)
-        else ""
-    )
     print(
-        f"[engine] {engine} starting{via} "
+        f"[engine] {engine} starting "
         f"(model={model_display}, thinking={settings['thinking']}, "
         f"role={settings['role']})",
         file=sys.stderr,

@@ -116,7 +116,7 @@ security-review-command:
         REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
         REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
       run: |
-        scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.main review \
+        python3 -m ame_ai_review_system.main review \
           "$PR_NUMBER" \
           --prompt-file ame_ai_review_system/security_review_prompt.txt
 ```
@@ -203,7 +203,7 @@ security-review-reply:
         REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
         REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
       run: |
-        scripts/linux/with_headroom.sh python3 -m ame_ai_review_system.reply run "$PR_NUMBER"
+        python3 -m ame_ai_review_system.reply run "$PR_NUMBER"
 ```
 
 ---
