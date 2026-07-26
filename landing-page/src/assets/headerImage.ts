@@ -301,7 +301,7 @@ export function getHeaderImageSvg(locale: Locale): string {
 
 // README.md / landing-page/README.md embed a static file (GitHub's Markdown image
 // syntax) rather than this live template, so this generates that file's exact
-// content — see scripts/generate-header-image.mjs — keeping the two from drifting.
+// content — see scripts/generate-header-image.ts — keeping the two from drifting.
 export function getStaticHeaderImageSvgFile(): string {
   const banner = `<!-- GENERATED FILE — do not edit by hand.
      Source of truth: src/assets/headerImage.ts (getStaticHeaderImageSvgFile).
