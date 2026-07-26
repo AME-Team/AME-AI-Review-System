@@ -1,5 +1,7 @@
 # AME AI Review System - Landing Page
 
+![AME AI Review System](src/assets/header-image.svg)
+
 本プロジェクトは、静的解析とAIレビューを組み合わせた「AME AI Review
 System」のランディングページ（紹介サイト）です。プロダクトの設計概要、Gate
 1（ローカルコミット）および Gate

@@ -1,5 +1,7 @@
 # AME-AI-Review-System
 
+![AME AI Review System](landing-page/src/assets/header-image.svg)
+
 > **「静的解析（Linter/型検査）」と「AIレビュー」を融合し、ローカル（pre-commit）と CI（PR）の二重ゲートでコード品質を担保する、簡単移植可能な開発フィロソフィー（IPアセット）パッケージ。**
 
 ## 概要

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ReactFlow, Background, Controls, Handle, Position } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { getHeaderImageSvg } from "./assets/headerImage";
 
 interface LogMessage {
   type: "cmd" | "info" | "success" | "warning" | "error";
@@ -1344,6 +1345,16 @@ if ts_files:
       <main className="max-w-6xl mx-auto px-6 py-12 flex flex-col gap-16">
         {/* Hero Section */}
         <section className="flex flex-col items-start text-left gap-6 max-w-3xl">
+          <div
+            role="img"
+            aria-label={t.title}
+            className="w-full max-w-2xl rounded-lg shadow-md overflow-hidden"
+            // Inlined (not <img src>) because an <img>-rendered SVG can't apply
+            // the page's already-loaded Noto Sans / Noto Sans JP webfont — it
+            // renders in an isolated context with no access to the document's
+            // font resources, regardless of what's loaded in index.html.
+            dangerouslySetInnerHTML={{ __html: getHeaderImageSvg(locale) }}
+          />
           <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 text-primary px-3 py-1 rounded-md text-xs font-semibold">
             <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
             <span>{t.badgeVersion}</span>

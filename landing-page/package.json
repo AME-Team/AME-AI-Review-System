@@ -10,7 +10,8 @@
     "lint": "oxlint && eslint --max-warnings=0 \"src/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:header-image": "node scripts/generate-header-image.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.2",
