@@ -481,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    comments_raw: list[dict[str, Any]] = [
+    filtered_comments: list[dict[str, Any]] = [
         c for c in review["comments"] if isinstance(c, dict)
     ]
 
@@ -492,13 +492,13 @@ def main(argv: list[str] | None = None) -> int:
     precommit_state.set_streak(state, branch, 0, key="engine_failure_streak")
     streak = precommit_state.get_streak(state, branch)
 
-    allow, new_streak, reason = _decide(comments_raw, streak)
+    allow, new_streak, reason = _decide(filtered_comments, streak)
 
     print(f"[precommit-review] {reason}", file=sys.stderr)
     summary = str(review.get("summary", "")).strip()
     if summary:
         print(f"[precommit-review] summary: {summary}", file=sys.stderr)
-    _print_issues(comments_raw)
+    _print_issues(filtered_comments)
 
     if args.dry_run:
         print(
