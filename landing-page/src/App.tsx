@@ -20,6 +20,7 @@ interface AppSettings {
 interface TranslationResource {
   title: string;
   navFeatures: string;
+  navStaticAnalysis: string;
   navEngines: string;
   navDemo: string;
   navWorkflow: string;
@@ -44,6 +45,12 @@ interface TranslationResource {
   featureAgentDesc: string;
   featureLoopTitle: string;
   featureLoopDesc: string;
+  staticAnalysisTitle: string;
+  staticAnalysisDesc: string;
+  staticAnalysisStatCategories: string;
+  staticAnalysisStatTools: string;
+  staticAnalysisConfigLabel: string;
+  staticAnalysisPortabilityNote: string;
   enginesTitle: string;
   enginesDesc: string;
   engineClaudeTitle: string;
@@ -96,6 +103,7 @@ const translations: Record<Locale, TranslationResource> = {
   ja: {
     title: "AME AI Review",
     navFeatures: "主要機能",
+    navStaticAnalysis: "静的解析",
     navEngines: "Codingエージェント",
     navDemo: "動作デモ",
     navWorkflow: "ワークフロー",
@@ -127,6 +135,14 @@ const translations: Record<Locale, TranslationResource> = {
     featureLoopTitle: "停滞ループ自動検出",
     featureLoopDesc:
       "指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行しデリバリー速度の低下を防ぎます。",
+    staticAnalysisTitle: "静的解析プリセット一覧",
+    staticAnalysisDesc:
+      "機械的に検出可能な問題は LLM 呼び出し前に静的解析で高い精度でキャッチする思想を徹底しています。以下のツール群が既定の品質チェックとして Gate 1 / Gate 2 の両方で動作します。",
+    staticAnalysisStatCategories: "カテゴリ",
+    staticAnalysisStatTools: "採用ツール",
+    staticAnalysisConfigLabel: "主な設定ファイル",
+    staticAnalysisPortabilityNote:
+      "本リポジトリは、別プロジェクトへ .github/ と ame_ai_review_system/ をコピペするだけで、この静的解析構成ごと移植可能です。",
     enginesTitle: "対応 Coding エージェント",
     enginesDesc: "開発スタイルや環境に合わせて切り替え可能なマルチエンジン構造",
     engineClaudeTitle: "Claude Code",
@@ -184,6 +200,7 @@ const translations: Record<Locale, TranslationResource> = {
   en: {
     title: "AME AI Review",
     navFeatures: "Features",
+    navStaticAnalysis: "Static Analysis",
     navEngines: "Coding Agents",
     navDemo: "Interactive Demo",
     navWorkflow: "Workflow",
@@ -215,6 +232,14 @@ const translations: Record<Locale, TranslationResource> = {
     featureLoopTitle: "Stagnation Loop Detection",
     featureLoopDesc:
       "Evaluates comment Jaccard similarity to catch circular discussions, issuing forced LGTMs to maintain team velocity.",
+    staticAnalysisTitle: "Static Analysis Suite",
+    staticAnalysisDesc:
+      "Mechanically detectable issues are caught with high precision by static analysis before any LLM call. The tools below run as the default quality gate in both Gate 1 and Gate 2.",
+    staticAnalysisStatCategories: "Categories",
+    staticAnalysisStatTools: "Tools Included",
+    staticAnalysisConfigLabel: "Key Config Files",
+    staticAnalysisPortabilityNote:
+      "Just copy .github/ and ame_ai_review_system/ into another project to port this entire static analysis setup along with it.",
     enginesTitle: "Supported Coding Agents",
     enginesDesc: "Multi-engine architecture adaptable to your team's workflow and AI stack",
     engineClaudeTitle: "Claude Code",
@@ -269,6 +294,183 @@ const translations: Record<Locale, TranslationResource> = {
     colorIndigo: "Sophisticated Indigo",
     colorTeal: "Clarity Teal",
   },
+};
+
+interface StaticAnalysisCategory {
+  id: string;
+  abbr: string;
+  nameJa: string;
+  nameEn: string;
+  tools: string[];
+  configFiles: string[];
+  colorClasses: string;
+}
+
+const staticAnalysisCategories: StaticAnalysisCategory[] = [
+  {
+    id: "python",
+    abbr: "Py",
+    nameJa: "Python",
+    nameEn: "Python",
+    tools: ["ruff (lint, ALL+preview)", "ruff-format", "mypy (strict)", "pyright"],
+    configFiles: ["pyproject.toml"],
+    colorClasses: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  },
+  {
+    id: "security",
+    abbr: "Sec",
+    nameJa: "セキュリティ",
+    nameEn: "Security",
+    tools: ["semgrep-custom (7 rules)", "gitleaks", "detect-private-key"],
+    configFiles: ["ame_ai_review_system/.semgrep/rules.yml", ".gitleaks.toml"],
+    colorClasses: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+  },
+  {
+    id: "frontend",
+    abbr: "FE",
+    nameJa: "フロントエンド",
+    nameEn: "Frontend",
+    tools: ["eslint (--max-warnings=0)", "tsc --noEmit", "stylelint"],
+    configFiles: ["eslint.config.mjs", "tsconfig.json"],
+    colorClasses: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  },
+  {
+    id: "docs",
+    abbr: "Doc",
+    nameJa: "ドキュメント/文章",
+    nameEn: "Docs & Prose",
+    tools: ["markdownlint-cli2", "textlint", "codespell", "mermaid-check (custom)"],
+    configFiles: [".markdownlint-cli2.jsonc", ".textlintrc"],
+    colorClasses: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  },
+  {
+    id: "config-data",
+    abbr: "Cfg",
+    nameJa: "設定/データ",
+    nameEn: "Config & Data",
+    tools: ["yamllint (strict)", "check-yaml", "check-toml", "check-json", "sqlfluff"],
+    configFiles: [".yamllint.yaml", ".sqlfluff"],
+    colorClasses: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+  },
+  {
+    id: "shell-ci",
+    abbr: "Sh",
+    nameJa: "シェル/CI",
+    nameEn: "Shell & CI",
+    tools: ["shellcheck", "actionlint"],
+    configFiles: [".shellcheckrc", ".actionlint.yaml"],
+    colorClasses: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+  },
+  {
+    id: "git-hygiene",
+    abbr: "Git",
+    nameJa: "Git衛生",
+    nameEn: "Git Hygiene",
+    tools: ["commitlint", "check-merge-conflict", "check-case-conflict", "check-added-large-files"],
+    configFiles: [".commitlintrc.json", "pre-commit-hooks"],
+    colorClasses: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  },
+  {
+    id: "format",
+    abbr: "Fmt",
+    nameJa: "フォーマット",
+    nameEn: "Formatting",
+    tools: ["prettier-root"],
+    configFiles: [".prettierrc"],
+    colorClasses: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  },
+  {
+    id: "repo-rules",
+    abbr: "Rule",
+    nameJa: "自作リポジトリ規約",
+    nameEn: "Custom Repo Rules",
+    tools: ["prohibit-suppression-comments", "repo-hygiene"],
+    configFiles: ["scripts/check_suppression_comments.py"],
+    colorClasses: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+  },
+  {
+    id: "test",
+    abbr: "Test",
+    nameJa: "テスト",
+    nameEn: "Testing",
+    tools: ["pytest", "vitest (pre-push / pre-merge-commit)"],
+    configFiles: ["pyproject.toml", "vitest.config.ts"],
+    colorClasses: "bg-lime-500/10 text-lime-600 dark:text-lime-400",
+  },
+];
+
+const StaticAnalysisSection: React.FC<{ t: TranslationResource; locale: Locale }> = ({
+  t,
+  locale,
+}) => {
+  const isJa = locale === "ja";
+  const totalTools = staticAnalysisCategories.reduce((sum, c) => sum + c.tools.length, 0);
+
+  return (
+    <section id="static-analysis" className="flex flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {t.staticAnalysisTitle}
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-3xl">{t.staticAnalysisDesc}</p>
+      </div>
+
+      <div className="flex flex-wrap gap-4">
+        <div className="flex items-baseline gap-2 px-4 py-3 rounded-md bg-primary/10 border border-primary/20">
+          <span className="text-2xl font-bold text-primary">{staticAnalysisCategories.length}</span>
+          <span className="text-xs font-semibold text-primary">
+            {t.staticAnalysisStatCategories}
+          </span>
+        </div>
+        <div className="flex items-baseline gap-2 px-4 py-3 rounded-md bg-primary/10 border border-primary/20">
+          <span className="text-2xl font-bold text-primary">{totalTools}+</span>
+          <span className="text-xs font-semibold text-primary">{t.staticAnalysisStatTools}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {staticAnalysisCategories.map((category) => (
+          <div
+            key={category.id}
+            className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow"
+          >
+            <div
+              className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm ${category.colorClasses}`}
+            >
+              {category.abbr}
+            </div>
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                {isJa ? category.nameJa : category.nameEn}
+              </h3>
+              <div className="flex flex-wrap gap-1.5">
+                {category.tools.map((tool) => (
+                  <span
+                    key={tool}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 font-mono"
+                  >
+                    {tool}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex flex-col gap-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+              <span className="font-sans font-semibold text-gray-400 dark:text-gray-500">
+                {t.staticAnalysisConfigLabel}
+              </span>
+              {category.configFiles.map((file) => (
+                <code key={file}>{file}</code>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-gray-500 dark:text-gray-400 max-w-3xl">
+        {t.staticAnalysisPortabilityNote}
+      </p>
+    </section>
+  );
 };
 
 function loadSavedSettings(): AppSettings {
@@ -955,6 +1157,12 @@ if ts_files:
               {t.navFeatures}
             </a>
             <a
+              href="#static-analysis"
+              className="text-sm font-medium text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary transition-colors duration-150"
+            >
+              {t.navStaticAnalysis}
+            </a>
+            <a
               href="#engines"
               className="text-sm font-medium text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary transition-colors duration-150"
             >
@@ -1291,6 +1499,9 @@ if ts_files:
             </div>
           </div>
         </section>
+
+        {/* Static Analysis Preset Suite Section */}
+        <StaticAnalysisSection t={t} locale={locale} />
 
         {/* Visual Pipeline Connection Flow Diagram Section */}
         <section
