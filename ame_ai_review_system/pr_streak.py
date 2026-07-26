@@ -173,10 +173,8 @@ def cmd_evaluate(pr_number: int, review_path: str) -> int:
         print(f"[pr_streak] {result['reason']}", file=sys.stderr)
         return 0
 
-    comments: list[dict[str, Any]] = cast(
-        "list[dict[str, Any]]", review.get("comments", [])
-    )
-    clean = comments
+    raw_comments: list[Any] = cast("list[Any]", review.get("comments", []))
+    clean: list[dict[str, Any]] = [c for c in raw_comments if isinstance(c, dict)]
 
     blocking = [c for c in clean if _is_blocking(c)]
     total = len(clean)
