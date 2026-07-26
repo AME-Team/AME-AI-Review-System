@@ -22,16 +22,18 @@ def parse_review_json_with_flag(path: str) -> tuple[dict[str, Any], bool]:
     # 出力形式が旧エンベロープ({"type":"result","result":"..."})に戻った場合でも
     # レビューが壊れないよう、result 文字列を取り出して下流へ渡す。
     try:
-        outer = json.loads(raw)
-        if isinstance(outer, dict) and outer.get("type") == "result":
-            result_val = outer.get("result")
-            if not isinstance(result_val, str):
-                print(
-                    f"[parse_review_json] result field is not a string: {type(result_val).__name__}",
-                    file=sys.stderr,
-                )
-                return _FALLBACK, True
-            raw = result_val
+        outer_raw = json.loads(raw)
+        if isinstance(outer_raw, dict):
+            outer: dict[str, Any] = cast("dict[str, Any]", outer_raw)
+            if outer.get("type") == "result":
+                result_val = outer.get("result")
+                if not isinstance(result_val, str):
+                    print(
+                        f"[parse_review_json] result field is not a string: {type(result_val).__name__}",
+                        file=sys.stderr,
+                    )
+                    return _FALLBACK, True
+                raw = result_val
     except json.JSONDecodeError:
         pass
 
@@ -183,7 +185,7 @@ def build_review_payloads(
         )
         inline_count += 1
 
-    parts = []
+    parts: list[str] = []
     if inline_count:
         parts.append(f"*{inline_count} 件のインラインコメントを添付しています。*")
     if body_only_count:
@@ -196,7 +198,7 @@ def build_review_payloads(
         f"---\n{joined}\n"
         f"<!-- reviewed-sha: {head_sha} -->"
     )
-    summary_payload = {
+    summary_payload: dict[str, Any] = {
         "event": "COMMENT",
         "body": summary_body,
         "commit_id": head_sha,

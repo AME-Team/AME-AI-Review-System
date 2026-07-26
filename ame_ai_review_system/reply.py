@@ -332,8 +332,12 @@ def _cmd_parse(claude_out_path: str) -> None:
 
     try:
         outer: Any = json.loads(raw)
-        if isinstance(outer, dict) and outer.get("type") == "result":
-            result_val = outer.get("result")
+        if (
+            isinstance(outer, dict)
+            and cast("str | None", cast("dict[str, Any]", outer).get("type"))
+            == "result"
+        ):
+            result_val = cast("str | None", cast("dict[str, Any]", outer).get("result"))
             if isinstance(result_val, str):
                 raw = result_val
     except json.JSONDecodeError:
@@ -438,21 +442,6 @@ def _post_reply(
         github_client.http_request("POST", url, token, body={"body": body})
     except RuntimeError as e:
         print(f"[reply] Failed to post reply: {e}", file=sys.stderr)
-        return 0
-    else:
-        return _HTTP_STATUS_OK
-
-
-def _resolve_thread(
-    pr_number: int,
-    thread_id: int,
-    token: str,
-) -> int:
-    """Resolve a review thread via GraphQL. Returns HTTP status code."""
-    try:
-        github_client.resolve_review_thread(pr_number, thread_id, token)
-    except RuntimeError as e:
-        print(f"[reply] Failed to resolve thread: {e}", file=sys.stderr)
         return 0
     else:
         return _HTTP_STATUS_OK

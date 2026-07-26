@@ -18,7 +18,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
@@ -63,12 +63,12 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return data if isinstance(data, dict) else None
+    return cast("dict[str, Any]", data) if isinstance(data, dict) else None
 
 
 def load_config() -> dict[str, Any]:
     config: dict[str, Any] = dict(_DEFAULTS)
-    data = _read_json(_config_path())
+    data: dict[str, object] | None = _read_json(_config_path())
     if data is not None:
         config.update(data)
     user_data = _read_json(_user_config_path())
@@ -80,7 +80,7 @@ def load_config() -> dict[str, Any]:
 def user_overrides() -> dict[str, Any]:
     """Return keys explicitly set in config.json or config.user.json (user wins)."""
     overrides: dict[str, Any] = {}
-    data = _read_json(_config_path())
+    data: dict[str, object] | None = _read_json(_config_path())
     if data is not None:
         overrides.update(data)
     user_data = _read_json(_user_config_path())

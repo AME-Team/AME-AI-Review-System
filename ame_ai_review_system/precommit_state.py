@@ -7,7 +7,7 @@ import pathlib
 import re
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, cast
 
 # ブランチ名は git の refname に安全な文字のみ許可（checkout_pr.sh と同基準）。
 # これを弾かないと state JSON のキーインジェクションやログ汚染に繋がる。
@@ -59,10 +59,10 @@ def state_file_path() -> pathlib.Path:
 
 def read_state(path: pathlib.Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return data if isinstance(data, dict) else {}
+    return cast("dict[str, Any]", data) if isinstance(data, dict) else {}
 
 
 def write_state(path: pathlib.Path, data: dict[str, Any]) -> None:
@@ -96,10 +96,10 @@ def get_streak(
     *,
     key: str = "low_only_streak",
 ) -> int:
-    branches = state.get("branches")
+    branches = cast("dict[str, Any] | None", state.get("branches"))
     if not isinstance(branches, dict):
         return 0
-    entry = branches.get(branch)
+    entry = cast("dict[str, Any] | None", branches.get(branch))
     if not isinstance(entry, dict):
         return 0
     try:
@@ -115,9 +115,9 @@ def set_streak(
     *,
     key: str = "low_only_streak",
 ) -> None:
-    raw = state.get("branches")
+    raw = cast("dict[str, Any] | None", state.get("branches"))
     branches: dict[str, Any] = raw if isinstance(raw, dict) else {}
-    entry = branches.get(branch)
+    entry = cast("dict[str, Any] | None", branches.get(branch))
     if not isinstance(entry, dict):
         entry = {}
     entry[key] = streak

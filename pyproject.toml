@@ -27,77 +27,77 @@ select = ["ALL"]
 preview = true
 ignore = [
     # 著作権表示はプロジェクト慣習なし。
-    "CPY001",
+    "missing-copyright-notice",
     # COM812 は ruff format と競合するため無効化 (formatter 側でカンマを制御)。
-    "COM812",
+    "missing-trailing-comma",
     # Return/yield/例外をすべてdocstringに書くことは要求しない。
-    "DOC201", "DOC402", "DOC501",
+    "docstring-missing-returns", "docstring-missing-yields", "docstring-missing-exception",
     # ドメインロジックの大関数（分割はスコープ外）。
-    "C901", "PLR0912", "PLR0914", "PLR0915", "PLR0911", "PLR0913", "PLR0917",
+    "complex-structure", "too-many-branches", "too-many-locals", "too-many-statements", "too-many-return-statements", "too-many-arguments", "too-many-positional-arguments",
     # tryブロック内の文数制限。
-    "PLW0717",
+    "too-many-statements-in-try-clause",
     # subprocess/xml使用はスクリプトの性質上必要（内部コマンドのみ）。
-    "S404", "S405",
+    "suspicious-subprocess-import", "suspicious-xml-etree-import",
     # 遅延 import は循環インポート回避のために意図的に使用。
-    "PLC0415",
+    "import-outside-top-level",
     # print はスクリプトの進捗出力・報告として意図的。
-    "T201",
+    "print",
     # Any 型は外部ライブラリの型付け困難箇所でのみ使用。
-    "ANN401",
+    "any-type",
     # F401: 存在確認のための import（ImportError フォールバック用）。
-    "F401",
+    "unused-import",
     # SQL は内部信頼データのみ対象。
-    "S608",
+    "hardcoded-sql-expression",
     # subprocess は内部コマンドのみ起動。フルパス指定は要求しない。
-    "S603", "S607",
+    "subprocess-without-shell-equals-true", "start-process-with-partial-path",
     # ERA001: 日本語コメントがコードと誤検出される。
-    "ERA001",
+    "commented-out-code",
     # S101: assert はパーサの不変条件確認に使用。
-    "S101",
+    "assert",
     # S105: 環境変数キー名（パスワードそのものではない）。
-    "S105",
+    "hardcoded-password-string",
     # SIM115: NamedTemporaryFile は delete=False のため context manager 不可。
-    "SIM115",
+    "open-file-with-context-handler",
     # E501: 多言語文字列リテラル・docstring は機械的な折り返しで可読性が損なわれる。
-    "E501",
+    "line-too-long",
     # DTZ005: アーカイブファイル名はローカル時刻で命名する（ユーザ向けタイムスタンプ）。
-    "DTZ005",
+    "call-datetime-now-without-tzinfo",
 ]
 # 日本語テキストでの全角括弧・等号は意図的（RUF001/002/003 の誤検出除外）。
 allowed-confusables = ["\uff08", "\uff09", "\uff1d"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = [
-    "D100",    # テストモジュールに docstring を要求しない
-    "D103",    # テスト関数に docstring を要求しない
-    "PLR2004", # テストの assert で数値リテラルを使ってよい
-    "S101",    # assert 文を pytest で使う
-    "PLC2701", # プライベートヘルパー関数のインポートを許容する
-    "TCH003",  # テストでの標準ライブラリの型インポートチェックをスキップする
-    "TC002",   # テストでのサードパーティ型インポートチェックをスキップする(pytest 等)
-    "SLF001",  # テストからプライベートメンバ (_xxx) へのアクセスを許容する
-    "ARG001",  # テスト用 fake/モック関数の未使用引数を許容する
+    "undocumented-public-module",    # テストモジュールに docstring を要求しない
+    "undocumented-public-function",    # テスト関数に docstring を要求しない
+    "magic-value-comparison", # テストの assert で数値リテラルを使ってよい
+    "assert",    # assert 文を pytest で使う
+    "import-private-name", # プライベートヘルパー関数のインポートを許容する
+    "typing-only-standard-library-import",  # テストでの標準ライブラリの型インポートチェックをスキップする
+    "typing-only-third-party-import",   # テストでのサードパーティ型インポートチェックをスキップする(pytest 等)
+    "private-member-access",  # テストからプライベートメンバ (_xxx) へのアクセスを許容する
+    "unused-function-argument",  # テスト用 fake/モック関数の未使用引数を許容する
 ]
 "ame_ai_review_system/*.py" = [
-    "INP001",  # 単体実行のためパッケージ化不要
-    "D100",    # スタンドアロンスクリプトのためモジュール docstring 不要
-    "D103",
+    "implicit-namespace-package",  # 単体実行のためパッケージ化不要
+    "undocumented-public-module",    # スタンドアロンスクリプトのためモジュール docstring 不要
+    "undocumented-public-function",
 ]
 "scripts/*.py" = [
-    "INP001",  # 単体実行のためパッケージ化不要
-    "D103",
+    "implicit-namespace-package",  # 単体実行のためパッケージ化不要
+    "undocumented-public-function",
 ]
 "ame_ai_review_system/pr_streak.py" = [
-    "S310",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
+    "suspicious-url-open-usage",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
 ]
 "ame_ai_review_system/main.py" = [
-    "S310",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
+    "suspicious-url-open-usage",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
 ]
 "ame_ai_review_system/github_client.py" = [
-    "S310",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
+    "suspicious-url-open-usage",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
 ]
 "ame_ai_review_system/reply.py" = [
-    "S310",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
+    "suspicious-url-open-usage",    # URL open 検査: GitHub API (api.github.com) へのアクセスは許容
 ]
 
 [tool.ruff.lint.pydocstyle]

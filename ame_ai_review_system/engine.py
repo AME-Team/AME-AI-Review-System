@@ -7,7 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from . import review_config
 
@@ -266,8 +266,13 @@ def _normalize_opencode(raw: str) -> str:
             event = json.loads(stripped)
         except json.JSONDecodeError:
             continue
-        if isinstance(event, dict) and event.get("type") == "text":
-            part = event.get("part")
+        if (
+            isinstance(event, dict)
+            and cast("str | None", cast("dict[str, Any]", event).get("type")) == "text"
+        ):
+            part = cast(
+                "dict[str, str] | None", cast("dict[str, Any]", event).get("part")
+            )
             if isinstance(part, dict) and isinstance(part.get("text"), str):
                 collected.append(part["text"])
     result = "".join(collected)

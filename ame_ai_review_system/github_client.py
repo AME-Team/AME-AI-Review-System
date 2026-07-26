@@ -7,7 +7,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class HttpError(RuntimeError):
@@ -128,19 +128,20 @@ def graphql_request(
 ) -> dict[str, Any]:
     """GraphQL リクエスト。HTTP 200 でも errors 配列を持ちうるため明示チェックする."""
     body = {"query": query, "variables": variables}
-    result = http_request("POST", _graphql_url(), token, body=body)
+    result: object = http_request("POST", _graphql_url(), token, body=body)
     if not isinstance(result, dict):
         msg = f"Unexpected GraphQL response: {result!r}"
         raise TypeError(msg)
-    errors = result.get("errors")
+    result_dict = cast("dict[str, Any]", result)
+    errors = result_dict.get("errors")
     if errors:
         msg = f"GraphQL errors: {errors}"
         raise RuntimeError(msg)
-    data = result.get("data")
+    data = result_dict.get("data")
     if not isinstance(data, dict):
         msg = f"Unexpected GraphQL response (no data): {result!r}"
         raise TypeError(msg)
-    return data
+    return cast("dict[str, Any]", data)
 
 
 def list_review_threads(pr_number: int, token: str) -> list[dict[str, Any]]:
