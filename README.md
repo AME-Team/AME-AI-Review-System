@@ -200,3 +200,7 @@ scripts/
 - [トラブルシューティング](ame_ai_review_system/docs/troubleshooting.md)
   — 動作しない、無限ループが発生したなどの対応
 - [開発フロー (CLAUDE.md)](CLAUDE.md) — 本リポジトリ開発者向けの運用ルール
+
+## ライセンス
+
+本プロジェクトは [MIT License](LICENSE) の下で公開されています。
