@@ -36,11 +36,6 @@ export default tseslint.config(
       "**/dist/**",
       "**/build/**",
       "eslint.config.mjs",
-      // Plain-JS tooling script run directly by Node, not part of the tsconfig-typed
-      // app source — same reason eslint.config.mjs itself is excluded above. If you
-      // add another script under landing-page/scripts/, either list it here too or
-      // give it a tsconfig so type-aware linting can actually apply to it.
-      "landing-page/scripts/*.mjs",
     ],
   }
 );

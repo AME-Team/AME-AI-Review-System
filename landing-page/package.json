@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
     "preview": "vite preview",
-    "generate:header-image": "node scripts/generate-header-image.mjs"
+    "generate:header-image": "tsx scripts/generate-header-image.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.2",
@@ -29,6 +29,7 @@
     "jsdom": "^26.0.0",
     "oxlint": "^1.71.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.1",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vitest": "^3.0.0"
