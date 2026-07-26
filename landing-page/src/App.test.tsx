@@ -13,6 +13,18 @@ describe("App Component", () => {
     expect(screen.getByText(/厳格な静的解析とAIエージェント/)).toBeInTheDocument();
   });
 
+  it("renders the hero header image", () => {
+    render(<App />);
+    expect(screen.getByRole("img", { name: "AME AI Review" })).toBeInTheDocument();
+  });
+
+  it("renders the static analysis suite section with category cards", () => {
+    render(<App />);
+    expect(screen.getByText("静的解析プリセット一覧")).toBeInTheDocument();
+    expect(screen.getByText("ruff (lint, ALL+preview)")).toBeInTheDocument();
+    expect(screen.getByText("semgrep-custom (7 rules)")).toBeInTheDocument();
+  });
+
   it("toggles the simulated bug checkbox", () => {
     render(<App />);
     const checkbox = screen.getByLabelText(
