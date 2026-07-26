@@ -18,11 +18,11 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Any, cast
 
-from . import github_client, pr_streak, review_config, static_precheck
+from . import github_client, pr_streak, review_config
 from . import payload as payload_module
-from .engine import resolve_settings, run_engine
+from .engine import resolve_settings
 
 # ============================================================================
 # Common utilities
@@ -93,14 +93,15 @@ def cmd_checkout(args: argparse.Namespace) -> int:
         )
         return 1
 
-    base_ref = str(pr_data.get("base", {}).get("ref", ""))
+    pr_dict = cast("dict[str, Any]", pr_data)
+    base_ref = cast("str", pr_dict.get("base", {}).get("ref", ""))
     if not re.fullmatch(r"[A-Za-z0-9/_.-]+", base_ref):
         print(f"[checkout] ERROR: Invalid BASE_REF: {base_ref!r}", file=sys.stderr)
         return 1
 
-    title = str(pr_data.get("title", ""))
-    body = str(pr_data.get("body", ""))
-    head_branch = str(pr_data.get("head", {}).get("ref", ""))
+    title = cast("str", pr_dict.get("title", ""))
+    body = cast("str", pr_dict.get("body", ""))
+    head_branch = cast("str", pr_dict.get("head", {}).get("ref", ""))
 
     if not head_branch or head_branch == "HEAD":
         print(
@@ -312,10 +313,10 @@ def cmd_review(args: argparse.Namespace) -> int:
     if not isinstance(reviews_data, list):
         reviews_data = []
 
-    reviewed_shas = set()
-    for r in reviews_data:
+    reviewed_shas: set[str] = set()
+    for r in cast("list[dict[str, Any]]", reviews_data):
         if r.get("user", {}).get("login") == github_client.bot_login(reviewer_name):
-            body = r.get("body", "")
+            body = cast("str", r.get("body", ""))
             m = re.search(r"<!--\s*reviewed-sha:\s*([0-9a-f]{40,64})\s*-->", body)
             if m:
                 reviewed_shas.add(m.group(1))

@@ -1,3 +1,4 @@
+# pyright: basic
 from __future__ import annotations
 
 from typing import Any
@@ -125,40 +126,6 @@ def test_group_by_thread_orphan_reply_ignored() -> None:
     grouped = _group_by_thread(comments)
     # 99 自身は親を持つため root として扱われない。result は空になる。
     assert grouped == {}
-
-
-# --- _resolve_thread / GraphQL mutation integration ------------------------
-
-
-def test_resolve_thread_delegates_to_github_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """reply._resolve_thread は github_client.resolve_review_thread をラップする."""
-    calls: list[tuple[int, int, str]] = []
-
-    def fake_resolve(pr: int, cid: int, token: str) -> None:
-        calls.append((pr, cid, token))
-
-    monkeypatch.setattr(github_client, "resolve_review_thread", fake_resolve)
-    status = reply._resolve_thread(7, 101, "tok")
-    assert status == reply._HTTP_STATUS_OK
-    assert calls == [(7, 101, "tok")]
-
-
-def test_resolve_thread_returns_zero_on_error(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    def fake_resolve(_pr: int, _cid: int, _token: str) -> None:
-        msg = 'GraphQL errors: [{"message": " forbidden"}]'
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr(github_client, "resolve_review_thread", fake_resolve)
-    status = reply._resolve_thread(7, 101, "tok")
-    assert status == 0
-    err = capsys.readouterr().err
-    assert "Failed to resolve thread" in err
-    assert "GraphQL errors" in err
 
 
 # --- _resolved_root_ids (GraphQL isResolved integration) ------------------

@@ -6,7 +6,7 @@ import pathlib
 import re
 import subprocess
 import sys
-from typing import Any
+from typing import Any, cast
 
 from . import github_client, payload
 
@@ -93,7 +93,7 @@ def _read_pr_comments(
     except RuntimeError as exc:
         print(f"[pr_streak] failed to read PR comments: {exc}", file=sys.stderr)
         return []
-    return comments if isinstance(comments, list) else []
+    return cast("list[dict[str, Any]]", comments) if isinstance(comments, list) else []
 
 
 def cmd_get(pr_number: int) -> int:
@@ -173,10 +173,11 @@ def cmd_evaluate(pr_number: int, review_path: str) -> int:
         print(f"[pr_streak] {result['reason']}", file=sys.stderr)
         return 0
 
-    comments = review.get("comments", [])
-    if not isinstance(comments, list):
-        comments = []
-    clean = [c for c in comments if isinstance(c, dict)]
+    raw = review.get("comments", [])
+    if not isinstance(raw, list):
+        raw = []
+    comments: list[Any] = cast("list[Any]", raw)
+    clean: list[dict[str, Any]] = [c for c in comments if isinstance(c, dict)]
 
     blocking = [c for c in clean if _is_blocking(c)]
     total = len(clean)
