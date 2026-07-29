@@ -112,5 +112,28 @@ rules:
         - "**/*.db"
         - "**/*.wasm"
         - "**/*.sha512"
-        - "**/ame-ai-review-system/.semgrep/**"
+        - "**/ame_ai_review_system/.semgrep/**"
     pattern-regex: "[​-‏﻿‪-‮⁦-⁩]"
+
+  # =========================================================================
+  # 8. SKIP=ai-precommit-review による Gate1 AI レビューのバイパス禁止 (Issue #26)
+  #    AI Agent がシェルスクリプト内で SKIP を使ってコミットを迂回するのを検出する。
+  #    正当なバイパスは skip_guard.py が sudo/トークンで管理するため、スクリプト内の
+  #    SKIP 使用は原則として禁止。docs と設定ファイル・ツール自体は除外する。
+  #    注意: semgrep の paths グロブは gitignore 準拠で `*` は `/` を跨がないため、
+  #    サブディレクトリの .sh も拾うには `**/*.sh` とする必要がある。
+  # =========================================================================
+  - id: ame-no-skip-ai-review
+    languages: [generic]
+    severity: ERROR
+    message:
+      "SKIP=ai-precommit-review による Gate1 AI レビューのバイパスは禁止 (Issue #26)。
+      スキップせずコードを修正して再コミットすること。"
+    paths:
+      include:
+        - "**/*.sh"
+      exclude:
+        - "**/ame_ai_review_system/.semgrep/**"
+        - "**/docs/**"
+        - "**/scripts/install*"
+    pattern-regex: '(SKIP|skip)[=\s]+["'']?[^"'']*\b(ai-precommit-review|ai-skip-guard)\b'

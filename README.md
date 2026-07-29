@@ -183,6 +183,11 @@ scripts/
 > `ame_ai_review_system/config.json` の `precommit_review_enabled` で ON/OFF できます。利用には
 > `pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push -t post-commit`
 > で post-commit フックもインストールする必要があります。
+>
+> [!IMPORTANT] **AI レビューの SKIP バイパスを強制ブロックする場合はネイティブ Git フックを有効化**
+> してください（Issue #26）。`bash scripts/install-hooks.sh` を実行すると `core.hooksPath=githooks`
+> が設定され、`SKIP=ai-precommit-review` を AI Agent が勝手に使えなくなります（`githooks/pre-commit`
+> が pre-commit フレームワークの SKIP が届かないレイヤで検査します）。
 
 ユーザー固有の設定は
 `ame_ai_review_system/config.user.json`（Git 管理対象外）で上書き可能です。例えば Gate

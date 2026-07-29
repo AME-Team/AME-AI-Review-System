@@ -398,6 +398,23 @@ repos:
       #     前段の静的解析 (ruff / mypy) が全て pass した場合のみ AI レビューを実行する。
       #     `precommit_require_static_checks` で ON/OFF 可能（デフォルト ON）。
       # =========================================================================
+
+      # -------------------------------------------------------------------------
+      # 20a) ai-precommit-review の SKIP を強制的にブロックする (Issue #26)。
+      #     pre-commit 標準の SKIP 環境変数による迂回を、AI Agent が勝手に行えない
+      #     ようにする。sudo (root) 実行またはバイパストークンファイルが無ければ
+      #     コミットをブロックする。このフックは ai-precommit-review の直前に配置し、
+      #     ai-skip-guard 自体も SKIP に含まれていない限り必ず実行される。
+      #     詳細は ame_ai_review_system/skip_guard.py を参照。
+      # -------------------------------------------------------------------------
+      - id: ai-skip-guard
+        name: "AI review skip guard (Issue #26)"
+        entry: python3 -m ame_ai_review_system.skip_guard
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
       - id: ai-precommit-review
         name: "AI Code Review (pre-commit)"
         entry: python3 -m ame_ai_review_system.precommit_review
