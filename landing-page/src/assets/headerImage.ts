@@ -1,7 +1,7 @@
-type Locale = "ja" | "en";
+export type Locale = "ja" | "en";
+export type FontStyle = "sans" | "serif";
 
 interface HeaderImageTexts {
-  fontFamily: string;
   subtitle: string;
   badgeShiftLeft: string;
   badgeStaticTools: string;
@@ -21,10 +21,19 @@ interface HeaderImageTexts {
   mergeReady: string;
 }
 
+const FONT_FAMILIES: Record<Locale, Record<FontStyle, string>> = {
+  ja: {
+    sans: "'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Meiryo', 'Yu Gothic', sans-serif",
+    serif: "'Noto Serif JP', 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', serif",
+  },
+  en: {
+    sans: "'Noto Sans', 'Helvetica Neue', Arial, sans-serif",
+    serif: "'Noto Serif', 'Georgia', 'Times New Roman', serif",
+  },
+};
+
 const TEXTS: Record<Locale, HeaderImageTexts> = {
   ja: {
-    fontFamily:
-      "'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Meiryo', 'Yu Gothic', sans-serif",
     subtitle: "静的解析 Circuit Breaker × AIコードレビューによる二重品質ガード",
     badgeShiftLeft: "⚡ Shift-Left 検知",
     badgeStaticTools: "⚙️ 25+ 静的解析連携",
@@ -44,7 +53,6 @@ const TEXTS: Record<Locale, HeaderImageTexts> = {
     mergeReady: "マージ可能な高精度コード",
   },
   en: {
-    fontFamily: "'Noto Sans', 'Helvetica Neue', Arial, sans-serif",
     subtitle: "Static Analysis Circuit Breaker × AI Code Review — Dual-Gate Quality Guard",
     badgeShiftLeft: "⚡ Shift-Left Check",
     badgeStaticTools: "⚙️ 25+ Static Tools",
@@ -69,51 +77,42 @@ function escapeXmlText(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Escapes every field except fontFamily (used only inside <style>, a CSS context,
-// never as SVG text/attribute content) so any future copy containing &, <, or >
-// can't produce malformed markup — the drift-guard test only checks string
-// equality, not that the result actually parses as valid SVG.
 function escapeTexts(texts: HeaderImageTexts): HeaderImageTexts {
-  const { fontFamily, ...rest } = texts;
   const escaped = Object.fromEntries(
-    Object.entries(rest).map(([key, value]) => [key, escapeXmlText(value)])
-  ) as Omit<HeaderImageTexts, "fontFamily">;
-  return { fontFamily, ...escaped };
+    Object.entries(texts).map(([key, value]) => [key, escapeXmlText(value as string)])
+  ) as unknown as HeaderImageTexts;
+  return escaped;
 }
 
-// Single source of truth for the hero banner's structure/colors; only the TEXTS
-// table above varies per locale. Selectors are scoped to #${rootId} because this
-// markup is injected via dangerouslySetInnerHTML directly into the page DOM (not
-// a sandboxed <img>), so unscoped `text {...}` rules would otherwise leak onto
-// any other SVG <text> on the page (e.g. the ReactFlow diagram below).
-export function getHeaderImageSvg(locale: Locale): string {
+export function getHeaderImageSvg(locale: Locale = "ja", fontStyle: FontStyle = "sans"): string {
   const t = escapeTexts(TEXTS[locale]);
-  const rootId = `header-image-${locale}`;
+  const fontFamily = FONT_FAMILIES[locale][fontStyle];
+  const rootId = `header-image-${locale}-${fontStyle}`;
 
   return `<svg id="${rootId}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="100%" height="100%" style="background-color: #0b0f19;">
   <title>AME AI Review</title>
   <defs>
     <style>
       #${rootId} text {
-        font-family: ${t.fontFamily};
+        font-family: ${fontFamily};
       }
 
       #${rootId} .brand-title {
-        font-family: ${t.fontFamily};
+        font-family: ${fontFamily};
         font-weight: 900;
         font-size: 44px;
         letter-spacing: -0.5px;
       }
 
       #${rootId} .brand-subtitle {
-        font-family: ${t.fontFamily};
+        font-family: ${fontFamily};
         font-weight: 500;
         font-size: 16px;
         fill: #94a3b8;
       }
 
       #${rootId} .badge-label {
-        font-family: ${t.fontFamily};
+        font-family: ${fontFamily};
         font-weight: 700;
         font-size: 11px;
         letter-spacing: 0.5px;

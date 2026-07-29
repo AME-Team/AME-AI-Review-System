@@ -408,7 +408,7 @@ const StaticAnalysisSection: React.FC<{ t: TranslationResource; locale: Locale }
   const totalTools = staticAnalysisCategories.reduce((sum, c) => sum + c.tools.length, 0);
 
   return (
-    <section id="static-analysis" className="flex flex-col gap-8">
+    <section id="static-analysis" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
       <div className="flex flex-col gap-2">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
           {t.staticAnalysisTitle}
@@ -724,7 +724,7 @@ const DualGateFlowDiagram: React.FC<{ locale: Locale }> = ({ locale }) => {
 
 const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) => {
   return (
-    <section id="engines" className="flex flex-col gap-8 my-4">
+    <section id="engines" className="flex flex-col gap-8 my-4 w-full max-w-6xl mx-auto">
       <div className="flex flex-col gap-2">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold w-fit">
           Multi-Engine Integration
@@ -1342,18 +1342,18 @@ if ts_files:
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-12 flex flex-col gap-16">
+      <main className="w-full px-6 py-12 flex flex-col gap-16">
         {/* Hero Section */}
-        <section className="flex flex-col items-start text-left gap-6 max-w-3xl">
+        <section className="flex flex-col items-start text-left gap-6 w-full max-w-6xl mx-auto">
           <div
             role="img"
             aria-label={t.title}
-            className="w-full max-w-2xl rounded-lg shadow-md overflow-hidden"
+            className="w-full rounded-lg shadow-md overflow-hidden"
             // Inlined (not <img src>) because an <img>-rendered SVG can't apply
             // the page's already-loaded Noto Sans / Noto Sans JP webfont — it
             // renders in an isolated context with no access to the document's
             // font resources, regardless of what's loaded in index.html.
-            dangerouslySetInnerHTML={{ __html: getHeaderImageSvg(locale) }}
+            dangerouslySetInnerHTML={{ __html: getHeaderImageSvg(locale, fontStyle) }}
           />
           <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 text-primary px-3 py-1 rounded-md text-xs font-semibold">
             <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
@@ -1385,7 +1385,7 @@ if ts_files:
         </section>
 
         {/* Grid Features */}
-        <section id="features" className="flex flex-col gap-8">
+        <section id="features" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
               {t.secFeaturesTitle}
@@ -1517,7 +1517,7 @@ if ts_files:
         {/* Visual Pipeline Connection Flow Diagram Section */}
         <section
           id="diagram"
-          className="bg-white dark:bg-gray-850/40 p-6 rounded-md border border-gray-200/50 dark:border-gray-800 flex flex-col gap-8"
+          className="bg-white dark:bg-gray-850/40 p-6 rounded-md border border-gray-200/50 dark:border-gray-800 flex flex-col gap-8 w-full max-w-6xl mx-auto"
         >
           <div className="flex flex-col gap-2 items-start text-left">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.diagramTitle}</h2>
@@ -1576,7 +1576,7 @@ if ts_files:
         {/* Interactive Simulator Sandbox */}
         <section
           id="demo"
-          className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800"
+          className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 w-full max-w-6xl mx-auto"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
             <div className="flex flex-col gap-6 items-start text-left">
@@ -1656,7 +1656,7 @@ if ts_files:
         </section>
 
         {/* Double Gate Workflow Section */}
-        <section id="workflow" className="flex flex-col gap-8">
+        <section id="workflow" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.workflowTitle}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t.workflowDesc}</p>
@@ -1690,7 +1690,7 @@ if ts_files:
         </section>
 
         {/* Configurations Tabs */}
-        <section id="config" className="flex flex-col gap-8">
+        <section id="config" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
           <div className="flex flex-col gap-2 font-sans">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.configTitle}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 font-sans">{t.configDesc}</p>
