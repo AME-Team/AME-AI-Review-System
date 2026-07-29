@@ -120,11 +120,22 @@ OpenCode 等）の認証切れ、タイムアウトなどが考えられます�
 
 - ローカル環境で `claude` などのコマンドが正しく動作し、ログイン状態であるか確認する。
 - 緊急のコミットや、一時的に AI レビューをバイパスしたい場合は、環境変数 `SKIP`
-  を利用してフックをスキップする。
+  を利用してフックをスキップする。ただし `ai-skip-guard` により
+  **`sudo`(root) 実行または root 所有のバイパストークンファイルが無ければブロックされる**（Issue
+  #26）。ネイティブ Git フック (`githooks/pre-commit`) を有効化していれば、`SKIP=ai-skip-guard,ai-precommit-review`
+  のようにガードごとスキップしてもブロックされる。
 
   ```bash
-  SKIP=ai-precommit-review git commit -m "feat: temporary commit"
+  # 正当なバイパス (人間の明示的操作のみ)
+  sudo SKIP=ai-precommit-review git commit -m "feat: temporary commit"
+  # sudo を使わずに事前認可したい場合は root 所有のトークンファイルを一度作成
+  sudo mkdir -p ~/.config/ame-ai-review-system \
+    && sudo touch ~/.config/ame-ai-review-system/allow-skip-ai-review
   ```
+
+  > **注意:** バイパストークンファイルは **root 所有** でなければならない（非 root の AI
+  > Agent が無痕跡で作成して迂回するのを防ぐ）。`config.json` の `ai_review_enforce_no_skip: false`
+  > でガード全体を無効化できる。ネイティブフックの有効化は `bash scripts/install-hooks.sh`。
 
 ---
 

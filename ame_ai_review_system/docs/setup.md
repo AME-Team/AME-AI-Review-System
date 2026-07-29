@@ -115,10 +115,18 @@ npm ci
 
 # Git フックの登録
 pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push -t post-commit
+
+# (推奨) AI レビューの SKIP バイパスを強制ブロックするネイティブ Git フックを有効化 (Issue #26)
+bash scripts/install-hooks.sh
 ```
 
 > [!IMPORTANT] **pre-commit AI レビューを使う場合は `-t post-commit` が必須**
 > です。post-commit フックが無いと、コミット成功時の streak リセットが走りません。
+>
+> [!IMPORTANT] **`scripts/install-hooks.sh` を実行すると `core.hooksPath=githooks`
+> が設定されます**。これにより `SKIP=ai-precommit-review` による Gate1 AI レビューのバイパスを、AI
+> Agent が勝手に行えないよう強制ブロックします（ネイティブフックが pre-commit フレームワークの SKIP 制御の及ばないレイヤで検査）。バックグラウンドは
+> [Issue #26](https://github.com/tarminjapan/AME-AI-Review-System/issues/26) を参照。
 
 ---
 
