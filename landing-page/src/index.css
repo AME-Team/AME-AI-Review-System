@@ -70,27 +70,32 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root[data-theme-color="blue"] {
+  :root[data-theme="system"][data-theme-color="blue"],
+  :root:not([data-theme])[data-theme-color="blue"] {
     --primary-color: #3b82c4;
     --primary-color-hover: #60a5fa;
   }
 
-  :root[data-theme-color="green"] {
+  :root[data-theme="system"][data-theme-color="green"],
+  :root:not([data-theme])[data-theme-color="green"] {
     --primary-color: #4f8a6e;
     --primary-color-hover: #6eb091;
   }
 
-  :root[data-theme-color="orange"] {
+  :root[data-theme="system"][data-theme-color="orange"],
+  :root:not([data-theme])[data-theme-color="orange"] {
     --primary-color: #dd6b3d;
     --primary-color-hover: #f08c5d;
   }
 
-  :root[data-theme-color="indigo"] {
+  :root[data-theme="system"][data-theme-color="indigo"],
+  :root:not([data-theme])[data-theme-color="indigo"] {
     --primary-color: #7c79e8;
     --primary-color-hover: #9f9df3;
   }
 
-  :root[data-theme-color="teal"] {
+  :root[data-theme="system"][data-theme-color="teal"],
+  :root:not([data-theme])[data-theme-color="teal"] {
     --primary-color: #2fa39a;
     --primary-color-hover: #50bdbc;
   }
