@@ -24,6 +24,7 @@ _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
     "precommit_require_static_checks": True,
     "pr_review_require_static_checks": True,
+    "ai_review_enforce_no_skip": True,
     "precommit_engine": "auto",
     "precommit_model": None,
     "precommit_thinking": None,
