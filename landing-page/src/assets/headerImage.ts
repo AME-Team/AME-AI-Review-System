@@ -84,6 +84,11 @@ function escapeTexts(texts: HeaderImageTexts): HeaderImageTexts {
   return escaped;
 }
 
+// Single source of truth for the hero banner's structure/colors; only the TEXTS
+// table above varies per locale/fontStyle. Selectors are scoped to #${rootId} because this
+// markup is injected via dangerouslySetInnerHTML directly into the page DOM (not
+// a sandboxed <img>), so unscoped `text {...}` rules would otherwise leak onto
+// any other SVG <text> on the page (e.g. the ReactFlow diagram below).
 export function getHeaderImageSvg(locale: Locale = "ja", fontStyle: FontStyle = "sans"): string {
   const t = escapeTexts(TEXTS[locale]);
   const fontFamily = FONT_FAMILIES[locale][fontStyle];

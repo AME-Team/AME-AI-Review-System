@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ReactFlow, Background, Controls, Handle, Position } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { getHeaderImageSvg } from "./assets/headerImage";
+import { getHeaderImageSvg, type Locale, type FontStyle } from "./assets/headerImage";
 
 interface LogMessage {
   type: "cmd" | "info" | "success" | "warning" | "error";
   text: string;
 }
 
-type Locale = "ja" | "en";
-type FontStyle = "sans" | "serif";
 type PrimaryColor = "blue" | "green" | "orange" | "indigo" | "teal";
 type ThemeMode = "light" | "dark" | "system";
 
