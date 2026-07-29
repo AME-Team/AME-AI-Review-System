@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ReactFlow, Background, Controls, Handle, Position } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { getHeaderImageSvg } from "./assets/headerImage";
+import { getHeaderImageSvg, type Locale, type FontStyle } from "./assets/headerImage";
 
 interface LogMessage {
   type: "cmd" | "info" | "success" | "warning" | "error";
   text: string;
 }
 
-type Locale = "ja" | "en";
-type FontStyle = "sans" | "serif";
 type PrimaryColor = "blue" | "green" | "orange" | "indigo" | "teal";
+type ThemeMode = "light" | "dark" | "system";
 
 interface AppSettings {
   locale: Locale;
   fontStyle: FontStyle;
   primaryColor: PrimaryColor;
+  theme: ThemeMode;
 }
 
 interface TranslationResource {
@@ -89,6 +89,10 @@ interface TranslationResource {
   configTabCircuit: string;
   settingsTitle: string;
   settingsLang: string;
+  settingsTheme: string;
+  settingsThemeLight: string;
+  settingsThemeDark: string;
+  settingsThemeSystem: string;
   settingsColor: string;
   settingsFont: string;
   settingsFontSans: string;
@@ -188,6 +192,10 @@ const translations: Record<Locale, TranslationResource> = {
     configTabCircuit: "サーキットブレーカー (Python)",
     settingsTitle: "表示設定",
     settingsLang: "言語 (Language)",
+    settingsTheme: "テーマ (Theme)",
+    settingsThemeLight: "ライト",
+    settingsThemeDark: "ダーク",
+    settingsThemeSystem: "システム",
     settingsColor: "ポイントカラー (Color)",
     settingsFont: "フォント (Font)",
     settingsFontSans: "Sans-Serif (ゴシック体)",
@@ -285,6 +293,10 @@ const translations: Record<Locale, TranslationResource> = {
     configTabCircuit: "Circuit Breaker (Python)",
     settingsTitle: "Display Settings",
     settingsLang: "Language",
+    settingsTheme: "Theme Mode",
+    settingsThemeLight: "Light",
+    settingsThemeDark: "Dark",
+    settingsThemeSystem: "System",
     settingsColor: "Point Color",
     settingsFont: "Font",
     settingsFontSans: "Sans-Serif",
@@ -408,7 +420,7 @@ const StaticAnalysisSection: React.FC<{ t: TranslationResource; locale: Locale }
   const totalTools = staticAnalysisCategories.reduce((sum, c) => sum + c.tools.length, 0);
 
   return (
-    <section id="static-analysis" className="flex flex-col gap-8">
+    <section id="static-analysis" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
       <div className="flex flex-col gap-2">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
           {t.staticAnalysisTitle}
@@ -475,7 +487,12 @@ const StaticAnalysisSection: React.FC<{ t: TranslationResource; locale: Locale }
 };
 
 function loadSavedSettings(): AppSettings {
-  const defaults: AppSettings = { locale: "ja", fontStyle: "sans", primaryColor: "blue" };
+  const defaults: AppSettings = {
+    locale: "ja",
+    fontStyle: "sans",
+    primaryColor: "blue",
+    theme: "system",
+  };
   try {
     const saved = localStorage.getItem("app_settings");
     if (saved === null) return defaults;
@@ -483,10 +500,12 @@ function loadSavedSettings(): AppSettings {
       locale?: unknown;
       fontStyle?: unknown;
       primaryColor?: unknown;
+      theme?: unknown;
     };
     const validLocales: Locale[] = ["ja", "en"];
     const validFonts: FontStyle[] = ["sans", "serif"];
     const validColors: PrimaryColor[] = ["blue", "green", "orange", "indigo", "teal"];
+    const validThemes: ThemeMode[] = ["light", "dark", "system"];
     return {
       locale: validLocales.includes(parsed.locale as Locale)
         ? (parsed.locale as Locale)
@@ -497,6 +516,9 @@ function loadSavedSettings(): AppSettings {
       primaryColor: validColors.includes(parsed.primaryColor as PrimaryColor)
         ? (parsed.primaryColor as PrimaryColor)
         : defaults.primaryColor,
+      theme: validThemes.includes(parsed.theme as ThemeMode)
+        ? (parsed.theme as ThemeMode)
+        : defaults.theme,
     };
   } catch (e) {
     console.warn("Failed to parse app_settings, using defaults:", e);
@@ -724,7 +746,7 @@ const DualGateFlowDiagram: React.FC<{ locale: Locale }> = ({ locale }) => {
 
 const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) => {
   return (
-    <section id="engines" className="flex flex-col gap-8 my-4">
+    <section id="engines" className="flex flex-col gap-8 my-4 w-full max-w-6xl mx-auto">
       <div className="flex flex-col gap-2">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold w-fit">
           Multi-Engine Integration
@@ -814,7 +836,7 @@ export default function App(): React.JSX.Element {
   const [terminalLogs, setTerminalLogs] = useState<LogMessage[]>([]);
   const [activeTab, setActiveTab] = useState<"yaml" | "eslint" | "circuit">("yaml");
 
-  const { locale, fontStyle, primaryColor } = settings;
+  const { locale, fontStyle, primaryColor, theme } = settings;
 
   const settingsRef = useRef<HTMLDivElement>(null);
   const isRunningRef = useRef<boolean>(isRunning);
@@ -849,9 +871,46 @@ export default function App(): React.JSX.Element {
     document.documentElement.setAttribute("data-locale", locale);
     document.documentElement.setAttribute("data-font-style", fontStyle);
     document.documentElement.setAttribute("data-theme-color", primaryColor);
+    document.documentElement.setAttribute("data-theme", theme);
 
-    localStorage.setItem("app_settings", JSON.stringify({ locale, fontStyle, primaryColor }));
-  }, [locale, fontStyle, primaryColor]);
+    const applyTheme = (): void => {
+      const supportsMatchMedia =
+        typeof window !== "undefined" && typeof window.matchMedia === "function";
+      const isDark =
+        theme === "dark" ||
+        (theme === "system" &&
+          supportsMatchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    };
+
+    applyTheme();
+
+    localStorage.setItem(
+      "app_settings",
+      JSON.stringify({ locale, fontStyle, primaryColor, theme })
+    );
+
+    if (
+      theme === "system" &&
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function"
+    ) {
+      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      const handleChange = (): void => {
+        applyTheme();
+      };
+      mediaQuery.addEventListener("change", handleChange);
+      return (): void => {
+        mediaQuery.removeEventListener("change", handleChange);
+      };
+    }
+  }, [locale, fontStyle, primaryColor, theme]);
 
   // Close settings panel when clicking outside
   useEffect(() => {
@@ -1227,6 +1286,42 @@ if ts_files:
                     {t.settingsTitle}
                   </h3>
 
+                  {/* Theme Mode Selector */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      {t.settingsTheme}
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5 bg-gray-50 dark:bg-gray-900 p-1 rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings((prev) => ({ ...prev, theme: "light" }));
+                        }}
+                        className={`text-xs py-1.5 rounded-md font-medium transition-all ${theme === "light" ? "bg-white dark:bg-gray-800 text-primary shadow-sm" : "text-gray-500 hover:text-gray-900 dark:hover:text-white"}`}
+                      >
+                        {t.settingsThemeLight}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings((prev) => ({ ...prev, theme: "dark" }));
+                        }}
+                        className={`text-xs py-1.5 rounded-md font-medium transition-all ${theme === "dark" ? "bg-white dark:bg-gray-800 text-primary shadow-sm" : "text-gray-500 hover:text-gray-900 dark:hover:text-white"}`}
+                      >
+                        {t.settingsThemeDark}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings((prev) => ({ ...prev, theme: "system" }));
+                        }}
+                        className={`text-xs py-1.5 rounded-md font-medium transition-all ${theme === "system" ? "bg-white dark:bg-gray-800 text-primary shadow-sm" : "text-gray-500 hover:text-gray-900 dark:hover:text-white"}`}
+                      >
+                        {t.settingsThemeSystem}
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Language Selector */}
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
@@ -1342,18 +1437,18 @@ if ts_files:
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-12 flex flex-col gap-16">
+      <main className="w-full px-6 py-12 flex flex-col gap-16">
         {/* Hero Section */}
-        <section className="flex flex-col items-start text-left gap-6 max-w-3xl">
+        <section className="flex flex-col items-start text-left gap-6 w-full max-w-6xl mx-auto">
           <div
             role="img"
             aria-label={t.title}
-            className="w-full max-w-2xl rounded-lg shadow-md overflow-hidden"
+            className="w-full rounded-lg shadow-md overflow-hidden"
             // Inlined (not <img src>) because an <img>-rendered SVG can't apply
             // the page's already-loaded Noto Sans / Noto Sans JP webfont — it
             // renders in an isolated context with no access to the document's
             // font resources, regardless of what's loaded in index.html.
-            dangerouslySetInnerHTML={{ __html: getHeaderImageSvg(locale) }}
+            dangerouslySetInnerHTML={{ __html: getHeaderImageSvg(locale, fontStyle) }}
           />
           <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 text-primary px-3 py-1 rounded-md text-xs font-semibold">
             <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
@@ -1385,7 +1480,7 @@ if ts_files:
         </section>
 
         {/* Grid Features */}
-        <section id="features" className="flex flex-col gap-8">
+        <section id="features" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
               {t.secFeaturesTitle}
@@ -1517,7 +1612,7 @@ if ts_files:
         {/* Visual Pipeline Connection Flow Diagram Section */}
         <section
           id="diagram"
-          className="bg-white dark:bg-gray-850/40 p-6 rounded-md border border-gray-200/50 dark:border-gray-800 flex flex-col gap-8"
+          className="bg-white dark:bg-gray-850/40 p-6 rounded-md border border-gray-200/50 dark:border-gray-800 flex flex-col gap-8 w-full max-w-6xl mx-auto"
         >
           <div className="flex flex-col gap-2 items-start text-left">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.diagramTitle}</h2>
@@ -1576,7 +1671,7 @@ if ts_files:
         {/* Interactive Simulator Sandbox */}
         <section
           id="demo"
-          className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800"
+          className="bg-white dark:bg-gray-850 p-6 rounded-md shadow-sm border border-gray-200/50 dark:border-gray-800 w-full max-w-6xl mx-auto"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
             <div className="flex flex-col gap-6 items-start text-left">
@@ -1656,7 +1751,7 @@ if ts_files:
         </section>
 
         {/* Double Gate Workflow Section */}
-        <section id="workflow" className="flex flex-col gap-8">
+        <section id="workflow" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.workflowTitle}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t.workflowDesc}</p>
@@ -1690,7 +1785,7 @@ if ts_files:
         </section>
 
         {/* Configurations Tabs */}
-        <section id="config" className="flex flex-col gap-8">
+        <section id="config" className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
           <div className="flex flex-col gap-2 font-sans">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t.configTitle}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 font-sans">{t.configDesc}</p>

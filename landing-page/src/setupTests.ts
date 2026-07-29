@@ -38,3 +38,25 @@ class ResizeObserverMock {
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = ResizeObserverMock;
 }
+
+if (typeof globalThis.matchMedia === "undefined") {
+  globalThis.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: (): void => {
+        /* noop */
+      },
+      removeListener: (): void => {
+        /* noop */
+      },
+      addEventListener: (): void => {
+        /* noop */
+      },
+      removeEventListener: (): void => {
+        /* noop */
+      },
+      dispatchEvent: (): boolean => false,
+    }) as MediaQueryList;
+}
