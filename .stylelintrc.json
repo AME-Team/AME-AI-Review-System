@@ -20,7 +20,15 @@
     "at-rule-no-unknown": [
       true,
       {
-        "ignoreAtRules": ["theme", "layer", "apply", "import", "utility"]
+        "ignoreAtRules": [
+          "theme",
+          "layer",
+          "apply",
+          "import",
+          "utility",
+          "variant",
+          "custom-variant"
+        ]
       }
     ]
   }

@@ -96,4 +96,23 @@ describe("App Component", () => {
 
     vi.useRealTimers();
   });
+
+  it("changes theme mode setting (light/dark/system)", () => {
+    render(<App />);
+    const settingsBtn = screen.getByRole("button", { name: "表示設定" });
+    fireEvent.click(settingsBtn);
+
+    expect(screen.getByText("テーマ (Theme)")).toBeInTheDocument();
+    const lightBtn = screen.getByRole("button", { name: "ライト" });
+    fireEvent.click(lightBtn);
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(document.documentElement).not.toHaveClass("dark");
+
+    const darkBtn = screen.getByRole("button", { name: "ダーク" });
+    fireEvent.click(darkBtn);
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.documentElement).toHaveClass("dark");
+  });
 });
