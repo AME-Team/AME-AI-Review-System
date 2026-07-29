@@ -64,18 +64,24 @@ def _running_as_root() -> bool:
         return False
 
 
+def _token_stat() -> os.stat_result | None:
+    # トークンファイルの stat をリンク先を追跡せずに取得する (lstat)。
+    # ln -s /etc/passwd <token> のようなシンボリックリンクでリンク先の uid=0 を
+    # 盗用されるのを防ぐため、リンク自身の属性を見る。失敗時は None。
+    try:
+        return bypass_token_path().lstat()
+    except OSError:
+        return None
+
+
 def _token_present() -> bool:
     # 非 root の AI Agent が無痕跡でトークンを作成して迂回するのを防ぐため、
     # ファイルが root (uid 0) に所有されていることを併せて検証する。
     # sudo touch で作成すれば非 root セッションでも事前認可として機能する。
-    #
-    # リンク先を追跡しない lstat を使い、かつ通常ファイルであることを確認する。
-    # こうしないと ln -s /etc/passwd <token> のようなシンボリックリンクで
-    # リンク先の uid=0 を盗用され、未認可のままバイパスされてしまう。
-    try:
-        info = bypass_token_path().lstat()
-    except OSError:
+    info = _token_stat()
+    if info is None:
         return False
+    # S_ISREG で通常ファイルであることも確認し、シンボリックリンク等を弾く。
     return stat.S_ISREG(info.st_mode) and info.st_uid == 0
 
 

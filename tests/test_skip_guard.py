@@ -5,7 +5,6 @@ import os
 import pathlib
 import stat
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 from ame_ai_review_system import skip_guard
@@ -189,29 +188,17 @@ def _fake_stat(uid: int, *, is_reg: bool = True) -> SimpleNamespace:
     return SimpleNamespace(st_uid=uid, st_mode=st_mode)
 
 
-def _mock_stat(uid: int, *, is_reg: bool = True) -> Any:
-    # Path.lstat() は os.lstat(path, *, follow_symlinks=False) を呼ぶため可変長引数を受ける。
-    return lambda *_args, **_kwargs: _fake_stat(uid, is_reg=is_reg)
-
-
 def test_is_authorized_root(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "geteuid", lambda: 0)
-    token = pathlib.Path("/nonexistent/skip-guard-token-test")
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: None)
     authorized, reason = skip_guard.is_authorized()
     assert authorized is True
     assert "sudo" in reason
 
 
-def test_is_authorized_token_root_owned(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: pathlib.Path,
-) -> None:
-    token = tmp_path / "allow-skip-ai-review"
-    token.write_text("ok\n", encoding="utf-8")
+def test_is_authorized_token_root_owned(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
-    monkeypatch.setattr(os, "lstat", _mock_stat(0))
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: _fake_stat(0))
     authorized, reason = skip_guard.is_authorized()
     assert authorized is True
     assert "バイパストークン" in reason
@@ -219,13 +206,9 @@ def test_is_authorized_token_root_owned(
 
 def test_is_authorized_token_non_root_owned_blocks(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: pathlib.Path,
 ) -> None:
-    token = tmp_path / "allow-skip-ai-review"
-    token.write_text("ok\n", encoding="utf-8")
     monkeypatch.setattr(os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
-    monkeypatch.setattr(os, "lstat", _mock_stat(1000))
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: _fake_stat(1000))
     authorized, reason = skip_guard.is_authorized()
     assert authorized is False
     assert not reason
@@ -233,8 +216,7 @@ def test_is_authorized_token_non_root_owned_blocks(
 
 def test_is_authorized_denied(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "geteuid", lambda: 1000)
-    token = pathlib.Path("/nonexistent/skip-guard-token-test")
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: None)
     authorized, reason = skip_guard.is_authorized()
     assert authorized is False
     assert not reason
@@ -245,45 +227,43 @@ def test_is_authorized_denied(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------
 
 
-def test_token_present_root_owned(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: pathlib.Path,
-) -> None:
-    token = tmp_path / "allow-skip-ai-review"
-    token.write_text("ok\n", encoding="utf-8")
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
-    monkeypatch.setattr(os, "lstat", _mock_stat(0))
+def test_token_present_root_owned(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: _fake_stat(0))
     assert skip_guard._token_present() is True
 
 
-def test_token_present_non_root_owned_blocks(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: pathlib.Path,
-) -> None:
-    token = tmp_path / "allow-skip-ai-review"
-    token.write_text("ok\n", encoding="utf-8")
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
-    monkeypatch.setattr(os, "lstat", _mock_stat(1000))
+def test_token_present_non_root_owned_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: _fake_stat(1000))
     assert skip_guard._token_present() is False
 
 
 def test_token_present_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        skip_guard,
-        "bypass_token_path",
-        lambda: pathlib.Path("/nonexistent/skip-guard-token-test"),
-    )
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: None)
     assert skip_guard._token_present() is False
 
 
 def test_token_present_symlink_blocks_even_if_root_owned(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: pathlib.Path,
 ) -> None:
     # ln -s /etc/passwd <token> のようなシンボリックリンクでリンク先の uid=0 を盗用する
     # 攻撃を防ぐこと。リンク自体が root 所有でも通常ファイルでなければ拒否する。
-    token = tmp_path / "allow-skip-ai-review"
-    token.write_text("ok\n", encoding="utf-8")
-    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: token)
-    monkeypatch.setattr(os, "lstat", _mock_stat(0, is_reg=False))
+    monkeypatch.setattr(skip_guard, "_token_stat", lambda: _fake_stat(0, is_reg=False))
     assert skip_guard._token_present() is False
+
+
+def test_token_stat_does_not_follow_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    # 実シンボリックリンクを使い、_token_stat がリンク先を追跡しない (lstat である) ことを
+    # 実ファイルベースで検証する。万一 stat() へ誤変更されるとリンク先の S_IFREG が返り
+    # 本テストが失敗する (ln -s 盗用対策の回帰検出)。
+    target = tmp_path / "target"
+    target.write_text("x", encoding="utf-8")
+    link = tmp_path / "allow-skip-ai-review"
+    link.symlink_to(target)
+    monkeypatch.setattr(skip_guard, "bypass_token_path", lambda: link)
+    result = skip_guard._token_stat()
+    assert result is not None
+    assert stat.S_ISLNK(result.st_mode)
+    assert not stat.S_ISREG(result.st_mode)
