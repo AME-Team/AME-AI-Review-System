@@ -45,8 +45,11 @@ async function main() {
     process.exit(1);
   }
   const opts = parseArgs();
+  // opencode SDK の Config は reasoning を boolean で扱う (minimal/medium/high には非対応)。
+  // minimal (= thinking low) 以外は reasoning を有効にして、設定契約が黙殺されないようにする。
   const config = {};
   if (opts.model) config.model = opts.model;
+  if (opts.variant) config.reasoning = opts.variant !== "minimal";
 
   const { client } = await createOpencode({ config });
   const session = await client.session.create({ body: { title: "ame-review" } });

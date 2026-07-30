@@ -108,11 +108,10 @@ def get_ts_checks(ts_files: list[str]) -> list[tuple[str, list[str]]]:
     if not ts_files:
         return []
     checks: list[tuple[str, list[str]]] = []
+    # tsc は tsconfig_path が明示指定された場合のみ実行する。
+    # ルート tsconfig.json はしばしばソリューション参照型で広すぎ、無関係な既存エラーが
+    # 回帰として表面化するため自動検出しない (専用の tsc フックで別途担保すること)。
     tsconfig = load_config().get("tsconfig_path")
-    if not tsconfig:
-        default_tsconfig = paths.project_root() / "tsconfig.json"
-        if default_tsconfig.exists():
-            tsconfig = str(default_tsconfig)
     if tsconfig:
         checks.append(
             (
