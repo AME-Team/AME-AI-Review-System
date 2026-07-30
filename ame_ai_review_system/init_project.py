@@ -28,9 +28,12 @@ _DEFAULT_MODEL: dict[str, str] = {
 _AI_HOOK_MARKER = "# AME AI Review System — Gate 1 AI review hooks"
 
 
-def engine_meta(engine: str, sdk_lang: str | None) -> dict[str, Any]:
+def engine_meta(engine: str, sdk_lang: str) -> dict[str, Any]:
     """エンジン/SDK 言語から生成に必要なメタ情報を返す。."""
-    needs_ts_node = engine == "claude" and sdk_lang == "typescript"
+    needs_node = engine == "opencode" or (
+        engine == "claude" and sdk_lang == "typescript"
+    )
+    # OpenCode は SDK で起動済みサーバへ接続するため、サーバ起動用の CLI が必要。
     needs_opencode_cli = engine == "opencode"
     if engine == "claude" and sdk_lang == "python":
         pip_extra = "claude"
@@ -39,7 +42,7 @@ def engine_meta(engine: str, sdk_lang: str | None) -> dict[str, Any]:
     else:
         pip_extra = ""
     return {
-        "needs_ts_node": needs_ts_node,
+        "needs_node": needs_node,
         "needs_opencode_cli": needs_opencode_cli,
         "pip_extra": pip_extra,
         "auth_env": _auth_env(engine),
@@ -59,7 +62,7 @@ def run_init(
     target_dir: str,
     profile: str,
     engine: str,
-    sdk_lang: str | None,
+    sdk_lang: str,
     reviewer_name: str,
     *,
     force: bool = False,
@@ -82,7 +85,7 @@ def run_init(
     _scaffold_config(ame, engine, sdk_lang, model, force=force)
     _generate_workflows(target, reviewer_name, engine, meta, force=force)
     _write_precommit(target, profile, force=force)
-    if meta["needs_ts_node"]:
+    if meta["needs_node"]:
         _setup_ts_engines(ame, engine, sdk_lang, run_npm=run_npm)
     _update_gitignore(target)
     _print_next_steps(target, reviewer_name, engine, sdk_lang, meta, profile)
@@ -111,7 +114,7 @@ def _copy_packaged(rel: str, dest: Path, *, force: bool) -> None:
 def _scaffold_config(
     ame: Path,
     engine: str,
-    sdk_lang: str | None,
+    sdk_lang: str,
     model: str,
     *,
     force: bool,
@@ -162,23 +165,20 @@ def _install_block(meta: dict[str, Any]) -> str:
         "      - name: Install ame-ai-review-system",
         f"        run: pip install '{spec}'",
     ]
-    if meta["needs_ts_node"] or meta["needs_opencode_cli"]:
+    if meta["needs_node"]:
         lines += [
             "      - name: Setup Node",
             "        uses: actions/setup-node@v4",
             "        with:",
             '          node-version: "22"',
+            "      - name: Install TS engine deps",
+            "        run: npm --prefix .ame-review/engines-ts ci",
         ]
-        if meta["needs_ts_node"]:
-            lines += [
-                "      - name: Install TS engine deps",
-                "        run: npm --prefix .ame-review/engines-ts ci",
-            ]
-        if meta["needs_opencode_cli"]:
-            lines += [
-                "      - name: Install OpenCode CLI",
-                "        run: npm install -g opencode-ai",
-            ]
+    if meta["needs_opencode_cli"]:
+        lines += [
+            "      - name: Install OpenCode CLI",
+            "        run: npm install -g opencode-ai",
+        ]
     return "\n".join(lines)
 
 
@@ -206,6 +206,38 @@ def _env_block(meta: dict[str, Any], reviewer_name: str, app_token: str) -> str:
     return "\n".join(f"          {k}: {v}" for k, v in env.items())
 
 
+def _opencode_server_start_step(engine: str) -> str:
+    if engine != "opencode":
+        return ""
+    return (
+        "      - name: Start OpenCode server\n"
+        "        run: |\n"
+        "          opencode serve --port 4096 > /tmp/opencode-server.log 2>&1 &\n"
+        "          echo $! > /tmp/opencode.pid\n"
+        "          for _ in $(seq 1 30); do\n"
+        '            if grep -q "opencode server listening" /tmp/opencode-server.log 2>/dev/null; then\n'
+        "              break\n"
+        "            fi\n"
+        "            sleep 1\n"
+        "          done\n"
+        '          echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"\n'
+    )
+
+
+def _opencode_server_stop_step(engine: str) -> str:
+    if engine != "opencode":
+        return ""
+    return (
+        "      - name: Stop OpenCode server\n"
+        "        if: always()\n"
+        "        run: |\n"
+        "          if [ -f /tmp/opencode.pid ]; then\n"
+        "            pid=$(cat /tmp/opencode.pid)\n"
+        '            echo "$pid" | xargs -r kill -15\n'
+        "          fi\n"
+    )
+
+
 def _reviewer_secret_names(reviewer_name: str) -> tuple[str, str]:
     upper = reviewer_name.upper().replace("-", "_")
     return f"{upper}_APP_ID", f"{upper}_APP_PRIVATE_KEY"
@@ -219,6 +251,11 @@ def _render_command_workflow(
     bot = f"{reviewer_name}[bot]"
     app_id, app_key = _reviewer_secret_names(reviewer_name)
     env_block = _env_block(meta, reviewer_name, "${{ steps.app_token.outputs.token }}")
+    opencode_url_env = (
+        "          OPENCODE_URL: http://127.0.0.1:4096\n"
+        if engine == "opencode"
+        else ""
+    )
     return f"""---
 name: AI Code Review (Command)
 
@@ -284,16 +321,18 @@ jobs:
           GITHUB_PAT_TOKEN: ${{{{ steps.app_token.outputs.token }}}}
         run: |
           python -m ame_ai_review_system.main checkout "$PR_NUMBER"
-      - name: Run General Review
+{_opencode_server_start_step(engine)}      - name: Run General Review
         if: steps.cmd.outputs.run_review == 'true'
         env:
 {env_block}
           REVIEW_ENGINE: {engine}
+{opencode_url_env}
           PR_NUMBER: ${{{{ steps.cmd.outputs.pr_number }}}}
         run: |
           python -m ame_ai_review_system.main review \\
             "$PR_NUMBER" \\
             --prompt-file .ame-review/review_prompt.txt
+{_opencode_server_stop_step(engine)}
 """
 
 
@@ -305,6 +344,11 @@ def _render_reply_workflow(
     bot = f"{reviewer_name}[bot]"
     app_id, app_key = _reviewer_secret_names(reviewer_name)
     env_block = _env_block(meta, reviewer_name, "${{ steps.app_token.outputs.token }}")
+    opencode_url_env = (
+        "          OPENCODE_URL: http://127.0.0.1:4096\n"
+        if engine == "opencode"
+        else ""
+    )
     return f"""---
 name: AI Review Reply
 
@@ -351,13 +395,15 @@ jobs:
           GITHUB_PAT_TOKEN: ${{{{ steps.app_token.outputs.token }}}}
         run: |
           python -m ame_ai_review_system.main checkout "$PR_NUMBER"
-      - name: Run Reply
+{_opencode_server_start_step(engine)}      - name: Run Reply
         env:
 {env_block}
           REVIEW_ENGINE: {engine}
+{opencode_url_env}
           PR_NUMBER: ${{{{ github.event.issue.number }}}}
         run: |
           python -m ame_ai_review_system.reply run "$PR_NUMBER"
+{_opencode_server_stop_step(engine)}
 """
 
 
@@ -385,13 +431,13 @@ def _write_precommit(target: Path, profile: str, *, force: bool) -> None:
     print(f"  wrote: {dest}")
 
 
-def _setup_ts_engines(
-    ame: Path, engine: str, sdk_lang: str | None, *, run_npm: bool
-) -> None:
+def _setup_ts_engines(ame: Path, engine: str, sdk_lang: str, *, run_npm: bool) -> None:
     print("[init] TS engine sidecar:")
     ts_dir = ame / "engines-ts"
     ts_dir.mkdir(parents=True, exist_ok=True)
     deps: dict[str, str] = {}
+    if engine == "opencode":
+        deps["@opencode-ai/sdk"] = "*"
     if engine == "claude" and sdk_lang == "typescript":
         deps["@anthropic-ai/claude-agent-sdk"] = "*"
     pkg = {
@@ -406,7 +452,7 @@ def _setup_ts_engines(
         encoding="utf-8",
     )
     print(f"  wrote: {ts_dir / 'package.json'}")
-    for script in ("claude.mjs",):
+    for script in ("claude.mjs", "opencode.mjs"):
         src = paths.package_dir() / "engines" / "ts" / script
         if src.exists():
             shutil.copyfile(src, ts_dir / script)
@@ -448,7 +494,7 @@ def _print_next_steps(
     target: Path,
     reviewer_name: str,
     engine: str,
-    sdk_lang: str | None,
+    sdk_lang: str,
     meta: dict[str, Any],
     profile: str,
 ) -> None:
@@ -478,10 +524,10 @@ def _print_next_steps(
     print(
         "   pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push -t post-commit"
     )
-    if meta["needs_ts_node"]:
+    if meta["needs_node"]:
         print("5. TS engine: npm --prefix .ame-review/engines-ts install")
     if meta["needs_opencode_cli"]:
-        print("5. OpenCode CLI: npm install -g opencode-ai")
+        print("   OpenCode server: npm install -g opencode-ai")
     print(
         f"\nEngine: {engine} (sdk={sdk_lang}), profile: {profile}, reviewer: {reviewer_name}"
     )

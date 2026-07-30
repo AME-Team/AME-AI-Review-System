@@ -42,12 +42,13 @@ def test_init_creates_ame_review_config(tmp_path: Path) -> None:
     assert user["model"] == "sonnet"
 
 
-def test_init_opencode_no_ts(tmp_path: Path) -> None:
+def test_init_opencode_forces_ts(tmp_path: Path) -> None:
     root = _run(tmp_path, engine="opencode", sdk_lang="python")
-    # opencode は CLI 起動のため TS サイドカーを生成しない
-    assert not (root / ".ame-review" / "engines-ts").exists()
+    pkg = json.loads((root / ".ame-review" / "engines-ts" / "package.json").read_text())
+    assert "@opencode-ai/sdk" in pkg["dependencies"]
+    assert (root / ".ame-review" / "engines-ts" / "opencode.mjs").exists()
+    # opencode 用 config.user.json に sdk_lang は含まれない (TS 固定のため)
     user = json.loads((root / ".ame-review" / "config.user.json").read_text())
-    assert user["engine"] == "opencode"
     assert "sdk_lang" not in user
 
 
@@ -69,13 +70,12 @@ def test_init_generates_workflows(tmp_path: Path) -> None:
     assert "my-reviewer" in reply
 
 
-def test_init_workflow_opencode_cli(tmp_path: Path) -> None:
+def test_init_workflow_opencode_node_block(tmp_path: Path) -> None:
     root = _run(tmp_path, engine="opencode")
     cmd = (root / ".github" / "workflows" / "ai-review-command.yml").read_text()
-    assert "actions/setup-node" in cmd  # node needed for opencode CLI install
-    assert "pip install 'ame-ai-review-system'" in cmd  # no python extra for opencode
+    assert "actions/setup-node" in cmd
+    assert "pip install 'ame-ai-review-system'" in cmd  # no extra for opencode
     assert "OPENCODE_AUTH_B64" in cmd
-    assert "npm install -g opencode-ai" in cmd
 
 
 def test_init_workflow_antigravity_no_node(tmp_path: Path) -> None:
@@ -157,20 +157,17 @@ def test_init_invalid_profile(tmp_path: Path) -> None:
 
 def test_engine_meta_claude_python_no_node() -> None:
     meta = init_project.engine_meta("claude", "python")
-    assert meta["needs_ts_node"] is False
-    assert meta["needs_opencode_cli"] is False
+    assert meta["needs_node"] is False
     assert meta["pip_extra"] == "claude"
 
 
 def test_engine_meta_claude_typescript_needs_node() -> None:
     meta = init_project.engine_meta("claude", "typescript")
-    assert meta["needs_ts_node"] is True
-    assert meta["needs_opencode_cli"] is False
+    assert meta["needs_node"] is True
     assert not meta["pip_extra"]
 
 
-def test_engine_meta_opencode_needs_cli() -> None:
+def test_engine_meta_opencode_needs_node() -> None:
     meta = init_project.engine_meta("opencode", "typescript")
-    assert meta["needs_ts_node"] is False
-    assert meta["needs_opencode_cli"] is True
+    assert meta["needs_node"] is True
     assert not meta["pip_extra"]

@@ -67,6 +67,7 @@ packages = ["ame_ai_review_system"]
 "ame_ai_review_system/review_prompt.txt" = "ame_ai_review_system/review_prompt.txt"
 "ame_ai_review_system/.semgrep/rules.yml" = "ame_ai_review_system/.semgrep/rules.yml"
 "ame_ai_review_system/engines/ts/claude.mjs" = "ame_ai_review_system/engines/ts/claude.mjs"
+"ame_ai_review_system/engines/ts/opencode.mjs" = "ame_ai_review_system/engines/ts/opencode.mjs"
 
 # ---------------------------------------------------------------------------
 # Ruff: lint + format（超厳格）

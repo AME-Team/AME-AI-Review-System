@@ -88,6 +88,18 @@ jobs:
           GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+      - name: Start OpenCode server
+        if: steps.cmd.outputs.run_review == 'true'
+        run: |
+          opencode serve --port 4096 > /tmp/opencode-server.log 2>&1 &
+          echo $! > /tmp/opencode.pid
+          for _ in $(seq 1 30); do
+            if grep -q "opencode server listening" /tmp/opencode-server.log 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"
       - name: Run General Review
         if: steps.cmd.outputs.run_review == 'true'
         env:
@@ -96,9 +108,17 @@ jobs:
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           REVIEW_ENGINE: opencode
+          OPENCODE_URL: ${{ env.OPENCODE_URL }}
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
           REPLY_MODEL: ${{ vars.REPLY_MODEL }}
           REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
         run: |
           python3 -m ame_ai_review_system.main review \
             "$PR_NUMBER"
+      - name: Stop OpenCode server
+        if: always() && steps.cmd.outputs.run_review == 'true'
+        run: |
+          if [ -f /tmp/opencode.pid ]; then
+            pid=$(cat /tmp/opencode.pid)
+            echo "$pid" | xargs -r kill -15
+          fi

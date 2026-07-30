@@ -530,9 +530,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     from . import init_project
 
     engine = args.engine
-    # OpenCode は CLI 起動、Antigravity は Python SDK のみのため sdk_lang を固定。
+    # OpenCode は TS SDK、Antigravity は Python SDK のみのため強制固定。
     if engine == "opencode":
-        sdk_lang = None
+        sdk_lang = "typescript"
     elif engine == "antigravity":
         sdk_lang = "python"
     else:

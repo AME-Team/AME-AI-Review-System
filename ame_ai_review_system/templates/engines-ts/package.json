@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "TypeScript SDK sidecars for AME AI Review System (claude-ts engine).",
+  "description": "TypeScript SDK sidecars for AME AI Review System (opencode / claude-ts engines).",
   "dependencies": {}
 }

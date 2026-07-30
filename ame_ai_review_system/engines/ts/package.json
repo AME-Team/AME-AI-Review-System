@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "TypeScript SDK sidecars for AME AI Review System (claude-ts engine).",
+  "description": "TypeScript SDK sidecars for AME AI Review System and their dependencies.",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "*"
+    "@anthropic-ai/claude-agent-sdk": "*",
+    "@opencode-ai/sdk": "*"
   }
 }
