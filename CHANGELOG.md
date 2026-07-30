@@ -11,8 +11,8 @@
   設定・ワークフロー・pre-commit・TS 依存を足場展開する。
 - pip インストール可能化 (`ame-ai-review-system`)。オプション extras で `[claude]` / `[antigravity]`
   / `[all]` の SDK 依存を導入できる。
-- エンジン SDK アダプタ層を追加。CLI バイナリ呼び出しを廃止し Claude / Antigravity /
-  OpenCode の各 SDK を直接駆動する。
+- エンジン SDK アダプタ層を追加。Claude /
+  Antigravity は SDK 直駆動、OpenCode は CLI サブプロセス経由（SDK はサーバ起動型で CI 都度起動が煩雑なため）。
 - プロジェクトローカル設定 `.ame-review/` による repo 非依存パス解決。
 - PyPI 公開ワークフロー (`.github/workflows/release.yml`, Trusted Publishing/OIDC)。
 

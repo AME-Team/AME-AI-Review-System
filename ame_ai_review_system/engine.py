@@ -133,7 +133,11 @@ def _resolve_budget(role: str, config: dict[str, Any]) -> float:
     return budget
 
 
-def _resolve_sdk_lang(engine: str, config: dict[str, Any]) -> str:
+def _resolve_sdk_lang(engine: str, config: dict[str, Any]) -> str | None:
+    from .engines import is_cli_engine
+
+    if is_cli_engine(engine):
+        return None
     available = available_sdk_langs(engine)
     raw = _first_nonempty(
         os.environ.get("REVIEW_SDK_LANG"),
@@ -188,9 +192,10 @@ def run_engine(settings: dict[str, Any], prompt: str) -> int:
     engine = settings["engine"]
     sdk_lang = settings.get("sdk_lang")
     model_display = settings["model"] or "<engine-default>"
+    sdk_display = sdk_lang or "cli"
     print(
         f"[engine] {engine} starting "
-        f"(sdk={sdk_lang}, model={model_display}, thinking={settings['thinking']}, "
+        f"(sdk={sdk_display}, model={model_display}, thinking={settings['thinking']}, "
         f"role={settings['role']})",
         file=sys.stderr,
     )

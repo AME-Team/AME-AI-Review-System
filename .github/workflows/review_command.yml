@@ -43,12 +43,16 @@ jobs:
           echo "${{ secrets.ANTIGRAVITY_OAUTH_B64 }}" | base64 -d > "$AGY_TOKEN"
           echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
           chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Claude Agent SDK
-        run: pip install claude-agent-sdk
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
       - name: Determine target PR and whether to run
         id: cmd
         env:
@@ -88,11 +92,10 @@ jobs:
         if: steps.cmd.outputs.run_review == 'true'
         env:
           AME_AI_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          REVIEW_ENGINE: claude
+          REVIEW_ENGINE: opencode
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
           REPLY_MODEL: ${{ vars.REPLY_MODEL }}
           REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}

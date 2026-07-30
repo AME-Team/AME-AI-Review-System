@@ -332,6 +332,9 @@ def test_run_static_checks_skips_missing_tool(monkeypatch: pytest.MonkeyPatch) -
 def test_run_static_checks_ts_all_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
     monkeypatch.setattr(subprocess, "run", _fake_subprocess_ok)
+    monkeypatch.setattr(
+        review_config, "load_config", lambda: {"tsconfig_path": "tsconfig.json"}
+    )
     passed, detail = run_static_checks(["app.ts", "component.tsx"])
     assert passed is True
     assert not detail
@@ -349,10 +352,29 @@ def test_run_static_checks_tsc_fails(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        review_config, "load_config", lambda: {"tsconfig_path": "tsconfig.json"}
+    )
     passed, detail = run_static_checks(["app.ts"])
     assert passed is False
     assert "tsc" in detail
     assert "Type error" in detail
+
+
+def test_run_static_checks_tsc_skipped_without_tsconfig(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
+        if "tsc" in cmd[0]:
+            return SimpleNamespace(returncode=2, stdout="should not run", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(review_config, "load_config", dict)
+    passed, detail = run_static_checks(["app.ts"])
+    assert passed is True
+    assert not detail
 
 
 def test_run_static_checks_eslint_fails(monkeypatch: pytest.MonkeyPatch) -> None:

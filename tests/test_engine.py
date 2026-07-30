@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -95,7 +97,7 @@ def test_resolve_settings_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings["model"] == "anthropic/claude-sonnet-4-5"
     assert settings["thinking"] == "low"
     assert settings["budget"] == pytest.approx(0.5)
-    assert settings["sdk_lang"] == "typescript"
+    assert settings["sdk_lang"] is None
 
 
 def test_resolve_settings_claude_sdk_lang_selectable(
@@ -115,14 +117,14 @@ def test_resolve_settings_claude_sdk_lang_env(
     assert resolve_settings("review")["sdk_lang"] == "typescript"
 
 
-def test_resolve_settings_opencode_forces_typescript(
+def test_resolve_settings_opencode_ignores_sdk_lang(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _write_config(monkeypatch, tmp_path, {"engine": "opencode", "sdk_lang": "python"})
-    # OpenCode は TS SDK しかないため python 指定は拒否される。
-    with pytest.raises(SystemExit):
-        resolve_settings("review")
+    # OpenCode は CLI 起動のため sdk_lang は常に None になる(設定値は無視)。
+    settings = resolve_settings("review")
+    assert settings["sdk_lang"] is None
 
 
 def test_resolve_settings_claude_model_backward_compat(
@@ -340,18 +342,25 @@ def test_claude_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["args"][captured["args"].index("--effort") + 1] == "high"
 
 
-def test_opencode_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
-    from ame_ai_review_system.engines import opencode_ts, ts_runner
+def test_opencode_cli_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from ame_ai_review_system.engines import opencode_cli
 
     captured: dict[str, Any] = {}
 
-    def fake_sidecar(script: str, prompt: str, args: list[str], timeout: float) -> str:
-        captured["script"] = script
-        captured["args"] = args
-        return "RESULT"
+    def fake_run(cmd: list[str], **kw: Any) -> SimpleNamespace:
+        captured["cmd"] = cmd
+        captured["kw"] = kw
+        ndjson = (
+            '{"type":"text","data":{"part":{"type":"text","text":"hello "}}}\n'
+            '{"type":"text","data":{"part":{"type":"text","text":"world"}}}\n'
+        )
+        return SimpleNamespace(returncode=0, stdout=ndjson, stderr="")
 
-    monkeypatch.setattr(ts_runner, "run_sidecar", fake_sidecar)
-    opencode_ts.OpencodeTsAdapter.run(
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(shutil, "which", lambda _: "opencode")
+    out = opencode_cli.OpencodeCliAdapter.run(
         "PROMPT",
         {
             "engine": "opencode",
@@ -361,12 +370,15 @@ def test_opencode_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
             "timeout": 600.0,
         },
     )
-    assert captured["script"] == "opencode.mjs"
-    assert captured["args"][captured["args"].index("--variant") + 1] == "minimal"
+    assert out == "hello world"
+    assert captured["cmd"][0] == "opencode"
+    assert captured["cmd"][1] == "run"
     assert (
-        captured["args"][captured["args"].index("--model") + 1]
-        == "anthropic/claude-sonnet-4"
+        captured["cmd"][captured["cmd"].index("-m") + 1] == "anthropic/claude-sonnet-4"
     )
+    assert captured["cmd"][captured["cmd"].index("--variant") + 1] == "minimal"
+    assert "--format" in captured["cmd"]
+    assert captured["kw"].get("input") == "PROMPT"
 
 
 def test_claude_python_adapter(monkeypatch: pytest.MonkeyPatch) -> None:

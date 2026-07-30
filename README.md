@@ -177,12 +177,13 @@ ame-review init --profile python --engine claude
 ```
 
 `init` は `.ame-review/`（設定・プロンプト・Semgrep ルール）を生成します。また Gate
-2 ワークフロー・Gate 1 pre-commit 設定・TS エンジン依存（OpenCode /
-Claude-TS の場合）も生成します。続けて GitHub App / Secret の設定手順を表示します。
+2 ワークフロー・Gate 1
+pre-commit 設定・TS エンジン依存（Claude-TS の場合）も生成します。続けて GitHub App /
+Secret の設定手順を表示します。
 
 > **プロファイル**: `minimal`（AI フックのみ）／ `python`（＋ruff/mypy 等）／
 > `full`（＋Node/Shell/YAML/Secret 系）。 **エンジン**: `claude`（Python または TypeScript SDK）／
-> `opencode`（TypeScript SDK のみ）／ `antigravity`（Python SDK のみ）。
+> `opencode`（CLI サブプロセス経由）／ `antigravity`（Python SDK のみ）。
 
 詳細なセットアップ・Secret 設定・カスタマイズは [docs/setup.md](ame_ai_review_system/docs/setup.md)
 と [docs/distribution.md](ame_ai_review_system/docs/distribution.md) を参照。
