@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+from . import paths
+
 _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
     "precommit_require_static_checks": True,
@@ -49,14 +51,14 @@ def _config_path() -> Path:
     override = os.environ.get("AME_REVIEW_CONFIG")
     if override:
         return Path(override)
-    return Path(__file__).resolve().parent / "config.json"
+    return paths.config_path()
 
 
 def _user_config_path() -> Path:
     override = os.environ.get("AME_REVIEW_USER_CONFIG")
     if override:
         return Path(override)
-    return Path(__file__).resolve().parent / "config.user.json"
+    return paths.user_config_path()
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -105,16 +107,25 @@ def get_ts_checks(ts_files: list[str]) -> list[tuple[str, list[str]]]:
     """Return command lists for TypeScript compiler and ESLint checks."""
     if not ts_files:
         return []
-    return [
-        (
-            "tsc",
-            [
-                "./node_modules/.bin/tsc",
-                "--noEmit",
-                "-p",
-                "landing-page/tsconfig.app.json",
-            ],
-        ),
+    checks: list[tuple[str, list[str]]] = []
+    tsconfig = load_config().get("tsconfig_path")
+    if not tsconfig:
+        default_tsconfig = paths.project_root() / "tsconfig.json"
+        if default_tsconfig.exists():
+            tsconfig = str(default_tsconfig)
+    if tsconfig:
+        checks.append(
+            (
+                "tsc",
+                [
+                    "./node_modules/.bin/tsc",
+                    "--noEmit",
+                    "-p",
+                    str(tsconfig),
+                ],
+            ),
+        )
+    checks.append(
         (
             "eslint",
             [
@@ -124,7 +135,8 @@ def get_ts_checks(ts_files: list[str]) -> list[tuple[str, list[str]]]:
                 *ts_files,
             ],
         ),
-    ]
+    )
+    return checks
 
 
 def _emit_value(value: Any) -> None:

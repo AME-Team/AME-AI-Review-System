@@ -20,7 +20,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import github_client, pr_streak, review_config
+from . import github_client, paths, pr_streak, review_config
 from . import payload as payload_module
 from .engine import resolve_settings
 
@@ -28,7 +28,7 @@ from .engine import resolve_settings
 # Common utilities
 # ============================================================================
 
-PROJ_ROOT = pathlib.Path(__file__).resolve().parent.parent
+PROJ_ROOT = paths.project_root()
 STALE_ROUND_THRESHOLD = 3
 MAX_REVIEWS = 10
 MAX_DIFF_LINES = 4000
@@ -269,9 +269,7 @@ def cmd_review(args: argparse.Namespace) -> int:
     pr_title = args.pr_title or ""
     pr_body = args.pr_body or ""
     reviewer_name = _get_env("REVIEWER_NAME", "ame-ai-reviewer")
-    reviewer_prompt_file = args.prompt_file or (
-        PROJ_ROOT / "ame-ai-review-system" / "review_prompt.txt"
-    )
+    reviewer_prompt_file = args.prompt_file or paths.prompt_path()
 
     # Token resolution
     try:

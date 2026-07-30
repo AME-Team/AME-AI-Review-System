@@ -35,6 +35,8 @@ import stat
 import sys
 from typing import Any, cast
 
+from . import paths
+
 GUARDED_HOOK_ID = "ai-precommit-review"
 
 _TOKEN_FILENAME = "allow-skip-ai-review"
@@ -112,7 +114,7 @@ def _tracked_config_path() -> pathlib.Path:
     # config.user.json (gitignore) や AME_REVIEW_CONFIG 環境変数での上書きを無視し、
     # 版管理対象の config.json のみを参照する。これらを許容すると非 root の AI Agent が
     # ガード全体をサイレントに無効化できる抜け道になる (Issue #26)。
-    return pathlib.Path(__file__).resolve().parent / "config.json"
+    return paths.tracked_config_path()
 
 
 def _enforce_enabled() -> bool:

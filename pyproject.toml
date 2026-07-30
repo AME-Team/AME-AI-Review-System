@@ -1,10 +1,74 @@
-# AME-AI-Review-System ルートの「ツール設定専用」pyproject。
+# AME-AI-Review-System パッケージ定義 ＋ ツール設定。
 #
-# ビルド対象ではなく、リポジトリ横断の静的解析ツール設定のみを保持する。
-# Python スクリプトは scripts/linux/*.py および tools/*.py に存在する。
-#
-# 厳格度: ruff ALL + preview + mypy strict で運用。
+# ビルド対象として PyPI 配布可能 (hatchling)。コアは標準ライブラリのみで動作し、
+# LLM エンジン SDK はオプション extras ([claude] / [antigravity] / [all]) で導入する。
+# 静的解析ツール設定は後半に保持。厳格度: ruff ALL + preview + mypy strict で運用。
 
+# ---------------------------------------------------------------------------
+# Build system
+# ---------------------------------------------------------------------------
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+[project]
+name = "ame-ai-review-system"
+dynamic = ["version"]
+description = "Dual-gate (pre-commit + PR) AI code review system with SDK-backed LLM engines."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Tarmin Japan" }]
+keywords = ["code-review", "pre-commit", "llm", "claude", "opencode", "antigravity"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+claude = ["claude-agent-sdk>=0.2"]
+antigravity = ["google-antigravity"]
+all = ["claude-agent-sdk>=0.2", "google-antigravity"]
+
+[project.scripts]
+ame-review = "ame_ai_review_system.main:main"
+ame-reply = "ame_ai_review_system.reply:main"
+
+[project.urls]
+Homepage = "https://github.com/tarminjapan/AME-AI-Review-System"
+Repository = "https://github.com/tarminjapan/AME-AI-Review-System"
+Issues = "https://github.com/tarminjapan/AME-AI-Review-System/issues"
+
+# ---------------------------------------------------------------------------
+# Hatchling: version source & wheel contents
+# ---------------------------------------------------------------------------
+[tool.hatch.version]
+path = "ame_ai_review_system/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ame_ai_review_system"]
+
+# ランタイム data (プロンプト/Semgrep ルール/ワークフロー/pre-commit テンプレ/TS サイドカー)
+# を wheel へ強同梱する。dot-dir (.semgrep) は明示指定が無いと漏れるため列挙する。
+[tool.hatch.build.targets.wheel.force-include]
+"ame_ai_review_system/review_prompt.txt" = "ame_ai_review_system/review_prompt.txt"
+"ame_ai_review_system/.semgrep/rules.yml" = "ame_ai_review_system/.semgrep/rules.yml"
+
+# ---------------------------------------------------------------------------
+# Ruff: lint + format（超厳格）
 # ---------------------------------------------------------------------------
 # Ruff: lint + format（超厳格）
 #   方針: 全ルール(ALL)を有効化。preview ルールも有効化する。
