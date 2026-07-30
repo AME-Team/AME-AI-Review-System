@@ -36,6 +36,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/build/**",
       "eslint.config.mjs",
+      "ame_ai_review_system/**",
     ],
   }
 );

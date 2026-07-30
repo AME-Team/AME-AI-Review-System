@@ -66,6 +66,8 @@ packages = ["ame_ai_review_system"]
 [tool.hatch.build.targets.wheel.force-include]
 "ame_ai_review_system/review_prompt.txt" = "ame_ai_review_system/review_prompt.txt"
 "ame_ai_review_system/.semgrep/rules.yml" = "ame_ai_review_system/.semgrep/rules.yml"
+"ame_ai_review_system/engines/ts/claude.mjs" = "ame_ai_review_system/engines/ts/claude.mjs"
+"ame_ai_review_system/engines/ts/opencode.mjs" = "ame_ai_review_system/engines/ts/opencode.mjs"
 
 # ---------------------------------------------------------------------------
 # Ruff: lint + format（超厳格）
@@ -141,6 +143,7 @@ allowed-confusables = ["\uff08", "\uff09", "\uff1d"]
     "typing-only-third-party-import",   # テストでのサードパーティ型インポートチェックをスキップする(pytest 等)
     "private-member-access",  # テストからプライベートメンバ (_xxx) へのアクセスを許容する
     "unused-function-argument",  # テスト用 fake/モック関数の未使用引数を許容する
+    "unused-async",    # テスト用 async generator ダブルは await しない
 ]
 "ame_ai_review_system/*.py" = [
     "implicit-namespace-package",  # 単体実行のためパッケージ化不要
@@ -207,6 +210,8 @@ mypy_path = "scripts"
 [[tool.mypy.overrides]]
 module = [
     "anthropic.*",
+    "claude_agent_sdk.*",
+    "google.*",
     "pytest",
 ]
 ignore_missing_imports = true
