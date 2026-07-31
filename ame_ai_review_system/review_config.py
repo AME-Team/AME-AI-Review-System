@@ -142,16 +142,21 @@ def filter_review_targets(files: list[str]) -> list[str]:
 
 
 def filter_review_diff(diff_text: str) -> str:
-    """``diff`` から除外対象パッケージ配下のファイルセクションを取り除く."""
+    """``diff`` から除外対象パッケージ配下のファイルセクションを取り除く.
+
+    セクション内の全パスが除外対象配下にある場合のみ破棄する。リネーム等で
+    ``a/src/old.py`` → ``b/ame_ai_review_system/new.py`` のように除外ディレクトリを
+    跨ぐ場合は、非除外側の変更 (un-vendoring 等) をレビューから消さないよう保持する。
+    """
     rel = review_exclusion_rel()
     if rel is None or not diff_text:
         return diff_text
-    sections = _split_diff_sections(diff_text)
-    kept = [
-        "\n".join(section)
-        for section in sections
-        if not any(_is_path_under(p, rel) for p in _section_paths(section))
-    ]
+    kept: list[str] = []
+    for section in _split_diff_sections(diff_text):
+        paths_in_section = _section_paths(section)
+        if paths_in_section and all(_is_path_under(p, rel) for p in paths_in_section):
+            continue
+        kept.append("\n".join(section))
     return "\n".join(kept)
 
 
@@ -200,7 +205,8 @@ def _section_paths(section: list[str]) -> list[str]:
     """セクションからリポジトリ相対パスを抽出する.
 
     ``diff --git`` ヘッダ行 (バイナリ差分・モード変更のみの差分にも存在) と
-    ``--- a/..`` / ``+++ b/..`` 行の両方から抽出する。
+    ``--- a/..`` / ``+++ b/..`` 行の両方から抽出する。追加・削除の
+    ``/dev/null`` 疑似パスは実ファイルでないため除外する。
     """
     paths_in_section: list[str] = []
     for line in section:
@@ -211,9 +217,9 @@ def _section_paths(section: list[str]) -> list[str]:
                 for m in _HEADER_TOKEN_RE.finditer(rest)
             )
         elif line.startswith(("--- ", "+++ ")):
-            paths_in_section.append(
-                _strip_path_prefix(_unquote_path(line[4:].strip())),
-            )
+            raw = _strip_path_prefix(_unquote_path(line[4:].strip()))
+            if raw not in {"/dev/null", "null"}:
+                paths_in_section.append(raw)
     return paths_in_section
 
 

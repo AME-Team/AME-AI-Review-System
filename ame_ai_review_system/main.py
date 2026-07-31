@@ -19,7 +19,10 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from . import github_client, paths, pr_streak, review_config
 from . import payload as payload_module
@@ -252,13 +255,21 @@ def _post_review(
         return 200, resp
 
 
+def _run_engine_text(prompt: str, settings: dict[str, Any]) -> str | None:
+    return payload_module.engine_output_text(_run_engine_capture(settings, prompt))
+
+
 def _build_review_payloads(
     review_json: str,
     base_ref: str,
     head_sha: str,
+    repair: Callable[[str], str | None] | None = None,
 ) -> list[dict[str, Any]]:
     """Parse review JSON and build GitHub review payloads."""
-    review, _ = payload_module.parse_review_json_with_flag(review_json)
+    review, _ = payload_module.parse_review_json_with_flag(
+        review_json,
+        repair=repair,
+    )
     valid_lines = payload_module.build_valid_lines_map(base_ref)
     return payload_module.build_review_payloads(review, valid_lines, head_sha)
 
@@ -440,7 +451,15 @@ def cmd_review(args: argparse.Namespace) -> int:
         os.close(fd)
         review_file = pathlib.Path(review_path)
         review_file.write_text(engine_out, encoding="utf-8")
-        payloads = _build_review_payloads(str(review_file), base_ref, head_sha)
+        payloads = _build_review_payloads(
+            str(review_file),
+            base_ref,
+            head_sha,
+            repair=lambda broken: payload_module.repair_review_json(
+                broken,
+                lambda p: _run_engine_text(p, settings),
+            ),
+        )
     except (ValueError, KeyError, TypeError, OSError) as e:
         print(f"[review] Failed to build payload: {e}", file=sys.stderr)
         return 1

@@ -8,7 +8,10 @@ import pathlib
 import re
 import subprocess
 import sys
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _FALLBACK: dict[str, Any] = {
     "summary": "AIレビューの出力をJSONとして解析できませんでした。",
@@ -16,9 +19,8 @@ _FALLBACK: dict[str, Any] = {
 }
 
 
-def parse_review_json_with_flag(path: str) -> tuple[dict[str, Any], bool]:
-    raw = pathlib.Path(path).read_text(encoding="utf-8").strip()
-
+def _parse_review_text(raw: str) -> tuple[dict[str, Any], bool]:
+    """生テキストからレビュー JSON を抽出する (成功時は (review, False))."""
     # 出力形式が旧エンベロープ({"type":"result","result":"..."})に戻った場合でも
     # レビューが壊れないよう、result 文字列を取り出して下流へ渡す。
     try:
@@ -29,7 +31,8 @@ def parse_review_json_with_flag(path: str) -> tuple[dict[str, Any], bool]:
                 result_val = outer.get("result")
                 if not isinstance(result_val, str):
                     print(
-                        f"[parse_review_json] result field is not a string: {type(result_val).__name__}",
+                        f"[parse_review_json] result field is not a string: "
+                        f"{type(result_val).__name__}",
                         file=sys.stderr,
                     )
                     return _FALLBACK, True
@@ -64,12 +67,87 @@ def parse_review_json_with_flag(path: str) -> tuple[dict[str, Any], bool]:
                 except json.JSONDecodeError:
                     start_idx = -1
 
-    preview = raw[:500]
-    print(
-        f"[parse_review_json] JSON extraction failed. Raw preview (500 chars):\n{preview}",
-        file=sys.stderr,
-    )
     return _FALLBACK, True
+
+
+def parse_review_json_with_flag(
+    path: str,
+    repair: Callable[[str], str | None] | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """レビュー JSON を解析する.
+
+    ``repair`` は初期解析に失敗したときに呼ばれ、壊れた出力を修復したテキストを
+    返す (``None`` なら修復不可)。修復後の再解析にも失敗した場合は ``(fallback, True)``。
+    """
+    raw = pathlib.Path(path).read_text(encoding="utf-8").strip()
+
+    review, is_fallback = _parse_review_text(raw)
+    cleaned = raw
+    # 構造的修復 (LLM 呼び出しなし) を先に試し、それでもダメなら LLM 修復にフォールバックする。
+    if is_fallback:
+        cleaned = _strip_tool_call_syntax(raw)
+        if cleaned != raw:
+            review, is_fallback = _parse_review_text(cleaned)
+    if is_fallback and repair is not None:
+        repaired = repair(cleaned)
+        if repaired and repaired.strip():
+            review, is_fallback = _parse_review_text(repaired.strip())
+
+    if is_fallback:
+        preview = raw[:500]
+        print(
+            f"[parse_review_json] JSON extraction failed. Raw preview (500 chars):\n{preview}",
+            file=sys.stderr,
+        )
+    return review, is_fallback
+
+
+def build_repair_prompt(broken: str) -> str:
+    """壊れたレビュー出力から JSON を復元する修復用プロンプトを組み立てる."""
+    # 弱いモデルはツール呼び出し構文や余計な前後テキストを付けて JSON を壊すことがある。
+    # 修復用プロンプトは小さく保ち、スキーマを明示して JSON のみを返させる。
+    # 埋め込み前にバックティックを全て除去し、````` ``` ```` フェンスを途中で閉じないようにする。
+    safe = broken.replace("`", "\u201e")
+    return (
+        "あなたは JSON 修復のアシスタントです。\n"
+        "以下は AI コードレビューの出力ですが、JSON として壊れています。\n"
+        "ツール呼び出しや余計な前後テキストを除去し、有効な JSON オブジェクトだけを出力してください。\n"
+        'スキーマ: {"summary": string, "comments": [{"path": string, "line": int, '
+        '"severity": string, "title": string, "body": string}]}\n'
+        "出力は JSON のみ。コードフェンスや説明は不要。\n\n"
+        "## 壊れた出力\n```\n" + safe[:12000] + "\n```"
+    )
+
+
+# 弱いモデルが JSON の代わりに出力するツール呼び出し構文 (Anthropic 形式 / DeepSeek 形式)。
+_TOOL_CALL_BLOCK_RE = re.compile(r"</tool_calls>[\s\S]*?</tool_calls>")
+_INVOKE_BLOCK_RE = re.compile(r"<invoke\s+name=\"[^\"]*\">[\s\S]*?</invoke>")
+# DeepSeek のツール呼び出しマーカー (U+FF5C FULLWIDTH VERTICAL LINE)。
+_FULLWIDTH_MARKER_RE = re.compile("\uff5c\uff5c" + r"[\s\S]*?" + "\uff5c\uff5c")
+
+
+def _strip_tool_call_syntax(raw: str) -> str:
+    """ツール呼び出しブロックを除去して JSON 抽出の成功確率を上げる (構造的修復)."""
+    raw = _TOOL_CALL_BLOCK_RE.sub("", raw)
+    raw = _INVOKE_BLOCK_RE.sub("", raw)
+    return _FULLWIDTH_MARKER_RE.sub("", raw)
+
+
+def repair_review_json(
+    broken: str,
+    run_engine: Callable[[str], str | None],
+) -> str | None:
+    """壊れたレビュー JSON を ``run_engine`` で修復する。失敗時は ``None``。."""
+    repaired = run_engine(build_repair_prompt(broken))
+    if repaired and repaired.strip():
+        return repaired.strip()
+    return None
+
+
+def engine_output_text(engine_result: tuple[int, str, str]) -> str | None:
+    """エンジン呼び出し結果 (exit, stdout, stderr) から有効な出力テキストを取り出す."""
+    exit_code, output, _err = engine_result
+    return output.strip() if exit_code == 0 and output.strip() else None
 
 
 def parse_review_json(path: str) -> dict[str, Any]:

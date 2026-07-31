@@ -363,6 +363,60 @@ def test_filter_review_diff_keeps_quoted_path_outside_package_dir(
     assert "Binary files" in result
 
 
+def test_filter_review_diff_keeps_cross_boundary_rename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    rename_diff = (
+        "diff --git a/src/old.py b/ame_ai_review_system/new.py\n"
+        "similarity index 80%\n"
+        "rename from src/old.py\n"
+        "rename to ame_ai_review_system/new.py\n"
+        "--- a/src/old.py\n"
+        "+++ b/ame_ai_review_system/new.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-x\n"
+        "+y\n"
+    )
+    result = filter_review_diff(rename_diff)
+    assert "src/old.py" in result
+
+
+def test_filter_review_diff_excludes_add_under_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    add_diff = (
+        "diff --git a/ame_ai_review_system/new.py b/ame_ai_review_system/new.py\n"
+        "new file mode 100644\n"
+        "index 0000000..1234567\n"
+        "--- /dev/null\n"
+        "+++ b/ame_ai_review_system/new.py\n"
+        "@@ -0,0 +1 @@\n"
+        "+print('hi')\n"
+    )
+    assert not filter_review_diff(add_diff)
+
+
+def test_filter_review_diff_excludes_delete_under_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    delete_diff = (
+        "diff --git a/ame_ai_review_system/old.py b/ame_ai_review_system/old.py\n"
+        "deleted file mode 100644\n"
+        "index 1234567..0000000\n"
+        "--- a/ame_ai_review_system/old.py\n"
+        "+++ /dev/null\n"
+        "@@ -1 +0,0 @@\n"
+        "-x\n"
+    )
+    assert not filter_review_diff(delete_diff)
+
+
 def test_filter_review_diff_empty_input() -> None:
     assert not filter_review_diff("")
 

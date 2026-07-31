@@ -469,7 +469,15 @@ def main(argv: list[str] | None = None) -> int:
             raise
         with fh:
             fh.write(output)
-        review, is_fallback = payload.parse_review_json_with_flag(str(review_tmp))
+        review, is_fallback = payload.parse_review_json_with_flag(
+            str(review_tmp),
+            repair=lambda broken: payload.repair_review_json(
+                broken,
+                lambda p: payload.engine_output_text(
+                    _run_engine(p, engine_path, engine_settings),
+                ),
+            ),
+        )
     finally:
         review_tmp.unlink(missing_ok=True)
 

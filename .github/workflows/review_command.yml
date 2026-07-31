@@ -53,6 +53,11 @@ jobs:
           python-version: "3.12"
       - name: Install OpenCode CLI
         run: npm install -g opencode-ai
+      - name: Install TS engine deps (vendored sidecar)
+        # 本リポジトリは ame_ai_review_system/ をトップレベルに vendored している。
+        # 移植先リポジトリは ame-review init が生成する .ame-review/engines-ts を
+        # 使用するため、この手書きワークフローは本リポジトリ専用でよい。
+        run: npm --prefix ame_ai_review_system/engines/ts install
       - name: Determine target PR and whether to run
         id: cmd
         env:

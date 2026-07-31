@@ -95,11 +95,19 @@ async function main() {
     question: false,
     skill: false,
   };
+  // 弱いモデルはツール無効化下でもツール呼び出し構文 (</tool_calls> 等) を出力して
+  // JSON を壊すことがある。system でツール禁止を強制する (OPENCODE_SYSTEM で上書き可)。
+  const system =
+    process.env.OPENCODE_SYSTEM ||
+    "You are a code review assistant. You MUST NOT call any tools and MUST NOT emit any " +
+      "tool-call syntax. Respond ONLY with a single valid JSON object matching the requested " +
+      "schema. Do not include any other text.";
   const result = await client.session.prompt({
     path: { id: sessionId },
     body: {
       parts: [{ type: "text", text: prompt }],
       tools: toolsOff,
+      system,
       ...(model ? { model } : {}),
     },
   });
@@ -109,9 +117,13 @@ async function main() {
     process.exit(1);
   }
 
-  const text = extractText(result && result.data);
+  // SDK は responseStyle により { data } ラップと生値の両方の契約があり得るため、
+  // 両方に対応する (data 優先)。空の場合はペイロードを出力して契約ミスマッチを検知可能にする。
+  const payload = result && (result.data || result.response);
+  const text = extractText(payload);
   if (!text.trim()) {
-    console.error("[opencode.mjs] could not extract text from response");
+    const dump = JSON.stringify(payload ?? null).slice(0, 500);
+    console.error("[opencode.mjs] could not extract text from response:", dump);
     process.exit(1);
   }
   process.stdout.write(text);
