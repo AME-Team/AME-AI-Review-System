@@ -5,29 +5,18 @@
 ### マージフロー
 
 ```text
-feature/* | bug/* | chore/*  ──►  dev  ──►  main
-         作業ブランチ              統合先    リリース
+feature/* | bug/* | chore/*  ──►  main
+         作業ブランチ              リリース
 ```
 
 ### PR のデフォルト base
 
-- **AI Agent が PR を作成する際のデフォルト base は `dev` とする。**
-- `gh pr create --base dev --head <ブランチ名>` の形式で作成すること。
-- ユーザーが `main` を明示的に指示した場合のみ `--base main` を使う。
-
-### dev → main PR の作成
-
-ユーザーから「main へ昇格」「リリース」「dev →
-main の PR を作成」等の明示的な指示があった場合のみ、以下のコマンドで PR を作成する。
-
-```bash
-gh pr create --base main --head dev --title "release: dev → main" --body "..."
-```
+- **AI Agent が PR を作成する際のデフォルト base は `main` とする。**
+- `gh pr create --base main --head <ブランチ名>` の形式で作成すること。
 
 ### 禁止事項
 
-- `gh pr create` の `--base` を省略しない（デフォルトが `main` になるため）。
-- 作業ブランチから直接 `main` へ PR を作成しない。
+- `gh pr create` の `--base` を省略しない。
 
 ## PR レビュー対応フロー（必須）
 

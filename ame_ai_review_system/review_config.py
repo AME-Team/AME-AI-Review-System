@@ -18,6 +18,7 @@ import ast
 import contextlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -101,10 +102,11 @@ def user_overrides() -> dict[str, Any]:
 # ============================================================================
 
 
-def package_dir_top() -> str | None:
-    """プロジェクトルート相対で vendored されたパッケージ最上位ディレクトリ名を返す.
+def package_dir_rel() -> str | None:
+    """プロジェクトルート相対の vendored パッケージディレクトリパス (POSIX) を返す.
 
     パッケージがリポジトリ外 (pip インストール等) にある場合は ``None``。
+    例: ``ame_ai_review_system`` / ``vendor/ame_ai_review_system``。
     """
     try:
         rel = (
@@ -117,44 +119,44 @@ def package_dir_top() -> str | None:
         )
     except ValueError:
         return None
-    return rel.parts[0] if rel.parts else None
+    return rel.as_posix() if rel.parts else None
 
 
-def review_exclusion_top() -> str | None:
-    """レビューから除外すべき最上位ディレクトリ名を返す.
+def review_exclusion_rel() -> str | None:
+    """レビューから除外すべきパッケージ相対パスを返す.
 
     ``review_include_package_dir: true`` のときや、パッケージがリポジトリ外に
     ある場合は ``None`` (除外なし)。
     """
     if load_config().get("review_include_package_dir", False):
         return None
-    return package_dir_top()
+    return package_dir_rel()
 
 
 def filter_review_targets(files: list[str]) -> list[str]:
-    """``files`` から除外対象ディレクトリ配下のパスを取り除く."""
-    top = review_exclusion_top()
-    if top is None:
+    """``files`` から除外対象パッケージ配下のパスを取り除く."""
+    rel = review_exclusion_rel()
+    if rel is None:
         return list(files)
-    return [f for f in files if not _is_path_under(f, top)]
+    return [f for f in files if not _is_path_under(f, rel)]
 
 
 def filter_review_diff(diff_text: str) -> str:
-    """``diff`` から除外対象ディレクトリ配下のファイルセクションを取り除く."""
-    top = review_exclusion_top()
-    if top is None or not diff_text:
+    """``diff`` から除外対象パッケージ配下のファイルセクションを取り除く."""
+    rel = review_exclusion_rel()
+    if rel is None or not diff_text:
         return diff_text
     sections = _split_diff_sections(diff_text)
     kept = [
         "\n".join(section)
         for section in sections
-        if not any(_is_path_under(p, top) for p in _section_paths(section))
+        if not any(_is_path_under(p, rel) for p in _section_paths(section))
     ]
     return "\n".join(kept)
 
 
-def _is_path_under(path: str, top: str) -> bool:
-    return path == top or path.startswith(top + "/")
+def _is_path_under(path: str, rel: str) -> bool:
+    return path == rel or path.startswith(rel + "/")
 
 
 def _split_diff_sections(diff_text: str) -> list[list[str]]:
@@ -173,19 +175,45 @@ def _split_diff_sections(diff_text: str) -> list[list[str]]:
     return sections
 
 
+# ``diff --git a/foo b/foo`` ヘッダ内のパストークン。空白を含むパスは git が
+# 全体を ``"a/path with space"`` のようにダブルクォートで引用するため、
+# 引用符で括られたトークンと通常トークンの両方を許容する。
+_HEADER_TOKEN_RE = re.compile(r"(\"(?:a/|b/)[^\"]*\"|(?:a/|b/)[^ \t]+)")
+
+
+def _unquote_path(raw: str) -> str:
+    # git は特殊文字を含むパスを C スタイル引用符で出力する。
+    if raw.startswith('"') and raw.endswith('"'):
+        with contextlib.suppress(SyntaxError, ValueError):
+            raw = cast("str", ast.literal_eval(raw))
+    return raw
+
+
+def _strip_path_prefix(raw: str) -> str:
+    # ``a/`` / ``b/`` プレフィックスを除去する。
+    if raw.startswith(("a/", "b/")):
+        return raw[2:]
+    return raw
+
+
 def _section_paths(section: list[str]) -> list[str]:
-    """``--- a/..`` / ``+++ b/..`` 行からリポジトリ相対パスを抽出する."""
+    """セクションからリポジトリ相対パスを抽出する.
+
+    ``diff --git`` ヘッダ行 (バイナリ差分・モード変更のみの差分にも存在) と
+    ``--- a/..`` / ``+++ b/..`` 行の両方から抽出する。
+    """
     paths_in_section: list[str] = []
     for line in section:
-        if line.startswith(("--- ", "+++ ")):
-            raw = line[4:].strip()
-            # git は特殊文字を含むパスを C スタイル引用符で出力する。
-            if raw.startswith('"') and raw.endswith('"'):
-                with contextlib.suppress(SyntaxError, ValueError):
-                    raw = cast("str", ast.literal_eval(raw))
-            if raw.startswith(("a/", "b/")):
-                raw = raw[2:]
-            paths_in_section.append(raw)
+        if line.startswith("diff --git "):
+            rest = line[len("diff --git ") :]
+            paths_in_section.extend(
+                _strip_path_prefix(_unquote_path(m.group(1)))
+                for m in _HEADER_TOKEN_RE.finditer(rest)
+            )
+        elif line.startswith(("--- ", "+++ ")):
+            paths_in_section.append(
+                _strip_path_prefix(_unquote_path(line[4:].strip())),
+            )
     return paths_in_section
 
 

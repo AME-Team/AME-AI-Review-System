@@ -14,7 +14,7 @@ from ame_ai_review_system.review_config import (
     filter_review_targets,
     is_review_command,
     load_config,
-    package_dir_top,
+    package_dir_rel,
     user_overrides,
 )
 
@@ -177,15 +177,38 @@ def _exclude_package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     )
 
 
-def test_package_dir_top_returns_top_level_dir(
+def test_package_dir_rel_returns_top_level_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _exclude_package(monkeypatch, tmp_path)
-    assert package_dir_top() == "ame_ai_review_system"
+    assert package_dir_rel() == "ame_ai_review_system"
 
 
-def test_package_dir_top_none_when_not_vendored(
+def test_package_dir_rel_returns_nested_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    pkg = root / "vendor" / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": False},
+    )
+    assert package_dir_rel() == "vendor/ame_ai_review_system"
+    files = [
+        "vendor/ame_ai_review_system/main.py",
+        "vendor/other.py",
+        "src/app.py",
+    ]
+    assert filter_review_targets(files) == ["vendor/other.py", "src/app.py"]
+
+
+def test_package_dir_rel_none_when_not_vendored(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -195,7 +218,7 @@ def test_package_dir_top_none_when_not_vendored(
     pkg.mkdir(parents=True)
     monkeypatch.setattr(paths, "package_dir", lambda: pkg)
     monkeypatch.setattr(paths, "project_root", lambda: root)
-    assert package_dir_top() is None
+    assert package_dir_rel() is None
 
 
 def test_filter_review_targets_keeps_all_when_include_enabled(
@@ -282,6 +305,62 @@ def test_filter_review_diff_excludes_rename_under_package_dir(
         "+y\n"
     )
     assert not filter_review_diff(rename_diff)
+
+
+def test_filter_review_diff_excludes_binary_diff_under_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    binary_diff = (
+        "diff --git a/ame_ai_review_system/data.bin b/ame_ai_review_system/data.bin\n"
+        "index 1234567..abcdefg 100644\n"
+        "Binary files a/ame_ai_review_system/data.bin and b/ame_ai_review_system/data.bin differ\n"
+    )
+    assert not filter_review_diff(binary_diff)
+
+
+def test_filter_review_diff_excludes_mode_change_under_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    mode_diff = (
+        "diff --git a/ame_ai_review_system/run.sh b/ame_ai_review_system/run.sh\n"
+        "old mode 100644\n"
+        "new mode 100755\n"
+    )
+    assert not filter_review_diff(mode_diff)
+
+
+def test_filter_review_diff_excludes_quoted_binary_path_under_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    quoted_diff = (
+        'diff --git "a/ame_ai_review_system/my file.bin" '
+        '"b/ame_ai_review_system/my file.bin"\n'
+        "index 1234567..abcdefg 100644\n"
+        'Binary files "a/ame_ai_review_system/my file.bin" and '
+        '"b/ame_ai_review_system/my file.bin" differ\n'
+    )
+    assert not filter_review_diff(quoted_diff)
+
+
+def test_filter_review_diff_keeps_quoted_path_outside_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    quoted_diff = (
+        'diff --git "a/src/my file.txt" "b/src/my file.txt"\n'
+        "index 1234567..abcdefg 100644\n"
+        'Binary files "a/src/my file.txt" and "b/src/my file.txt" differ\n'
+    )
+    result = filter_review_diff(quoted_diff)
+    assert 'diff --git "a/src/my file.txt"' in result
+    assert "Binary files" in result
 
 
 def test_filter_review_diff_empty_input() -> None:

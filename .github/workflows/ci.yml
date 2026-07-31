@@ -1,7 +1,7 @@
 ---
 # GitHub Actions CI — pre-commit / pytest / pyright
 #
-# PR 作成・更新時と main/dev へのプッシュ時に、ローカルの pre-commit と
+# PR 作成・更新時と main へのプッシュ時に、ローカルの pre-commit と
 # 同一のフックを実行する。
 #
 # ランナー: GitHub-hosted ubuntu-latest。
@@ -15,7 +15,6 @@ name: CI
   push:
     branches:
       - main
-      - dev
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -183,7 +182,7 @@ jobs:
       # ==========================================================================
       # pre-commit 実行ステップ (Gate 2)
       #
-      # push (main/dev マージ後) は --all-files でフルスキャン (セーフティネット)。
+      # push (main マージ後) は --all-files でフルスキャン (セーフティネット)。
       # pull_request は --files <PR差分> で差分スコープ実行 (Gate 1 と同一セマンティクス)。
       #
       # --files を使うとファイルスコープフック (ruff/mypy/eslint/mermaid-check 等の
@@ -201,14 +200,14 @@ jobs:
       # を意味するため、base 側で既に検証済みの内容を再スキャンする意義がなく、
       # かつ --all-files にフォールバックすると PR 無関係の既存問題で Circuit
       # Breaker が誤ブロックする懸念Bの再発になるため (Issue #49 設計ポイント4)。
-      # push (main/dev マージ後) は常に --all-files でセーフティネットが効くため、
+      # push (main マージ後) は常に --all-files でセーフティネットが効くため、
       # 空差分PRでの一時的スキップは許容される。
       # 補足: 空差分 == HEAD と base が完全一致。ci.yml / .pre-commit-config.yaml 等
       # のCI設定ファイルが実際に変更されていれば必ず diff に含まれるため、当ス
       # テップで CHANGED_FILES が空になる状況ではCI設定の変更も存在しない。
       # したがって「CI設定の構文破綻を見落とす」リスクは構造上発生しない。
       # ==========================================================================
-      - name: Run pre-commit (all files, push to main/dev)
+      - name: Run pre-commit (all files, push to main)
         if: github.event_name == 'push'
         run: pre-commit run --all-files
         env:

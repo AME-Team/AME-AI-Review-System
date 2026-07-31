@@ -77,13 +77,29 @@ async function main() {
     process.exit(1);
   }
   const model = splitModel(opts.model);
+  // レビューは diff がプロンプトに埋め込まれているためツールは不要。
+  // build agent が bash / 外部ディレクトリ読取等で権限確認 (external_directory: ask) に
+  // ハングするのを防ぐため、ツールを明示的に全て無効化する。
+  const toolsOff = {
+    bash: false,
+    edit: false,
+    write: false,
+    read: false,
+    glob: false,
+    grep: false,
+    patch: false,
+    webfetch: false,
+    task: false,
+    todowrite: false,
+    application_launcher: false,
+    question: false,
+    skill: false,
+  };
   const result = await client.session.prompt({
     path: { id: sessionId },
     body: {
       parts: [{ type: "text", text: prompt }],
-      // レビューは diff がプロンプトに埋め込まれているためツールは不要。
-      // build agent が bash 等を実行して権限確認でハングするのを防ぐ (tools 空 = 全無効)。
-      tools: {},
+      tools: toolsOff,
       ...(model ? { model } : {}),
     },
   });
