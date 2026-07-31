@@ -6,6 +6,7 @@ Subcommands:
   review       Run AI review on PR (replaces pr_review.sh)
   checkout     Checkout PR branch (replaces checkout_pr.sh)
   setup        Install dependencies (replaces setup.sh)
+  init         Scaffold .ame-review/ config into a target repo
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import github_client, pr_streak, review_config
+from . import github_client, paths, pr_streak, review_config
 from . import payload as payload_module
 from .engine import resolve_settings
 
@@ -28,7 +29,7 @@ from .engine import resolve_settings
 # Common utilities
 # ============================================================================
 
-PROJ_ROOT = pathlib.Path(__file__).resolve().parent.parent
+PROJ_ROOT = paths.project_root()
 STALE_ROUND_THRESHOLD = 3
 MAX_REVIEWS = 10
 MAX_DIFF_LINES = 4000
@@ -269,9 +270,7 @@ def cmd_review(args: argparse.Namespace) -> int:
     pr_title = args.pr_title or ""
     pr_body = args.pr_body or ""
     reviewer_name = _get_env("REVIEWER_NAME", "ame-ai-reviewer")
-    reviewer_prompt_file = args.prompt_file or (
-        PROJ_ROOT / "ame-ai-review-system" / "review_prompt.txt"
-    )
+    reviewer_prompt_file = args.prompt_file or paths.prompt_path()
 
     # Token resolution
     try:
@@ -523,6 +522,33 @@ def cmd_setup(_args: argparse.Namespace) -> int:
 
 
 # ============================================================================
+# init command (scaffold .ame-review/ into a repo)
+# ============================================================================
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    from . import init_project
+
+    engine = args.engine
+    # OpenCode は TS SDK、Antigravity は Python SDK のみのため強制固定。
+    if engine == "opencode":
+        sdk_lang = "typescript"
+    elif engine == "antigravity":
+        sdk_lang = "python"
+    else:
+        sdk_lang = args.sdk_lang
+    return init_project.run_init(
+        target_dir=args.target_dir,
+        profile=args.profile,
+        engine=engine,
+        sdk_lang=sdk_lang,
+        reviewer_name=args.reviewer_name,
+        force=args.force,
+        run_npm=not args.no_npm,
+    )
+
+
+# ============================================================================
 # Main entrypoint
 # ============================================================================
 
@@ -558,6 +584,35 @@ def main(argv: list[str] | None = None) -> int:
     # setup
     subparsers.add_parser("setup", help="Install dependencies and configure hooks")
 
+    # init
+    p_init = subparsers.add_parser(
+        "init", help="Scaffold .ame-review/ config into a repo"
+    )
+    p_init.add_argument(
+        "--profile",
+        choices=["minimal", "python", "full"],
+        default="python",
+    )
+    p_init.add_argument(
+        "--engine",
+        choices=["claude", "opencode", "antigravity"],
+        default="claude",
+    )
+    p_init.add_argument(
+        "--sdk-lang",
+        choices=["python", "typescript"],
+        default="python",
+        help="SDK language (claude only; opencode forces typescript, antigravity forces python)",
+    )
+    p_init.add_argument("--reviewer-name", default="ame-ai-reviewer")
+    p_init.add_argument("--target-dir", default=".")
+    p_init.add_argument("--force", action="store_true", help="Overwrite existing files")
+    p_init.add_argument(
+        "--no-npm",
+        action="store_true",
+        help="Skip running npm install for TS engine deps",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "checkout":
@@ -566,6 +621,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_review(args)
     if args.command == "setup":
         return cmd_setup(args)
+    if args.command == "init":
+        return cmd_init(args)
     parser.print_help()
     return 2
 

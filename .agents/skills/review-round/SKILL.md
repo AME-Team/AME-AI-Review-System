@@ -118,3 +118,10 @@ Resolve       : GraphQL mutation resolveReviewConversation(input: {threadId: ID!
 - **`SKIP=ai-precommit-review` を絶対に使わない。** AI pre-commit review（Gate
   1）は Dual-Gate アーキテクチャの第一関門である。フックが遅い、タイムアウトする等の理由で迂回してはならない。タイムアウトが発生した場合は、`timeout`
   パラメータを増やす等の対応をし、必ず Gate 1 を通過してからコミットする。
+- **`SKIP=ai-precommit-review` は機械的にブロックされる (Issue #26)。** `githooks/pre-commit`
+  がこれを監視する。このネイティブフックは pre-commit フレームワークの SKIP 制御の及ばないレイヤで動作する。`sudo`(root) 実行または root 所有のトークンが無ければコミットをブロックする。`SKIP=ai-skip-guard,ai-precommit-review`
+  のようにガードごとスキップしてもブロックされる。AI
+  Agent はこれらの認可を持たない。スキップを試みず、必ず Gate
+  1 の AI レビューを通過してコミットすること。
+- **`git commit --no-verify` も使わない。**
+  これは Git レベルで全フックを無視するため本ガードでも防止できない。この経路は命令規律 (本スキル) のみで封じる。

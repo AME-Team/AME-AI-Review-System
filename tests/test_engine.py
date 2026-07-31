@@ -3,21 +3,14 @@ from __future__ import annotations
 
 import io
 import json
-import shutil
-import subprocess
 import sys
-from dataclasses import dataclass
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from ame_ai_review_system import engine
-from ame_ai_review_system.engine import (
-    _AGY_MAX_PROMPT_BYTES,
-    build_command,
-    resolve_settings,
-    run_engine,
-)
+from ame_ai_review_system.engine import resolve_settings, run_engine
 
 _ENV_KEYS = (
     "REVIEW_ENGINE",
@@ -28,7 +21,9 @@ _ENV_KEYS = (
     "REVIEW_BUDGET_USD",
     "REPLY_BUDGET_USD",
     "REVIEW_TIMEOUT_SECONDS",
+    "REVIEW_SDK_LANG",
     "CLAUDE_MODEL",
+    "CLAUDE_SDK_LANG",
     "AME_REVIEW_CONFIG",
 )
 
@@ -53,32 +48,23 @@ def _write_config(
     monkeypatch.setenv("AME_REVIEW_CONFIG", str(config_path))
 
 
-@dataclass
-class _FakeCompleted:
-    stdout: str = ""
-    returncode: int = 0
-    stderr: str = ""
+class _FakeAdapter:
+    def __init__(self, result: str = "OK") -> None:
+        self.result = result
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def run(self, prompt: str, settings: dict[str, Any]) -> str:
+        self.calls.append((prompt, settings))
+        return self.result
 
 
-def _patch_engine(
+def _patch_adapter(
     monkeypatch: pytest.MonkeyPatch,
-    stdout: str = "",
-    returncode: int = 0,
-    stderr: str = "",
-    binary: str = "/usr/bin/fake",
-) -> dict[str, Any]:
-    captured: dict[str, Any] = {}
-
-    monkeypatch.setattr(shutil, "which", lambda _name: binary)
-
-    def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
-        captured["args"] = args
-        captured["input"] = kwargs.get("input")
-        captured["env"] = kwargs.get("env")
-        return _FakeCompleted(stdout=stdout, returncode=returncode, stderr=stderr)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    return captured
+    result: str = "OK",
+) -> _FakeAdapter:
+    adapter = _FakeAdapter(result=result)
+    monkeypatch.setattr(engine, "get_adapter", lambda _engine, _lang=None: adapter)
+    return adapter
 
 
 # --- resolve_settings ------------------------------------------------------
@@ -94,6 +80,8 @@ def test_resolve_settings_defaults(
     assert settings["model"] == "sonnet"
     assert settings["thinking"] == "high"
     assert settings["budget"] == pytest.approx(2.0)
+    assert settings["sdk_lang"] == "python"
+    assert settings["timeout"] == pytest.approx(600.0)
     assert settings["role"] == "review"
 
 
@@ -107,6 +95,34 @@ def test_resolve_settings_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings["model"] == "anthropic/claude-sonnet-4-5"
     assert settings["thinking"] == "low"
     assert settings["budget"] == pytest.approx(0.5)
+    assert settings["sdk_lang"] == "typescript"
+
+
+def test_resolve_settings_claude_sdk_lang_selectable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_config(monkeypatch, tmp_path, {"engine": "claude", "sdk_lang": "typescript"})
+    assert resolve_settings("review")["sdk_lang"] == "typescript"
+
+
+def test_resolve_settings_claude_sdk_lang_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_config(monkeypatch, tmp_path, {"engine": "claude"})
+    monkeypatch.setenv("CLAUDE_SDK_LANG", "typescript")
+    assert resolve_settings("review")["sdk_lang"] == "typescript"
+
+
+def test_resolve_settings_opencode_forces_typescript(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_config(monkeypatch, tmp_path, {"engine": "opencode", "sdk_lang": "python"})
+    # OpenCode は TS SDK しかないため python 指定は拒否される。
+    with pytest.raises(SystemExit):
+        resolve_settings("review")
 
 
 def test_resolve_settings_claude_model_backward_compat(
@@ -281,284 +297,156 @@ def test_resolve_settings_invalid_model(monkeypatch: pytest.MonkeyPatch) -> None
         resolve_settings("review")
 
 
-# --- build_command ---------------------------------------------------------
+def test_resolve_settings_timeout_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVIEW_TIMEOUT_SECONDS", "120")
+    assert resolve_settings("review")["timeout"] == pytest.approx(120.0)
 
 
-def test_build_command_claude_uses_stdin_and_effort() -> None:
-    args, stdin_data = build_command(
+def test_resolve_settings_invalid_timeout_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVIEW_TIMEOUT_SECONDS", "abc")
+    with pytest.raises(SystemExit):
+        resolve_settings("review")
+
+
+# --- adapters --------------------------------------------------------------
+
+
+def test_claude_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ame_ai_review_system.engines import claude_ts, ts_runner
+
+    captured: dict[str, Any] = {}
+
+    def fake_sidecar(script: str, prompt: str, args: list[str], timeout: float) -> str:
+        captured["script"] = script
+        captured["args"] = args
+        captured["timeout"] = timeout
+        return "RESULT"
+
+    monkeypatch.setattr(ts_runner, "run_sidecar", fake_sidecar)
+    out = claude_ts.ClaudeTsAdapter.run(
+        "PROMPT",
         {
             "engine": "claude",
             "model": "sonnet",
             "thinking": "high",
             "budget": 2.0,
-            "role": "review",
+            "timeout": 600.0,
         },
-        "PROMPT",
     )
-    assert args[0] == "claude"
-    assert "--effort" in args
-    assert args[args.index("--effort") + 1] == "high"
-    assert "--output-format" in args
-    assert args[args.index("--output-format") + 1] == "text"
-    assert stdin_data == "PROMPT"
+    assert out == "RESULT"
+    assert captured["script"] == "claude.mjs"
+    assert "--model" in captured["args"]
+    assert captured["args"][captured["args"].index("--model") + 1] == "sonnet"
+    assert captured["args"][captured["args"].index("--effort") + 1] == "high"
 
 
-def test_build_command_opencode_maps_variant() -> None:
-    args, stdin_data = build_command(
+def test_opencode_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ame_ai_review_system.engines import opencode_ts, ts_runner
+
+    captured: dict[str, Any] = {}
+
+    def fake_sidecar(script: str, prompt: str, args: list[str], timeout: float) -> str:
+        captured["script"] = script
+        captured["args"] = args
+        return "RESULT"
+
+    monkeypatch.setattr(ts_runner, "run_sidecar", fake_sidecar)
+    opencode_ts.OpencodeTsAdapter.run(
+        "PROMPT",
         {
             "engine": "opencode",
-            "model": "zai-coding-plan/glm-5.2",
+            "model": "anthropic/claude-sonnet-4",
             "thinking": "low",
             "budget": 1.0,
-            "role": "review",
+            "timeout": 600.0,
         },
-        "PROMPT",
     )
-    assert args[0] == "opencode"
-    assert "-m" in args
-    assert args[args.index("-m") + 1] == "zai-coding-plan/glm-5.2"
-    assert args[args.index("--variant") + 1] == "minimal"
-    assert "--format" in args
-    assert "--auto" in args
-    assert stdin_data == "PROMPT"
-
-
-def test_build_command_opencode_omits_model_when_unset() -> None:
-    args, stdin_data = build_command(
-        {
-            "engine": "opencode",
-            "model": None,
-            "thinking": "high",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
+    assert captured["script"] == "opencode.mjs"
+    assert (
+        captured["args"][captured["args"].index("--model") + 1]
+        == "anthropic/claude-sonnet-4"
     )
-    assert "-m" not in args
-    assert args[args.index("--variant") + 1] == "high"
-    assert stdin_data == "PROMPT"
 
 
-def test_build_command_claude_requires_model() -> None:
+def test_claude_python_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ame_ai_review_system.engines import claude_python
+
+    class _FakeResult:
+        is_error = False
+        result = "## 総評\nLGTM"
+
+    async def _fake_query(prompt: str, options: object) -> AsyncIterator[Any]:
+        yield _FakeResult()
+
+    monkeypatch.setattr(
+        claude_python,
+        "_import_sdk",
+        lambda: (_fake_query, lambda **kw: kw, _FakeResult),
+    )
+    out = claude_python.ClaudePythonAdapter.run(
+        "PROMPT",
+        {"model": "sonnet", "thinking": "high", "budget": 2.0, "timeout": 600.0},
+    )
+    assert out == "## 総評\nLGTM"
+
+
+def test_claude_python_missing_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ame_ai_review_system.engines import claude_python
+
+    def _raise() -> Any:
+        msg = "no sdk"
+        raise SystemExit(msg)
+
+    monkeypatch.setattr(claude_python, "_import_sdk", _raise)
     with pytest.raises(SystemExit):
-        build_command(
-            {
-                "engine": "claude",
-                "model": None,
-                "thinking": "high",
-                "budget": 1.0,
-                "role": "review",
-            },
+        claude_python.ClaudePythonAdapter.run(
             "PROMPT",
+            {"model": "sonnet", "thinking": "high", "budget": 2.0, "timeout": 600.0},
         )
 
 
-def test_build_command_antigravity_args() -> None:
-    args, _ = build_command(
-        {
-            "engine": "antigravity",
-            "model": "Gemini 3.5 Pro",
-            "thinking": "high",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert args[0] == "agy"
+def test_registry_unknown_engine() -> None:
+    from ame_ai_review_system.engines import registry
+
+    with pytest.raises(ValueError, match="Unknown engine"):
+        registry.get_adapter("gemini")
 
 
-def test_build_command_antigravity_requires_model() -> None:
-    with pytest.raises(SystemExit):
-        build_command(
-            {
-                "engine": "antigravity",
-                "model": None,
-                "thinking": "high",
-                "budget": 1.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
+def test_registry_unsupported_sdk_lang() -> None:
+    from ame_ai_review_system.engines import registry
 
-
-def test_build_command_antigravity_embeds_thinking_in_model() -> None:
-    args, stdin_data = build_command(
-        {
-            "engine": "antigravity",
-            "model": "Gemini 3.5 Pro",
-            "thinking": "medium",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert args[0] == "agy"
-    assert args[args.index("--model") + 1] == "Gemini 3.5 Pro (Medium)"
-    # agy は stdin 非対応のためプロンプトを --print 引数で渡す。
-    assert args[args.index("--print") + 1] == "PROMPT"
-    assert stdin_data is None
-
-
-def test_build_command_antigravity_truncates_large_prompt() -> None:
-    big = "x" * (_AGY_MAX_PROMPT_BYTES + 5000)
-    args, _ = build_command(
-        {
-            "engine": "antigravity",
-            "model": "Gemini 3.5 Pro",
-            "thinking": "high",
-            "budget": 1.0,
-            "role": "review",
-        },
-        big,
-    )
-    prompt_arg = args[args.index("--print") + 1]
-    assert "切詰めました" in prompt_arg
-    assert len(prompt_arg.encode("utf-8")) <= _AGY_MAX_PROMPT_BYTES + 200
+    with pytest.raises(ValueError, match="not available"):
+        registry.get_adapter("antigravity", "typescript")
 
 
 # --- run_engine ------------------------------------------------------------
 
 
-def test_run_engine_missing_binary(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(shutil, "which", lambda _name: None)
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "antigravity",
-                "model": "Gemini 3.5 Pro",
-                "thinking": "high",
-                "budget": 1.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
-
-
-def test_run_engine_claude_passes_text_through(
+def test_run_engine_dispatches_to_adapter(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # claude は --output-format text でプレーンテキストを出力するためそのまま通す。
-    payload = "## 総評\n問題ありません。LGTM。"
-    captured = _patch_engine(monkeypatch, stdout=payload)
+    adapter = _patch_adapter(monkeypatch, result="REVIEW BODY")
     rc = run_engine(
         {
             "engine": "claude",
             "model": "sonnet",
             "thinking": "high",
             "budget": 2.0,
+            "sdk_lang": "python",
+            "timeout": 600.0,
             "role": "review",
         },
         "PROMPT",
     )
     assert rc == 0
-    assert captured["input"] == "PROMPT"
+    assert adapter.calls[0][0] == "PROMPT"
     out = capsys.readouterr()
-    assert out.out.strip() == payload
-
-
-def test_run_engine_claude_plain_text_passthrough(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    _patch_engine(monkeypatch, stdout='{"summary":"plain review"}')
-    run_engine(
-        {
-            "engine": "claude",
-            "model": "sonnet",
-            "thinking": "high",
-            "budget": 2.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    out = capsys.readouterr()
-    assert out.out.strip() == '{"summary":"plain review"}'
-
-
-def test_run_engine_opencode_parses_ndjson(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    events = "\n".join(
-        [
-            json.dumps({"type": "step_start", "part": {"type": "step-start"}}),
-            json.dumps({"type": "text", "part": {"type": "text", "text": "Hello "}}),
-            json.dumps({"type": "text", "part": {"type": "text", "text": "World"}}),
-            json.dumps({"type": "step_finish", "part": {"type": "step-finish"}}),
-        ],
-    )
-    captured = _patch_engine(monkeypatch, stdout=events)
-    run_engine(
-        {
-            "engine": "opencode",
-            "model": "anthropic/claude-sonnet-4-5",
-            "thinking": "high",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert captured["input"] == "PROMPT"
-    out = capsys.readouterr()
-    assert out.out.strip() == "Hello World"
-
-
-def test_run_engine_opencode_aborts_without_text_events(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # テキストイベントがない(出力形式変化など)場合は生データを流さず明示的に失敗する。
-    _patch_engine(monkeypatch, stdout="not json at all")
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "opencode",
-                "model": "zai-coding-plan/glm-5.2",
-                "thinking": "high",
-                "budget": 1.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
-
-
-def test_run_engine_opencode_aborts_with_empty_text_events(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # テキストイベントは存在するが内容が全て空文字の場合も失敗させる。
-    events = json.dumps({"type": "text", "part": {"type": "text", "text": ""}})
-    _patch_engine(monkeypatch, stdout=events)
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "opencode",
-                "model": "zai-coding-plan/glm-5.2",
-                "thinking": "high",
-                "budget": 1.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
-
-
-def test_run_engine_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_engine(monkeypatch, stdout="", returncode=2, stderr="boom")
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "claude",
-                "model": "sonnet",
-                "thinking": "high",
-                "budget": 2.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
+    assert out.out.strip() == "REVIEW BODY"
 
 
 def test_run_engine_rejects_empty_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    # exit 0 でも空文字列ならシェルの -s チェックに頼らず明示的に失敗させる。
-    _patch_engine(monkeypatch, stdout="", returncode=0)
+    _patch_adapter(monkeypatch, result="   ")
     with pytest.raises(SystemExit):
         run_engine(
             {
@@ -566,118 +454,48 @@ def test_run_engine_rejects_empty_output(monkeypatch: pytest.MonkeyPatch) -> Non
                 "model": "sonnet",
                 "thinking": "high",
                 "budget": 2.0,
+                "sdk_lang": "python",
+                "timeout": 600.0,
                 "role": "review",
             },
             "PROMPT",
         )
 
 
-def test_run_engine_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/fake")
-
-    def fake_run(
-        *_args: object,
-        **_kwargs: object,
-    ) -> Any:
-        raise subprocess.TimeoutExpired(cmd=["fake"], timeout=600)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "claude",
-                "model": "sonnet",
-                "thinking": "high",
-                "budget": 2.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
-
-
-def test_run_engine_invalid_timeout_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/fake")
-    monkeypatch.setenv("REVIEW_TIMEOUT_SECONDS", "abc")
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "claude",
-                "model": "sonnet",
-                "thinking": "high",
-                "budget": 2.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
-
-
-def test_run_engine_nonpositive_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/fake")
-    monkeypatch.setenv("REVIEW_TIMEOUT_SECONDS", "0")
-    with pytest.raises(SystemExit):
-        run_engine(
-            {
-                "engine": "claude",
-                "model": "sonnet",
-                "thinking": "high",
-                "budget": 2.0,
-                "role": "review",
-            },
-            "PROMPT",
-        )
-
-
-def test_run_engine_antigravity_strips_output(
+def test_run_engine_warns_non_claude_budget(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _patch_engine(monkeypatch, stdout="  raw antigravity text\n")
+    _patch_adapter(monkeypatch, result="ok")
     run_engine(
         {
-            "engine": "antigravity",
-            "model": "Gemini 3.5 Pro",
+            "engine": "opencode",
+            "model": "zai/glm",
             "thinking": "high",
             "budget": 1.0,
+            "sdk_lang": "typescript",
+            "timeout": 600.0,
             "role": "review",
         },
         "PROMPT",
     )
-    out = capsys.readouterr()
-    assert out.out.strip() == "raw antigravity text"
-
-
-def test_run_engine_passes_through_parent_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # subprocess には親プロセスの環境変数をそのままコピーして渡す
-    captured = _patch_engine(monkeypatch, stdout="ok")
-    run_engine(
-        {
-            "engine": "claude",
-            "model": "sonnet",
-            "thinking": "high",
-            "budget": 1.0,
-            "role": "review",
-        },
-        "PROMPT",
-    )
-    assert captured["env"] is not None
-    assert "PATH" in captured["env"]
+    err = capsys.readouterr()
+    assert "budget limit is not enforced" in err.err
 
 
 # --- main ------------------------------------------------------------------
 
 
-def test_main_reads_stdin_and_role(
+def test_main_reads_stdin_and_dispatches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _write_config(monkeypatch, tmp_path, {})
     monkeypatch.setattr(sys, "stdin", io.StringIO("STDIN PROMPT"))
-    captured = _patch_engine(monkeypatch, stdout="RESULT")
+    adapter = _patch_adapter(monkeypatch, result="RESULT")
     assert engine.main(["--role", "review"]) == 0
-    assert captured["input"] == "STDIN PROMPT"
+    assert adapter.calls[0][0] == "STDIN PROMPT"
     out = capsys.readouterr()
     assert out.out.strip() == "RESULT"
 

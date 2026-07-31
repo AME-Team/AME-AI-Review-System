@@ -27,6 +27,8 @@ ENV/
 
 # --- Node（dev ツールのみ）---
 node_modules/
+# TS エンジンサイドカーの lockfile は npm install で都度生成するため管理対象外
+ame_ai_review_system/engines/ts/package-lock.json
 
 # --- OS / 同期クライアント ---
 Thumbs.db

@@ -2,6 +2,7 @@
   "precommit_review_enabled": true,
   "precommit_require_static_checks": true,
   "pr_review_require_static_checks": true,
+  "ai_review_enforce_no_skip": true,
   "precommit_engine": "auto",
   "engine": "claude",
   "model": "sonnet",

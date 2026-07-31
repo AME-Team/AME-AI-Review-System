@@ -37,21 +37,22 @@ jobs:
           fetch-depth: 0
       - name: Restore engine credentials
         run: |
-          mkdir -p ~/.claude ~/.local/share/opencode ~/.gemini/antigravity-cli
-          echo "${{ secrets.CLAUDE_CONFIG_B64 }}" | base64 -d > ~/.claude.json
-          echo "${{ secrets.CLAUDE_CREDENTIALS_B64 }}" | base64 -d > ~/.claude/.credentials.json
+          mkdir -p ~/.local/share/opencode ~/.gemini/antigravity-cli
           echo "${{ secrets.OPENCODE_AUTH_B64 }}" | base64 -d > ~/.local/share/opencode/auth.json
           AGY_TOKEN=~/.gemini/antigravity-cli/antigravity-oauth-token
           echo "${{ secrets.ANTIGRAVITY_OAUTH_B64 }}" | base64 -d > "$AGY_TOKEN"
           echo "${{ secrets.GEMINI_OAUTH_B64 }}" | base64 -d > ~/.gemini/oauth_creds.json
-          chmod 600 ~/.claude.json ~/.claude/.credentials.json
           chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
-      - name: Install claude-code / opencode-ai
-        run: npm install -g @anthropic-ai/claude-code@2.1.214 opencode-ai@1.18.3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
       - name: Determine target PR and whether to run
         id: cmd
         env:
@@ -87,6 +88,18 @@ jobs:
           GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+      - name: Start OpenCode server
+        if: steps.cmd.outputs.run_review == 'true'
+        run: |
+          opencode serve --port 4096 > /tmp/opencode-server.log 2>&1 &
+          echo $! > /tmp/opencode.pid
+          for _ in $(seq 1 30); do
+            if grep -q "opencode server listening" /tmp/opencode-server.log 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"
       - name: Run General Review
         if: steps.cmd.outputs.run_review == 'true'
         env:
@@ -94,11 +107,18 @@ jobs:
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
+          REVIEW_ENGINE: opencode
+          OPENCODE_URL: ${{ env.OPENCODE_URL }}
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
           REPLY_MODEL: ${{ vars.REPLY_MODEL }}
           REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
         run: |
           python3 -m ame_ai_review_system.main review \
-            "$PR_NUMBER" \
-            --prompt-file ame_ai_review_system/review_prompt.txt
+            "$PR_NUMBER"
+      - name: Stop OpenCode server
+        if: always() && steps.cmd.outputs.run_review == 'true'
+        run: |
+          if [ -f /tmp/opencode.pid ]; then
+            pid=$(cat /tmp/opencode.pid)
+            echo "$pid" | xargs -r kill -15
+          fi
