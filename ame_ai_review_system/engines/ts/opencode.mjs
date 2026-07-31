@@ -70,18 +70,9 @@ async function main() {
   });
 
   const session = await client.session.create({ body: { title: "ame-review" } });
-  if (session && session.error) {
-    console.error("[opencode.mjs] session create error:", JSON.stringify(session.error));
-    process.exit(1);
-  }
-  const sessionId = session.data && session.data.id;
-  if (!sessionId) {
-    console.error("[opencode.mjs] session create returned no id");
-    process.exit(1);
-  }
   const model = splitModel(opts.model);
   const result = await client.session.prompt({
-    path: { id: sessionId },
+    path: { id: session.id },
     body: {
       parts: [{ type: "text", text: prompt }],
       ...(model ? { model } : {}),
@@ -93,7 +84,7 @@ async function main() {
     process.exit(1);
   }
 
-  const text = extractText(result && result.data);
+  const text = extractText(result && result.response);
   if (!text.trim()) {
     console.error("[opencode.mjs] could not extract text from response");
     process.exit(1);

@@ -183,7 +183,7 @@ Secret の設定手順を表示します。
 
 > **プロファイル**: `minimal`（AI フックのみ）／ `python`（＋ruff/mypy 等）／
 > `full`（＋Node/Shell/YAML/Secret 系）。 **エンジン**: `claude`（Python または TypeScript SDK）／
-> `opencode`（SDK で起動済みサーバへ接続）／ `antigravity`（Python SDK のみ）。
+> `opencode`（CLI サブプロセス経由）／ `antigravity`（Python SDK のみ）。
 
 詳細なセットアップ・Secret 設定・カスタマイズは [docs/setup.md](ame_ai_review_system/docs/setup.md)
 と [docs/distribution.md](ame_ai_review_system/docs/distribution.md) を参照。
