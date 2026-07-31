@@ -9,7 +9,7 @@ import sys
 import tempfile
 from typing import Any
 
-from . import payload, precommit_engine, precommit_state, review_config
+from . import paths, payload, precommit_engine, precommit_state, review_config
 
 # pr_review.sh と同じ diff 行数上限。これを超えると前から切詰める。
 _MAX_DIFF_LINES = 4000
@@ -198,9 +198,9 @@ def _run_engine(
 
 
 def _resolve_paths() -> tuple[pathlib.Path, pathlib.Path]:
-    # __file__ は既に ame-ai-review-system/ 配下にあるため、直接同じディレクトリを参照する。
-    here = pathlib.Path(__file__).resolve().parent
-    return here / "review_prompt.txt", here / "engine.py"
+    # プロンプトはプロジェクトローカル (.ame-review/) → パッケージ同梱へ解決される。
+    # engine.py は常にパッケージ配下 (モジュール名解決用)。
+    return paths.prompt_path(), paths.package_dir() / "engine.py"
 
 
 def _print_issues(comments: list[dict[str, Any]]) -> None:
@@ -224,7 +224,7 @@ def _run_static_checks(staged_files: list[str]) -> tuple[bool, str]:
         precommit_state.run_git(["rev-parse", "--show-toplevel"]).strip(),
     )
     if not proj_root.is_dir():
-        proj_root = pathlib.Path(__file__).resolve().parent.parent
+        proj_root = paths.project_root()
 
     checks: list[tuple[str, list[str]]] = []
     if py_files:
@@ -245,7 +245,7 @@ def _run_static_checks(staged_files: list[str]) -> tuple[bool, str]:
 
     semgrep_binary = shutil.which("semgrep")
     if semgrep_binary is not None:
-        semgrep_config = proj_root / "ame_ai_review_system" / ".semgrep" / "rules.yml"
+        semgrep_config = paths.semgrep_rules_path()
         if semgrep_config.exists():
             checks.append(
                 (

@@ -14,9 +14,10 @@ CI (ci.yml) と同じ pre-commit フックを使用することで、Gate 1 と 
 from __future__ import annotations
 
 import argparse
-import pathlib
 import subprocess
 import sys
+
+from . import paths
 
 _TIMEOUT_SECONDS = 300
 
@@ -76,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         return 0
 
-    proj_root = pathlib.Path(__file__).resolve().parent.parent
+    proj_root = paths.project_root()
     cwd = str(proj_root)
 
     passed, detail = _run_precommit(files, cwd)
