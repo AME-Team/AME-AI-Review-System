@@ -45,7 +45,7 @@ API トークン不要。PyPI 側で GitHub Actions からの OIDC 公開を許�
 
 1. `ame_ai_review_system/__init__.py` の `__version__` を上げる。
 2. `CHANGELOG.md` を更新。
-3. `dev` → `main` へ昇格する PR を作成・マージ（本リポジトリのブランチポリシー）。
+3. `main` へマージする PR を作成・マージ（本リポジトリのブランチポリシー: 作業ブランチ → `main`）。
 4. `main` でタグを打つ:
 
    ```bash

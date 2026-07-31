@@ -46,10 +46,9 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 ## 特徴
 
 - **ベースブランチとの全累積差分レビュー**: 従来のコミット単位の差分チェックでは複数コミットを含むPRの全容把握が困難であった。本システムは
-  `origin/<base>...HEAD`（`main` または
-  `dev`）の全累積差分を評価対象とし、PR全体の整合性を正確に追跡・評価する。
-- **ブランチフロー**: 作業ブランチ（feature / bug / chore 等） → `dev` → `main`。AI
-  Agent はデフォルトで `dev` をベースに PR を作成する。
+  `origin/main...HEAD` の全累積差分を評価対象とし、PR全体の整合性を正確に追跡・評価する。
+- **ブランチフロー**: 作業ブランチ（feature / bug / chore 等） → `main`。AI Agent はデフォルトで
+  `main` をベースに PR を作成する。
 - **厳格なデフォルト静的解析**: tsc / eslint (--max-warnings=0) / mypy / ruff /
   semgrep 等の約25ツールを標準装備。機械的な問題は前段にて高い精度で捕捉する構造である。
 - **Gate 1（pre-commit）& Gate 2（PR）の二重品質ゲート**: ローカルコミット時（Gate 1）とCI/CD
@@ -97,8 +96,7 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 2）の品質チェックフローをブラウザ上でシミュレーションできるインタラクティブな紹介サイトを同梱しています。
 
 公開サイト: <https://tarminjapan.github.io/AME-AI-Review-System/> （`main`
-ブランチへの push で GitHub Pages に自動デプロイされます。開発は `dev`
-ブランチを統合先として進めます）
+ブランチへの push で GitHub Pages に自動デプロイされます）
 
 ### 起動・ビルドコマンド
 
