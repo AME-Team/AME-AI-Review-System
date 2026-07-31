@@ -15,6 +15,9 @@
   Antigravity は SDK 直駆動、OpenCode は CLI サブプロセス経由（SDK はサーバ起動型で CI 都度起動が煩雑なため）。
 - プロジェクトローカル設定 `.ame-review/` による repo 非依存パス解決。
 - PyPI 公開ワークフロー (`.github/workflows/release.yml`, Trusted Publishing/OIDC)。
+- 移植先で vendored した `ame_ai_review_system/` 配下を既定でレビュー対象外にする設定を追加 (Issue
+  #37)。`review_include_package_dir` で切替可能。
+- このリポジトリ自身は `.ame-review/config.json` で `true` に設定し、配下をレビュー対象として運用。
 
 ### Changed
 

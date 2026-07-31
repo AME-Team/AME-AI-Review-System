@@ -8,10 +8,13 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
-from ame_ai_review_system import review_config
+from ame_ai_review_system import paths, review_config
 from ame_ai_review_system.review_config import (
+    filter_review_diff,
+    filter_review_targets,
     is_review_command,
     load_config,
+    package_dir_top,
     user_overrides,
 )
 
@@ -154,6 +157,135 @@ def test_missing_user_config_does_not_break() -> None:
         _restore_env("AME_REVIEW_USER_CONFIG", old_user)
         Path(name).unlink(missing_ok=True)
     assert cfg["engine"] == "claude"
+
+
+# ============================================================================
+# Issue #37: vendored ame_ai_review_system 配下のレビュー除外
+# ============================================================================
+
+
+def _exclude_package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    pkg = root / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": False},
+    )
+
+
+def test_package_dir_top_returns_top_level_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    assert package_dir_top() == "ame_ai_review_system"
+
+
+def test_package_dir_top_none_when_not_vendored(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir(parents=True)
+    pkg = tmp_path / "site-packages" / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    assert package_dir_top() is None
+
+
+def test_filter_review_targets_keeps_all_when_include_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": True},
+    )
+    files = ["ame_ai_review_system/main.py", "src/app.py"]
+    assert filter_review_targets(files) == files
+
+
+def test_filter_review_targets_excludes_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    files = [
+        "ame_ai_review_system/main.py",
+        "ame_ai_review_system/sub/foo.py",
+        "src/app.py",
+        "tests/test_main.py",
+    ]
+    assert filter_review_targets(files) == ["src/app.py", "tests/test_main.py"]
+
+
+_DIFF = (
+    "diff --git a/ame_ai_review_system/main.py b/ame_ai_review_system/main.py\n"
+    "index 1234567..abcdefg 100644\n"
+    "--- a/ame_ai_review_system/main.py\n"
+    "+++ b/ame_ai_review_system/main.py\n"
+    "@@ -1,1 +1,1 @@\n"
+    "-x\n"
+    "+y\n"
+    "diff --git a/src/app.py b/src/app.py\n"
+    "index 1234567..abcdefg 100644\n"
+    "--- a/src/app.py\n"
+    "+++ b/src/app.py\n"
+    "@@ -1,1 +1,1 @@\n"
+    "-x\n"
+    "+y\n"
+)
+
+
+def test_filter_review_diff_keeps_all_when_include_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": True},
+    )
+    assert filter_review_diff(_DIFF) == _DIFF
+
+
+def test_filter_review_diff_excludes_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    result = filter_review_diff(_DIFF)
+    assert "ame_ai_review_system/main.py" not in result
+    assert "src/app.py" in result
+    assert "-x" in result
+    assert "+y" in result
+
+
+def test_filter_review_diff_excludes_rename_under_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    rename_diff = (
+        "diff --git a/ame_ai_review_system/old.py b/ame_ai_review_system/new.py\n"
+        "similarity index 90%\n"
+        "rename from ame_ai_review_system/old.py\n"
+        "rename to ame_ai_review_system/new.py\n"
+        "--- a/ame_ai_review_system/old.py\n"
+        "+++ b/ame_ai_review_system/new.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-x\n"
+        "+y\n"
+    )
+    assert not filter_review_diff(rename_diff)
+
+
+def test_filter_review_diff_empty_input() -> None:
+    assert not filter_review_diff("")
 
 
 def _restore_env(key: str, old: str | None) -> None:

@@ -39,7 +39,9 @@ def _staged_files() -> list[str]:
         "--name-only",
         "--diff-filter=d",
     ])
-    return [line.strip() for line in out.splitlines() if line.strip()]
+    files = [line.strip() for line in out.splitlines() if line.strip()]
+    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
+    return review_config.filter_review_targets(files)
 
 
 def _truncate_diff(diff: str) -> str:
@@ -72,8 +74,11 @@ def _build_diff(base_ref: str) -> str:
     # 「今回のコミット対象」が必ずレビューに含まれるようにする。
     # diff 内のバックティック (docstring の削除等) でプロンプト構造が壊れないようサニタイズ。
     parts: list[str] = []
+    # Issue #37: 除外対象ディレクトリ配下の差分を除去してからサニタイズする。
     staged_diff = _sanitize_for_codeblock(
-        precommit_state.run_git(["diff", "--cached"]).strip(),
+        review_config.filter_review_diff(
+            precommit_state.run_git(["diff", "--cached"]).strip(),
+        ),
     )
     if staged_diff:
         parts.append(
@@ -82,9 +87,11 @@ def _build_diff(base_ref: str) -> str:
             + "\n```",
         )
     branch_diff = _sanitize_for_codeblock(
-        precommit_state.run_git(
-            ["diff", f"origin/{base_ref}...HEAD"],
-        ).strip(),
+        review_config.filter_review_diff(
+            precommit_state.run_git(
+                ["diff", f"origin/{base_ref}...HEAD"],
+            ).strip(),
+        ),
     )
     if branch_diff:
         parts.append(
@@ -353,7 +360,10 @@ def main(argv: list[str] | None = None) -> int:
 
     staged_files = _staged_files()
     if not staged_files:
-        print("[precommit-review] no staged changes; skipping.", file=sys.stderr)
+        print(
+            "[precommit-review] no staged changes to review; skipping.",
+            file=sys.stderr,
+        )
         return 0
 
     # base_ref も LLM プロンプトに埋め込むため、branch と同基準で検証する。

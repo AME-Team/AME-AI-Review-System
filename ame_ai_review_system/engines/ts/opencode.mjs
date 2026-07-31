@@ -70,11 +70,20 @@ async function main() {
   });
 
   const session = await client.session.create({ body: { title: "ame-review" } });
+  // session.create は { data: {...} } を返す (SDK 1.18.x)。id は data 配下にある。
+  const sessionId = session?.data?.id;
+  if (!sessionId) {
+    console.error("[opencode.mjs] failed to obtain session id from create response");
+    process.exit(1);
+  }
   const model = splitModel(opts.model);
   const result = await client.session.prompt({
-    path: { id: session.id },
+    path: { id: sessionId },
     body: {
       parts: [{ type: "text", text: prompt }],
+      // レビューは diff がプロンプトに埋め込まれているためツールは不要。
+      // build agent が bash 等を実行して権限確認でハングするのを防ぐ (tools 空 = 全無効)。
+      tools: {},
       ...(model ? { model } : {}),
     },
   });
@@ -84,7 +93,7 @@ async function main() {
     process.exit(1);
   }
 
-  const text = extractText(result && result.response);
+  const text = extractText(result && result.data);
   if (!text.trim()) {
     console.error("[opencode.mjs] could not extract text from response");
     process.exit(1);

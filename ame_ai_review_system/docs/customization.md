@@ -213,6 +213,28 @@ security-review-reply:
 画像ファイルやドキュメント、外部ライブラリなどのファイルを AI のレビュー対象から外したい場合、`main.py`
 の diff 抽出箇所を直接書き換えるか、あるいは Git のコマンドで除外する。
 
+### 3-1. `ame_ai_review_system/` 配下をレビュー対象外にする（移植先の既定）
+
+このシステムを他のリポジトリへ移植すると、移植した `ame_ai_review_system/`
+配下がレビュー対象になりレビューラウンドが増えてしまう。既にレビュー済みのため、**既定で
+`ame_ai_review_system/` 配下はレビュー対象外** とする (Issue #37)。`config.json` の
+`review_include_package_dir` で変更できる。
+
+```json
+{
+  "review_include_package_dir": false
+}
+```
+
+- `false`（既定）: 移植先で vendored した `ame_ai_review_system/` 配下を Gate 1 / Gate
+  2 の両方のレビュー対象から除外する。
+- `true`: `ame_ai_review_system/` 配下もレビュー対象にする。このリポジトリ自身は
+  `.ame-review/config.json` で `true` に設定している (配下のファイル更新もレビュー対象)。
+
+> パッケージが PyPI インストール (リポジトリ外) の場合は vendored されていないため、この設定の影響を受けません。
+
+### 3-2. それ以外のファイルを除外する（Git pathspec）
+
 通常、`git diff` を実行して差分を抽出する際に、パスを指定して除外できる。
 
 例として、`main.py` の diff 抽出箇所を以下のように変更する。

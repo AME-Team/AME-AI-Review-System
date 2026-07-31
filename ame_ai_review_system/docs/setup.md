@@ -194,14 +194,15 @@ env:
 }
 ```
 
-| キー                              | デフォルト | 説明                                                                                                                                     |
-| --------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `precommit_review_enabled`        | `true`     | `true` にすると `git commit` 時にローカルで AI レビューが走り、指摘があればコミットをブロックする。                                      |
-| `precommit_require_static_checks` | `true`     | `true` の場合、AI レビュー実行前に ruff / mypy を staged ファイルに対して実行し、全て pass した場合のみ AI レビューを実行する。          |
-| `precommit_engine`                | `"auto"`   | pre-commit レビューのエンジン。`"auto"` で実装に使っているツールを自動検出。`"claude"` / `"opencode"` / `"antigravity"` で明示指定も可。 |
-| `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値 (opencode なら実装で使っているモデル)。                                    |
-| `precommit_thinking`              | (なし)     | pre-commit レビューの思考量。省略時は PR の `thinking` を継承。                                                                          |
-| `precommit_review_budget_usd`     | (なし)     | pre-commit レビュー専用の予算 (Claude のみ効果)。省略時は PR の `review_budget_usd` を継承。                                             |
+| キー                              | デフォルト | 説明                                                                                                                                                          |
+| --------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `precommit_review_enabled`        | `true`     | `true` にすると `git commit` 時にローカルで AI レビューが走り、指摘があればコミットをブロックする。                                                           |
+| `precommit_require_static_checks` | `true`     | `true` の場合、AI レビュー実行前に ruff / mypy を staged ファイルに対して実行し、全て pass した場合のみ AI レビューを実行する。                               |
+| `precommit_engine`                | `"auto"`   | pre-commit レビューのエンジン。`"auto"` で実装に使っているツールを自動検出。`"claude"` / `"opencode"` / `"antigravity"` で明示指定も可。                      |
+| `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値 (opencode なら実装で使っているモデル)。                                                         |
+| `precommit_thinking`              | (なし)     | pre-commit レビューの思考量。省略時は PR の `thinking` を継承。                                                                                               |
+| `precommit_review_budget_usd`     | (なし)     | pre-commit レビュー専用の予算 (Claude のみ効果)。省略時は PR の `review_budget_usd` を継承。                                                                  |
+| `review_include_package_dir`      | `false`    | 移植先で vendored した `ame_ai_review_system/` 配下を AI レビュー対象にするか (Issue #37)。既定は対象外 (既にレビュー済みのため)。`true` にすると対象になる。 |
 
 > [!NOTE] **pre-commit AI レビューのエンジン自動検出** `precommit_engine: "auto"`
 > (既定) の場合、pre-commit フックが自身のプロセスツリーを親方向へたどり、`opencode` / `claude` /

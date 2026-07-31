@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import ast
+import contextlib
 import json
 import os
 import sys
@@ -27,6 +29,8 @@ _DEFAULTS: dict[str, Any] = {
     "precommit_require_static_checks": True,
     "pr_review_require_static_checks": True,
     "ai_review_enforce_no_skip": True,
+    # Issue #37: 移植先で vendored した ame_ai_review_system 配下は既定でレビュー対象外。
+    "review_include_package_dir": False,
     "precommit_engine": "auto",
     "precommit_model": None,
     "precommit_thinking": None,
@@ -90,6 +94,99 @@ def user_overrides() -> dict[str, Any]:
     if user_data is not None:
         overrides.update(user_data)
     return overrides
+
+
+# ============================================================================
+# Issue #37: vendored ame_ai_review_system 配下のレビュー除外
+# ============================================================================
+
+
+def package_dir_top() -> str | None:
+    """プロジェクトルート相対で vendored されたパッケージ最上位ディレクトリ名を返す.
+
+    パッケージがリポジトリ外 (pip インストール等) にある場合は ``None``。
+    """
+    try:
+        rel = (
+            paths
+            .package_dir()
+            .resolve()
+            .relative_to(
+                paths.project_root().resolve(),
+            )
+        )
+    except ValueError:
+        return None
+    return rel.parts[0] if rel.parts else None
+
+
+def review_exclusion_top() -> str | None:
+    """レビューから除外すべき最上位ディレクトリ名を返す.
+
+    ``review_include_package_dir: true`` のときや、パッケージがリポジトリ外に
+    ある場合は ``None`` (除外なし)。
+    """
+    if load_config().get("review_include_package_dir", False):
+        return None
+    return package_dir_top()
+
+
+def filter_review_targets(files: list[str]) -> list[str]:
+    """``files`` から除外対象ディレクトリ配下のパスを取り除く."""
+    top = review_exclusion_top()
+    if top is None:
+        return list(files)
+    return [f for f in files if not _is_path_under(f, top)]
+
+
+def filter_review_diff(diff_text: str) -> str:
+    """``diff`` から除外対象ディレクトリ配下のファイルセクションを取り除く."""
+    top = review_exclusion_top()
+    if top is None or not diff_text:
+        return diff_text
+    sections = _split_diff_sections(diff_text)
+    kept = [
+        "\n".join(section)
+        for section in sections
+        if not any(_is_path_under(p, top) for p in _section_paths(section))
+    ]
+    return "\n".join(kept)
+
+
+def _is_path_under(path: str, top: str) -> bool:
+    return path == top or path.startswith(top + "/")
+
+
+def _split_diff_sections(diff_text: str) -> list[list[str]]:
+    """``diff --git`` ヘッダ行で diff をファイル単位のセクションへ分割する."""
+    sections: list[list[str]] = []
+    current: list[str] = []
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            if current:
+                sections.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        sections.append(current)
+    return sections
+
+
+def _section_paths(section: list[str]) -> list[str]:
+    """``--- a/..`` / ``+++ b/..`` 行からリポジトリ相対パスを抽出する."""
+    paths_in_section: list[str] = []
+    for line in section:
+        if line.startswith(("--- ", "+++ ")):
+            raw = line[4:].strip()
+            # git は特殊文字を含むパスを C スタイル引用符で出力する。
+            if raw.startswith('"') and raw.endswith('"'):
+                with contextlib.suppress(SyntaxError, ValueError):
+                    raw = cast("str", ast.literal_eval(raw))
+            if raw.startswith(("a/", "b/")):
+                raw = raw[2:]
+            paths_in_section.append(raw)
+    return paths_in_section
 
 
 def is_review_command(body: str) -> bool:

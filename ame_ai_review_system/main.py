@@ -346,6 +346,12 @@ def cmd_review(args: argparse.Namespace) -> int:
     except ImportError:
         pass
 
+    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
+    diff = review_config.filter_review_diff(diff)
+    if not diff.strip():
+        print("[review] No diff outside ame_ai_review_system. Skipping review.")
+        return 0
+
     diff_lines = diff.count("\n")
     if diff_lines > MAX_DIFF_LINES:
         print(f"[review] Diff truncated from {diff_lines} to 4000 lines.")
@@ -357,7 +363,12 @@ def cmd_review(args: argparse.Namespace) -> int:
     changed_files = _run_git(["diff", "--name-only", f"origin/{base_ref}...HEAD"])
     if not changed_files:
         changed_files = _run_git(["diff", "--name-only", "HEAD~1"])
-    changed_files = changed_files[:50]  # limit
+    # Issue #37: 除外対象ディレクトリ配下を除去 (変更ファイルは最大50件まで)
+    changed_files = "\n".join(
+        review_config.filter_review_targets(
+            [f for f in changed_files.splitlines() if f.strip()],
+        )[:50],
+    )
 
     commit_log = _run_git(["log", f"origin/{base_ref}..HEAD", "--oneline"])
     if not commit_log:
