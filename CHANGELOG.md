@@ -12,7 +12,9 @@
 - pip インストール可能化 (`ame-ai-review-system`)。オプション extras で `[claude]` / `[antigravity]`
   / `[all]` の SDK 依存を導入できる。
 - エンジン SDK アダプタ層を追加。Claude /
-  Antigravity は SDK 直駆動、OpenCode は CLI サブプロセス経由（SDK はサーバ起動型で CI 都度起動が煩雑なため）。
+  Antigravity は SDK 直駆動、OpenCode は SDK で起動済みサーバへ接続 (`createOpencodeClient` +
+  `OPENCODE_URL`。サーバは `opencode serve`
+  または親opencode セッション)。実完了(テキスト抽出)まで検証済み。
 - プロジェクトローカル設定 `.ame-review/` による repo 非依存パス解決。
 - PyPI 公開ワークフロー (`.github/workflows/release.yml`, Trusted Publishing/OIDC)。
 

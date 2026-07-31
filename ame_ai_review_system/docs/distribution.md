@@ -15,10 +15,11 @@
   - `[claude]` → `claude-agent-sdk`
   - `[antigravity]` → `google-antigravity`
   - `[all]` → 両方
-  - OpenCode は CLI（`opencode-ai`）経由のため Python extras は不要（Node は opencode
-    CLI のインストールのみ）
+  - OpenCode は SDK（`@opencode-ai/sdk`）で起動済みサーバへ接続する。Python
+    extras は不要。Node は TS サイドカーと `opencode serve` のインストールのみ
 - wheel 同梱データ: `review_prompt.txt`, `.semgrep/rules.yml`,
-  `templates/`（pre-commit プロファイル／ワークフロー），`engines/ts/claude.mjs`（Claude-TS サイドカー）
+  `templates/`（pre-commit プロファイル／ワークフロー），`engines/ts/*.mjs`（Claude-TS /
+  OpenCode サイドカー）
 
 ## ローカルビルド検証
 
