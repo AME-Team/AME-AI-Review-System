@@ -361,6 +361,22 @@ def cmd_review(args: argparse.Namespace) -> int:
     diff = review_config.filter_review_diff(diff)
     if not diff.strip():
         print("[review] No diff outside ame_ai_review_system. Skipping review.")
+        if token:
+            # スキップ理由を PR へ通知して /request-review が無視されたことを可視化する。
+            body = (
+                "**レビュー対象外**\n\n"
+                "変更が `ame_ai_review_system/` 配下のみのため、AI レビューをスキップしました "
+                "(Issue #37)。`config.json` の `review_include_package_dir` を `true` にすると対象になります。"
+            )
+            try:
+                github_client.http_request(
+                    "POST",
+                    f"{api_url}/repos/{repo}/issues/{pr_number}/comments",
+                    token,
+                    body={"body": body},
+                )
+            except RuntimeError as e:
+                print(f"[review] Failed to notify skip reason: {e}", file=sys.stderr)
         return 0
 
     diff_lines = diff.count("\n")
@@ -457,7 +473,10 @@ def cmd_review(args: argparse.Namespace) -> int:
             head_sha,
             repair=lambda broken: payload_module.repair_review_json(
                 broken,
-                lambda p: _run_engine_text(p, settings),
+                lambda p: _run_engine_text(
+                    p,
+                    review_config.apply_repair_model(settings),
+                ),
             ),
         )
     except (ValueError, KeyError, TypeError, OSError) as e:

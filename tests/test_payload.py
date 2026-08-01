@@ -88,13 +88,34 @@ def test_parse_review_json_repair_none_keeps_fallback(tmp_path: Path) -> None:
     assert res["comments"] == []
 
 
+def test_parse_review_json_repair_retries_on_broken_first_attempt(
+    tmp_path: Path,
+) -> None:
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    calls = {"n": 0}
+
+    def _repair(_raw: str) -> str | None:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            return "still broken"
+        return '{"summary": "recovered", "comments": []}'
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file), repair=_repair)
+    assert is_fallback is False
+    assert res["summary"] == "recovered"
+    assert calls["n"] == 2
+
+
 def test_parse_review_json_structural_repair_without_llm(tmp_path: Path) -> None:
+    # ツール呼び出しブロック内の「{」によりブレーススキャンが失敗し、
+    # 構造的修復 (ツール呼び出し構文の除去) が実際に駆動されることを確認する。
     broken = (
+        "<tool_calls>\n"
         '<invoke name="bash">\n'
-        "git status\n"
+        "echo '{\n"
         "</invoke>\n"
-        "</tool_calls>\n"
-        "garbage\n"
         "</tool_calls>\n"
         '{"summary": "structural", "comments": []}\n'
     )

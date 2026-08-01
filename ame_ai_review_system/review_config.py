@@ -36,6 +36,8 @@ _DEFAULTS: dict[str, Any] = {
     "precommit_model": None,
     "precommit_thinking": None,
     "precommit_review_budget_usd": None,
+    # Issue #37: 壊れたレビュー JSON を修復する際に使うモデル (省略時は本体と同じ)。
+    "review_repair_model": None,
     "engine": "claude",
     "model": "sonnet",
     "review_model": "sonnet",
@@ -131,6 +133,18 @@ def review_exclusion_rel() -> str | None:
     if load_config().get("review_include_package_dir", False):
         return None
     return package_dir_rel()
+
+
+def apply_repair_model(settings: dict[str, Any]) -> dict[str, Any]:
+    """修復専用モデル ``review_repair_model`` を設定へ適用する.
+
+    省略時は本体と同じモデルを使うため ``settings`` をそのまま返す。壊れやすい
+    弱いモデル (deepseek-v4-flash 等) を JSON 修復には使わないための共通処理。
+    """
+    repair_model = load_config().get("review_repair_model")
+    if repair_model:
+        return {**settings, "model": repair_model}
+    return settings
 
 
 def filter_review_targets(files: list[str]) -> list[str]:

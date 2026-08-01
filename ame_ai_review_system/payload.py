@@ -70,6 +70,19 @@ def _parse_review_text(raw: str) -> tuple[dict[str, Any], bool]:
     return _FALLBACK, True
 
 
+def _try_parse_with_structural_repair(raw: str) -> tuple[dict[str, Any], bool]:
+    """パースを試み、失敗時はツール呼び出し構文を除去して再パースする."""
+    review, is_fallback = _parse_review_text(raw)
+    if is_fallback:
+        cleaned = _strip_tool_call_syntax(raw)
+        if cleaned != raw:
+            review, is_fallback = _parse_review_text(cleaned)
+    return review, is_fallback
+
+
+_MAX_REPAIR_ATTEMPTS = 2
+
+
 def parse_review_json_with_flag(
     path: str,
     repair: Callable[[str], str | None] | None = None,
@@ -77,21 +90,26 @@ def parse_review_json_with_flag(
     """レビュー JSON を解析する.
 
     ``repair`` は初期解析に失敗したときに呼ばれ、壊れた出力を修復したテキストを
-    返す (``None`` なら修復不可)。修復後の再解析にも失敗した場合は ``(fallback, True)``。
+    返す (``None`` なら修復不可)。修復は最大 ``_MAX_REPAIR_ATTEMPTS`` 回再試行し、
+    それでも解析できない場合は ``(fallback, True)``。
     """
     raw = pathlib.Path(path).read_text(encoding="utf-8").strip()
 
-    review, is_fallback = _parse_review_text(raw)
-    cleaned = raw
-    # 構造的修復 (LLM 呼び出しなし) を先に試し、それでもダメなら LLM 修復にフォールバックする。
-    if is_fallback:
-        cleaned = _strip_tool_call_syntax(raw)
-        if cleaned != raw:
-            review, is_fallback = _parse_review_text(cleaned)
+    review, is_fallback = _try_parse_with_structural_repair(raw)
     if is_fallback and repair is not None:
-        repaired = repair(cleaned)
-        if repaired and repaired.strip():
-            review, is_fallback = _parse_review_text(repaired.strip())
+        # 構造的修復済みの元テキストを修復入力に使う。前回の修復出力を繋ぐと
+        # JSON 断片が失われエラーが増幅されるため、毎回同じ入力を再送する。
+        base = _strip_tool_call_syntax(raw)
+        attempts = 0
+        while is_fallback and attempts < _MAX_REPAIR_ATTEMPTS:
+            repaired = repair(base)
+            attempts += 1
+            if not repaired or not repaired.strip():
+                break
+            # 修復出力にもツール呼び出し構文が残ることがあるため、毎回構造的修復を通す。
+            review, is_fallback = _try_parse_with_structural_repair(
+                repaired.strip(),
+            )
 
     if is_fallback:
         preview = raw[:500]
@@ -120,7 +138,7 @@ def build_repair_prompt(broken: str) -> str:
 
 
 # 弱いモデルが JSON の代わりに出力するツール呼び出し構文 (Anthropic 形式 / DeepSeek 形式)。
-_TOOL_CALL_BLOCK_RE = re.compile(r"</tool_calls>[\s\S]*?</tool_calls>")
+_TOOL_CALL_BLOCK_RE = re.compile(r"<tool_calls>[\s\S]*?</tool_calls>")
 _INVOKE_BLOCK_RE = re.compile(r"<invoke\s+name=\"[^\"]*\">[\s\S]*?</invoke>")
 # DeepSeek のツール呼び出しマーカー (U+FF5C FULLWIDTH VERTICAL LINE)。
 _FULLWIDTH_MARKER_RE = re.compile("\uff5c\uff5c" + r"[\s\S]*?" + "\uff5c\uff5c")

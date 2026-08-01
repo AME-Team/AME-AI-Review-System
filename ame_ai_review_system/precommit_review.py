@@ -474,7 +474,11 @@ def main(argv: list[str] | None = None) -> int:
             repair=lambda broken: payload.repair_review_json(
                 broken,
                 lambda p: payload.engine_output_text(
-                    _run_engine(p, engine_path, engine_settings),
+                    _run_engine(
+                        p,
+                        engine_path,
+                        review_config.apply_repair_model(engine_settings),
+                    ),
                 ),
             ),
         )

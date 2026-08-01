@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from ame_ai_review_system import paths, review_config
 from ame_ai_review_system.review_config import (
+    apply_repair_model,
     filter_review_diff,
     filter_review_targets,
     is_review_command,
@@ -221,6 +222,32 @@ def test_package_dir_rel_none_when_not_vendored(
     assert package_dir_rel() is None
 
 
+def test_apply_repair_model_overrides_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_repair_model": "opencode-go/gpt-5.6-luna"},
+    )
+    settings = {"model": "opencode-go/deepseek-v4-flash"}
+    assert apply_repair_model(settings) == {
+        "model": "opencode-go/gpt-5.6-luna",
+    }
+
+
+def test_apply_repair_model_passthrough_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_repair_model": None},
+    )
+    settings = {"model": "opencode-go/deepseek-v4-flash"}
+    assert apply_repair_model(settings) == settings
+
+
 def test_filter_review_targets_keeps_all_when_include_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -419,6 +446,34 @@ def test_filter_review_diff_excludes_delete_under_package_dir(
 
 def test_filter_review_diff_empty_input() -> None:
     assert not filter_review_diff("")
+
+
+def test_filter_review_diff_after_compact_diff(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from ame_ai_review_system.diff_utils import compact_diff
+
+    _exclude_package(monkeypatch, tmp_path)
+    diff = (
+        "diff --git a/ame_ai_review_system/main.py b/ame_ai_review_system/main.py\n"
+        "index 1234567..abcdefg 100644\n"
+        "--- a/ame_ai_review_system/main.py\n"
+        "+++ b/ame_ai_review_system/main.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-x\n"
+        "+y\n"
+        "diff --git a/src/app.py b/src/app.py\n"
+        "index 1234567..abcdefg 100644\n"
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-x\n"
+        "+y\n"
+    )
+    result = filter_review_diff(compact_diff(diff))
+    assert "ame_ai_review_system/main.py" not in result
+    assert "src/app.py" in result
 
 
 def _restore_env(key: str, old: str | None) -> None:

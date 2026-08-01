@@ -231,6 +231,14 @@ security-review-reply:
 - `true`: `ame_ai_review_system/` 配下もレビュー対象にする。このリポジトリ自身は
   `.ame-review/config.json` で `true` に設定している (配下のファイル更新もレビュー対象)。
 
+> モデルが壊れた JSON を返した場合は自動で JSON 修復を試みる。修復は最大 2 回まで試行される。修復専用モデルは
+> `review_repair_model` で指定できる (省略時は本体と同じモデル)。
+
+> `false` で変更が `ame_ai_review_system/`
+> 配下のみの PR はレビュー対象外としてスキップされる。これは `review_include_package_dir`
+> による明示的な設定に基づく意図的な除外であり、pre-commit の SKIP 迂回をブロックする
+> `ai_review_enforce_no_skip` とは独立に動作する。
+
 > パッケージが PyPI インストール (リポジトリ外) の場合は vendored されていないため、この設定の影響を受けません。
 
 ### 3-2. それ以外のファイルを除外する（Git pathspec）
