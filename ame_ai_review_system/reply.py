@@ -25,7 +25,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import github_client, review_config
+from . import engine, github_client, review_config
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
 
@@ -508,6 +508,15 @@ def _run_engine(prompt: str) -> tuple[int, str]:
 
     err_file = out_file + ".err"
 
+    # Issue #40: Gate 2 のエンジン情報バナー表示フラグを子プロセスへ注入する。
+    engine_env = dict(os.environ)
+    show_info = review_config.config_bool(
+        review_config.load_config(),
+        "show_engine_info_gate2",
+        default=True,
+    )
+    engine.apply_engine_info_env(engine_env, show_info=show_info)
+
     try:
         with (
             pathlib.Path(prompt_file).open("r", encoding="utf-8") as pfi,
@@ -525,6 +534,7 @@ def _run_engine(prompt: str) -> tuple[int, str]:
                 stdin=pfi,
                 stdout=fout,
                 stderr=efi,
+                env=engine_env,
                 timeout=600,
                 check=False,
             )

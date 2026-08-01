@@ -218,9 +218,16 @@ sequenceDiagram
   "model": "sonnet",
   "thinking": "high",
   "review_budget_usd": 2.0,
-  "reply_budget_usd": 0.2
+  "reply_budget_usd": 0.2,
+  "show_engine_info_gate1": true,
+  "show_engine_info_gate2": true
 }
 ```
+
+> **エンジン情報の表示制御 (Issue #40)**: `engine.py` のバナーは環境変数 `AME_ENGINE_SHOW_INFO=1`
+> が注入された時のみ出力する。各呼び出し元（`precommit_review.py` / `main.py` / `reply.py`）が
+> `show_engine_info_gate1` / `show_engine_info_gate2`
+> を読み、子プロセスの env へ反映する。既定は表示。
 
 ### ユーザー固有設定（`config.user.json`）
 
@@ -237,14 +244,15 @@ sequenceDiagram
 
 環境変数でワークフローや Secrets から上書きできます。
 
-| 環境変数                 | 内容                                                                    |
-| ------------------------ | ----------------------------------------------------------------------- |
-| `REVIEW_ENGINE`          | `claude` / `opencode` / `antigravity`                                   |
-| `REVIEW_MODEL`           | エンジン固有のモデル名（後方互換: `CLAUDE_MODEL` も可）                 |
-| `REVIEW_THINKING`        | `high` / `medium` / `low`                                               |
-| `REVIEW_BUDGET_USD`      | クラウド予算。Claude の `--max-budget-usd` のみ効果あり。               |
-| `REPLY_BUDGET_USD`       | 返信ロール専用の予算。未設定時は `REVIEW_BUDGET_USD` にフォールバック。 |
-| `REVIEW_TIMEOUT_SECONDS` | エンジン実行のタイムアウト（既定 600 秒）。                             |
+| 環境変数                 | 内容                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `REVIEW_ENGINE`          | `claude` / `opencode` / `antigravity`                                                        |
+| `REVIEW_MODEL`           | エンジン固有のモデル名（後方互換: `CLAUDE_MODEL` も可）                                      |
+| `REVIEW_THINKING`        | `high` / `medium` / `low`                                                                    |
+| `REVIEW_BUDGET_USD`      | クラウド予算。Claude の `--max-budget-usd` のみ効果あり。                                    |
+| `REPLY_BUDGET_USD`       | 返信ロール専用の予算。未設定時は `REVIEW_BUDGET_USD` にフォールバック。                      |
+| `REVIEW_TIMEOUT_SECONDS` | エンジン実行のタイムアウト（既定 600 秒）。                                                  |
+| `AME_ENGINE_SHOW_INFO`   | `1` のとき `engine.py` のエンジン情報バナーを出力（Issue #40）。親プロセスが設定を注入する。 |
 
 ### なぜ CLI 呼び出しを採用しているか？
 

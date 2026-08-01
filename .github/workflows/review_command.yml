@@ -112,11 +112,14 @@ jobs:
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          REVIEW_ENGINE: opencode
+          # Issue #40: エンジン情報の表示/非表示は GitHub Variables / Secrets で制御する。
+          # Variables に登録 → 実値がログへエコー / Secrets に登録 → *** でマスク。
+          # REVIEW_ENGINE は未登録時の後方互換フォールバックを保持 (従来の既定 opencode)。
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE || secrets.REVIEW_ENGINE || 'opencode' }}
           OPENCODE_URL: ${{ env.OPENCODE_URL }}
-          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
-          REPLY_MODEL: ${{ vars.REPLY_MODEL }}
-          REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL || secrets.REVIEW_MODEL }}
+          REPLY_MODEL: ${{ vars.REPLY_MODEL || secrets.REPLY_MODEL }}
+          REVIEW_THINKING: ${{ vars.REVIEW_THINKING || secrets.REVIEW_THINKING }}
         run: |
           python3 -m ame_ai_review_system.main review \
             "$PR_NUMBER"

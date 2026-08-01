@@ -256,6 +256,16 @@ def _render_command_workflow(
         if engine == "opencode"
         else ""
     )
+    # Issue #40: エンジン情報の表示/非表示は Variables (実値エコー) / Secrets (マスク) で制御する。
+    # この文字列は f-string でないため、${{ ... }} はそのまま出力される。
+    # REVIEW_ENGINE は未登録時に従来の既定エンジンへフォールバック (後方互換)。
+    engine_info_env = (
+        "          # REVIEW_* の表示/非表示は GitHub Variables / Secrets で制御します。\n"
+        f"          REVIEW_ENGINE: ${{{{ vars.REVIEW_ENGINE || secrets.REVIEW_ENGINE || '{engine}' }}}}\n"
+        "          REVIEW_MODEL: ${{ vars.REVIEW_MODEL || secrets.REVIEW_MODEL }}\n"
+        "          REPLY_MODEL: ${{ vars.REPLY_MODEL || secrets.REPLY_MODEL }}\n"
+        "          REVIEW_THINKING: ${{ vars.REVIEW_THINKING || secrets.REVIEW_THINKING }}\n"
+    )
     return f"""---
 name: AI Code Review (Command)
 
@@ -325,7 +335,7 @@ jobs:
         if: steps.cmd.outputs.run_review == 'true'
         env:
 {env_block}
-          REVIEW_ENGINE: {engine}
+{engine_info_env}
 {opencode_url_env}
           PR_NUMBER: ${{{{ steps.cmd.outputs.pr_number }}}}
         run: |
@@ -348,6 +358,16 @@ def _render_reply_workflow(
         "          OPENCODE_URL: http://127.0.0.1:4096\n"
         if engine == "opencode"
         else ""
+    )
+    # Issue #40: エンジン情報の表示/非表示は Variables (実値エコー) / Secrets (マスク) で制御する。
+    # この文字列は f-string でないため、${{ ... }} はそのまま出力される。
+    # REVIEW_ENGINE は未登録時に従来の既定エンジンへフォールバック (後方互換)。
+    engine_info_env = (
+        "          # REVIEW_* の表示/非表示は GitHub Variables / Secrets で制御します。\n"
+        f"          REVIEW_ENGINE: ${{{{ vars.REVIEW_ENGINE || secrets.REVIEW_ENGINE || '{engine}' }}}}\n"
+        "          REVIEW_MODEL: ${{ vars.REVIEW_MODEL || secrets.REVIEW_MODEL }}\n"
+        "          REPLY_MODEL: ${{ vars.REPLY_MODEL || secrets.REPLY_MODEL }}\n"
+        "          REVIEW_THINKING: ${{ vars.REVIEW_THINKING || secrets.REVIEW_THINKING }}\n"
     )
     return f"""---
 name: AI Review Reply
@@ -395,7 +415,7 @@ jobs:
 {_opencode_server_start_step(engine)}      - name: Run Reply
         env:
 {env_block}
-          REVIEW_ENGINE: {engine}
+{engine_info_env}
 {opencode_url_env}
           PR_NUMBER: ${{{{ github.event.pull_request.number }}}}
           TRIGGER_COMMENT_ID: ${{{{ github.event.comment.id }}}}
@@ -518,12 +538,22 @@ def _print_next_steps(
         print("   - GEMINI_API_KEY  (Google AI API key)")
     elif engine == "opencode":
         print("   - OPENCODE_AUTH_B64  (base64 of ~/.local/share/opencode/auth.json)")
-    print("4. Install pre-commit hooks locally:")
+    # Issue #40: REVIEW_* は未登録時は既定エンジンへフォールバックするため必須ではないが、
+    # モデルを明示する場合は Variables へ登録する (推奨)。
+    print(
+        f"4. Register repository Actions Variables (recommended; default engine={engine}):"
+    )
+    print("   - REVIEW_ENGINE   (e.g. claude / opencode / antigravity)")
+    print("   - REVIEW_MODEL    (engine-specific model name)")
+    print("   - REPLY_MODEL     (model used for reply judging)")
+    print("   - REVIEW_THINKING (high / medium / low)")
+    print("   Hide values in logs by re-registering them as Secrets instead.")
+    print("5. Install pre-commit hooks locally:")
     print(
         "   pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push -t post-commit"
     )
     if meta["needs_node"]:
-        print("5. TS engine: npm --prefix .ame-review/engines-ts install")
+        print("6. TS engine: npm --prefix .ame-review/engines-ts install")
     if meta["needs_opencode_cli"]:
         print("   OpenCode server: npm install -g opencode-ai")
     print(

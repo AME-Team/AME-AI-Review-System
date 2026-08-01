@@ -41,6 +41,10 @@ _THINKING_LEVELS: tuple[str, ...] = ("low", "medium", "high")
 # TS サイドカーへ引数として渡すため、シェルメタ文字を弾く程度の検証。
 _MODEL_RE = re.compile(r"^[-\w./:@ ]+$")
 
+# Issue #40: エンジン情報バナー (model/thinking/sdk) の出力可否。
+# 親プロセス (precommit_review / main / reply) が config トグルを読んで注入する。
+_ENGINE_INFO_ENV = "AME_ENGINE_SHOW_INFO"
+
 
 def _first_nonempty(*values: str | None) -> str | None:
     for value in values:
@@ -50,6 +54,33 @@ def _first_nonempty(*values: str | None) -> str | None:
         if text:
             return text
     return None
+
+
+def _engine_info_enabled() -> bool:
+    """エンジン情報バナーを出力すべきかを判定する.
+
+    親プロセスが config トグルを反映して ``AME_ENGINE_SHOW_INFO=1`` を注入する。
+    未注入 (1 以外) の場合は既定で非表示 (Issue #40)。
+    """
+    return os.environ.get(_ENGINE_INFO_ENV) == "1"
+
+
+def apply_engine_info_env(
+    env: dict[str, str],
+    *,
+    show_info: bool,
+) -> dict[str, str]:
+    """エンジン情報バナー表示フラグを子プロセス env へ反映する (Issue #40).
+
+    表示時は ``AME_ENGINE_SHOW_INFO=1`` を注入し、非表示時は既存値を掃除する。
+    ``_engine_info_enabled`` と対になり、注入漏れによる既定非表示へのフォールバック
+    (バナー・予算警告の消失) を防ぐ共通入口。
+    """
+    if show_info:
+        env["AME_ENGINE_SHOW_INFO"] = "1"
+    else:
+        env.pop("AME_ENGINE_SHOW_INFO", None)
+    return env
 
 
 def _resolve_engine(config: dict[str, Any]) -> str:
@@ -185,16 +216,26 @@ def resolve_settings(role: str) -> dict[str, Any]:
 
 
 def run_engine(settings: dict[str, Any], prompt: str) -> int:
+    """LLM エンジンへプロンプトを送り、結果を stdout へ出力する.
+
+    エンジン情報バナーと非 Claude の budget 警告は ``AME_ENGINE_SHOW_INFO=1``
+    が注入された時のみ stderr へ出力する (Issue #40)。呼び出し元は config トグル
+    (``show_engine_info_gate1`` / ``show_engine_info_gate2``) を読んだ上で
+    :func:`apply_engine_info_env` 経由で注入すること。注入しないと既定で非表示となり、
+    config の既定 (表示) と食い違ってバナー・budget 警告が黙って消える。
+    """
     engine = settings["engine"]
     sdk_lang = settings.get("sdk_lang")
     model_display = settings["model"] or "<engine-default>"
-    print(
-        f"[engine] {engine} starting "
-        f"(sdk={sdk_lang}, model={model_display}, thinking={settings['thinking']}, "
-        f"role={settings['role']})",
-        file=sys.stderr,
-    )
-    if engine != "claude":
+    # Issue #40: エンジン情報バナーは AME_ENGINE_SHOW_INFO が注入された時のみ出力する。
+    if _engine_info_enabled():
+        print(
+            f"[engine] {engine} starting "
+            f"(sdk={sdk_lang}, model={model_display}, thinking={settings['thinking']}, "
+            f"role={settings['role']})",
+            file=sys.stderr,
+        )
+    if engine != "claude" and _engine_info_enabled():
         print(
             f"[engine] WARNING: budget limit is not enforced for {engine}",
             file=sys.stderr,

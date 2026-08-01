@@ -6,6 +6,7 @@ import subprocess
 from typing import TYPE_CHECKING, Any
 
 from . import review_config
+from .engine import apply_engine_info_env
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -115,11 +116,18 @@ def resolve_engine_settings(
         or _str_config(config, "review_budget_usd")
     )
 
+    # Issue #40: Gate 1 のエンジン情報表示トグル (既定=表示)。build_env が
+    # AME_ENGINE_SHOW_INFO へ変換して子プロセスへ渡す。文字列 "false" にも対応。
+    show_info = review_config.config_bool(
+        config, "show_engine_info_gate1", default=True
+    )
+
     return {
         "engine": engine,
         "model": model,
         "thinking": thinking,
         "budget": budget,
+        "show_info": show_info,
     }
 
 
@@ -146,4 +154,6 @@ def build_env(
         env["REVIEW_BUDGET_USD"] = str(budget)
     else:
         env.pop("REVIEW_BUDGET_USD", None)
+    # Issue #40: エンジン情報バナー表示フラグ。未指定時は既定で表示 (後方互換)。
+    apply_engine_info_env(env, show_info=bool(settings.get("show_info", True)))
     return env

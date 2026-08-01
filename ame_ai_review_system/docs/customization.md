@@ -316,6 +316,10 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
   を指定して固定できる。
 - **`precommit_model`**: pre-commit レビューで使うモデルを指定。省略時はエンジン既定値。
 - **`precommit_thinking`**: 思考量（`high` / `medium` / `low`）。省略時は PR の `thinking` を継承。
+- **`show_engine_info_gate1`**:
+  `true`（デフォルト）の場合、pre-commit レビュー実行時に使用するエンジン・モデル・思考量をログへ表示する。`false`
+  にすると非表示（エンジン子プロセスのバナーと、非 Claude エンジンの budget 未強制警告も抑止）。Issue
+  #40。
 
 > [!TIP] `config.user.json` の例（Gate 1 のみ claude/sonnet/medium に変更）:
 >
@@ -357,9 +361,56 @@ Variables から以下の変数を登録します。
 | `REVIEW_ENGINE`   | 使用する LLM エンジン | `claude`, `opencode`, `antigravity`           |
 | `REVIEW_MODEL`    | 使用するモデル        | エンジンに応じて指定（例: `sonnet`, `gpt-5`） |
 | `REVIEW_THINKING` | 思考量                | `high`, `medium`, `low`                       |
+| `REPLY_MODEL`     | 返信判定モデル        | エンジンに応じて指定                          |
 
 > [!NOTE] 環境変数の優先順位は **GitHub Variables > `config.user.json` >
 > `config.json` > デフォルト値** です。Variables に設定した値が最も優先されます。
+
+#### エンジン情報の表示／非表示（Issue #40）
+
+Gate 2 ではエンジン情報（エンジン名・モデル・思考量）が CI ログへ表示される。表示／非表示は
+**2 つの仕組み** で個別に制御でき、**既定は表示** です。
+
+| 経路                                             | 表示／非表示の切り替え                                                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ワークフロー step `env:` の自動エコー            | `REVIEW_ENGINE` / `REVIEW_MODEL` / `REPLY_MODEL` / `REVIEW_THINKING` を **Variables**（実値がエコー）に登録するか **Secrets**（`***` にマスク）に登録するかで制御 |
+| コードのバナー（`engine.py` 等が stderr へ出力） | `config.json` の `show_engine_info_gate2`（`true`=表示 / `false`=非表示）で制御                                                                                   |
+
+- ワークフローは `${{ vars.REVIEW_ENGINE || secrets.REVIEW_ENGINE }}`
+  の形式で値を参照する。Variables に登録した値はログへ実値がエコーされる。Secrets に登録した値は
+  `***` にマスクされる。
+- **`show_engine_info_gate1` / `show_engine_info_gate2` を `false`
+  にすると、budget 警告も抑止される。**
+  非 Claude エンジンの警告だ。エンジン情報の非表示化に伴う仕様である。予算未設定のまま運用する場合は注意。
+- **非表示にしたい場合は「Secrets 化」と「`show_engine_info_gate2: false`」の両方を設定する**。トグルだけを
+  `false` にしても、Variables の実値は step `env:`
+  の自動エコーで表示され続ける。逆に Secrets 化だけでは、コードのバナーが実値を stderr へ print して漏れるため、トグルも必要。
+- `show_engine_info_gate1`（Gate
+  1）はローカル実行のため GitHub の登録は不要。config のトグルのみで制御する。
+
+```json
+{
+  "show_engine_info_gate1": true,
+  "show_engine_info_gate2": true
+}
+```
+
+| 目的         | Gate 2 値の登録場所 | `show_engine_info_gate2` |
+| ------------ | ------------------- | ------------------------ |
+| 表示（既定） | GitHub Variables    | `true`（既定）           |
+| 非表示       | GitHub Secrets      | `false`                  |
+
+> [!WARNING] **既存ユーザー向けの移行注記（Issue #40）**: 従来ワークフローは
+> `REVIEW_ENGINE: opencode` をハードコードしていました。本変更後は Variables /
+> Secrets から値を解決します。未登録のままの場合は従来の既定（`opencode`）へ自動フォールバックするため動作は維持されますが、エンジンを変更したい場合は GitHub
+> Variables へ `REVIEW_ENGINE`
+> を登録してください。モデル・思考量を意図通り反映するため、`REVIEW_MODEL` / `REPLY_MODEL` /
+> `REVIEW_THINKING` の登録も推奨します。
+>
+> [!IMPORTANT] ワークフローは `vars.X || secrets.X`
+> の順で参照するため、**Variables が Secrets より優先**されます。表示を非表示へ切り替える際は、Secrets へ再登録するだけでなく
+> **同名の Variables を必ず削除**してください。古い Variables が残っていると実値がログへエコーされ続け、
+> `show_engine_info_gate2: false` との併用が無意味になります。
 
 ### Coding Agent 選択のメリットと広範コンテキスト検証
 
@@ -470,13 +521,14 @@ REVIEW_THINKING = low
 
 ### 6-5. Gate 1 と Gate 2 の設定比較
 
-| 設定項目 | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)          |
-| -------- | ------------------------------------------------- | ----------------------- |
-| 設定場所 | `config.json` / `config.user.json` または環境変数 | GitHub Variables        |
-| エンジン | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`         |
-| モデル   | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`          |
-| 思考量   | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`       |
-| 認証     | ホストの認証ファイルを直接使用                    | GitHub Secrets (Base64) |
+| 設定項目           | Gate 1 (pre-commit)                               | Gate 2 (CI/PR)                                       |
+| ------------------ | ------------------------------------------------- | ---------------------------------------------------- |
+| 設定場所           | `config.json` / `config.user.json` または環境変数 | GitHub Variables                                     |
+| エンジン           | `PRECOMMIT_REVIEW_ENGINE`                         | `REVIEW_ENGINE`                                      |
+| モデル             | `PRECOMMIT_REVIEW_MODEL`                          | `REVIEW_MODEL`                                       |
+| 思考量             | `PRECOMMIT_REVIEW_THINKING`                       | `REVIEW_THINKING`                                    |
+| エンジン情報の表示 | `show_engine_info_gate1`                          | `show_engine_info_gate2`（+ Variables/Secrets 運用） |
+| 認証               | ホストの認証ファイルを直接使用                    | GitHub Secrets (Base64)                              |
 
 > [!NOTE] Gate 1 と Gate 2 で異なるエンジン・モデルを使用できます。例えば、ローカルでは `opencode`
 > で開発し、CI では `claude` でレビューすることが可能です。

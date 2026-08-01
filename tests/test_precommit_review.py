@@ -419,6 +419,41 @@ def test_main_blocks_when_static_checks_fail(
 
 
 @pytest.mark.usefixtures("env")
+def test_main_hides_engine_banner_when_gate1_false(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #40: show_engine_info_gate1=false でエンジン情報バナーを抑止する。
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {
+            "precommit_review_enabled": True,
+            "precommit_require_static_checks": False,
+            "show_engine_info_gate1": False,
+        },
+    )
+    _engine_returning(monkeypatch, {"summary": "ok", "comments": []})
+    rc = precommit_review.main([])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "running AI review" not in err
+
+
+@pytest.mark.usefixtures("env")
+def test_main_shows_engine_banner_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #40: 既定 (gate1 未設定) ではエンジン情報バナーを表示する。
+    _engine_returning(monkeypatch, {"summary": "ok", "comments": []})
+    rc = precommit_review.main([])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "running AI review" in err
+
+
+@pytest.mark.usefixtures("env")
 def test_main_dry_run_static_checks_fail_returns_zero(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -11,6 +11,7 @@ import pytest
 from ame_ai_review_system import paths, review_config
 from ame_ai_review_system.review_config import (
     apply_repair_model,
+    config_bool,
     filter_review_diff,
     filter_review_targets,
     is_review_command,
@@ -51,6 +52,9 @@ def test_load_config_default_disabled() -> None:
     assert cfg["thinking"] == "high"
     assert cfg["review_budget_usd"] == pytest.approx(2.0)
     assert cfg["reply_budget_usd"] == pytest.approx(0.2)
+    # Issue #40: エンジン情報バナーは既定で表示。
+    assert cfg["show_engine_info_gate1"] is True
+    assert cfg["show_engine_info_gate2"] is True
 
 
 def test_load_config_reads_file() -> None:
@@ -158,6 +162,28 @@ def test_missing_user_config_does_not_break() -> None:
         _restore_env("AME_REVIEW_USER_CONFIG", old_user)
         Path(name).unlink(missing_ok=True)
     assert cfg["engine"] == "claude"
+
+
+def test_config_bool_handles_json_bool() -> None:
+    assert config_bool({"show_engine_info_gate2": True}, "show_engine_info_gate2")
+    assert not config_bool({"show_engine_info_gate2": False}, "show_engine_info_gate2")
+
+
+def test_config_bool_handles_string_false() -> None:
+    # 手編集で "false" が文字列として書かれても false と解釈する (Issue #40)。
+    assert not config_bool(
+        {"show_engine_info_gate2": "false"},
+        "show_engine_info_gate2",
+    )
+    assert config_bool(
+        {"show_engine_info_gate2": "true"},
+        "show_engine_info_gate2",
+    )
+
+
+def test_config_bool_default_when_missing() -> None:
+    assert config_bool({}, "show_engine_info_gate2")
+    assert not config_bool({}, "show_engine_info_gate2", default=False)
 
 
 # ============================================================================

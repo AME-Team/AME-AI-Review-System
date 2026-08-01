@@ -21,9 +21,12 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from . import paths
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
@@ -36,6 +39,9 @@ _DEFAULTS: dict[str, Any] = {
     "precommit_model": None,
     "precommit_thinking": None,
     "precommit_review_budget_usd": None,
+    # Issue #40: レビューエンジン情報 (engine/model/thinking) の表示トグル (既定=表示)。
+    "show_engine_info_gate1": True,
+    "show_engine_info_gate2": True,
     # Issue #37: 壊れたレビュー JSON を修復する際に使うモデル (省略時は本体と同じ)。
     "review_repair_model": None,
     "engine": "claude",
@@ -85,6 +91,25 @@ def load_config() -> dict[str, Any]:
     if user_data is not None:
         config.update(user_data)
     return config
+
+
+def config_bool(
+    config: Mapping[str, Any],
+    key: str,
+    *,
+    default: bool = True,
+) -> bool:
+    """Config の真偽値キーを厳密に解釈する.
+
+    JSON の bool だけでなく、手編集で ``"false"`` のような文字列が書かれた場合も
+    正しく判定する (Issue #40 の表示トグル等)。値が存在しない場合は ``default``。
+    """
+    value = config.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return bool(value)
 
 
 def user_overrides() -> dict[str, Any]:

@@ -12,6 +12,8 @@
   "thinking": "high",
   "review_thinking": "high",
   "reply_thinking": "low",
+  "show_engine_info_gate1": true,
+  "show_engine_info_gate2": true,
   "review_budget_usd": 2.0,
   "reply_budget_usd": 0.2
 }

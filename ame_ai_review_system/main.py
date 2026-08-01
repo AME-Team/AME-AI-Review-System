@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 from . import github_client, paths, pr_streak, review_config
 from . import payload as payload_module
-from .engine import resolve_settings
+from .engine import apply_engine_info_env, resolve_settings
 
 # ============================================================================
 # Common utilities
@@ -183,7 +183,12 @@ def _build_review_prompt(
     return prompt
 
 
-def _run_engine_capture(_settings: dict[str, Any], prompt: str) -> tuple[int, str, str]:
+def _run_engine_capture(
+    _settings: dict[str, Any],
+    prompt: str,
+    *,
+    show_info: bool = True,
+) -> tuple[int, str, str]:
     """Run engine.py with prompt, return (exit_code, stdout, stderr)."""
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -204,6 +209,10 @@ def _run_engine_capture(_settings: dict[str, Any], prompt: str) -> tuple[int, st
 
     err_file = out_file + ".err"
 
+    # Issue #40: Gate 2 のエンジン情報バナー表示フラグを子プロセスへ注入する。
+    engine_env = dict(os.environ)
+    apply_engine_info_env(engine_env, show_info=show_info)
+
     try:
         with (
             pathlib.Path(prompt_file).open(encoding="utf-8") as pfi,
@@ -221,6 +230,7 @@ def _run_engine_capture(_settings: dict[str, Any], prompt: str) -> tuple[int, st
                 stdin=pfi,
                 stdout=fout,
                 stderr=efi,
+                env=engine_env,
                 timeout=600,
                 check=False,
             )
@@ -350,8 +360,15 @@ def _post_skip_notice(api_url: str, repo: str, pr_number: int, token: str) -> No
         print(f"[review] Failed to notify skip reason: {e}", file=sys.stderr)
 
 
-def _run_engine_text(prompt: str, settings: dict[str, Any]) -> str | None:
-    return payload_module.engine_output_text(_run_engine_capture(settings, prompt))
+def _run_engine_text(
+    prompt: str,
+    settings: dict[str, Any],
+    *,
+    show_info: bool = True,
+) -> str | None:
+    return payload_module.engine_output_text(
+        _run_engine_capture(settings, prompt, show_info=show_info)
+    )
 
 
 def _build_review_payloads(
@@ -524,13 +541,23 @@ def cmd_review(args: argparse.Namespace) -> int:
     # Run engine
     print("[review] Running review via engine.py...")
     settings = resolve_settings("review")
-    if settings["engine"] != "claude":
+    # Issue #40: Gate 2 のエンジン情報表示トグル (既定=表示)。
+    show_info = review_config.config_bool(
+        review_config.load_config(),
+        "show_engine_info_gate2",
+        default=True,
+    )
+    if settings["engine"] != "claude" and show_info:
         print(
             f"[review] WARNING: budget limit not enforced for {settings['engine']}",
             file=sys.stderr,
         )
 
-    engine_exit, engine_out, engine_err = _run_engine_capture(settings, prompt)
+    engine_exit, engine_out, engine_err = _run_engine_capture(
+        settings,
+        prompt,
+        show_info=show_info,
+    )
 
     if engine_err:
         print(f"[review] Engine stderr: {engine_err}", file=sys.stderr)
@@ -557,6 +584,7 @@ def cmd_review(args: argparse.Namespace) -> int:
                 lambda p: _run_engine_text(
                     p,
                     review_config.apply_repair_model(settings),
+                    show_info=show_info,
                 ),
             ),
         )
