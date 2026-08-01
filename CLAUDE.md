@@ -38,7 +38,7 @@ PR に AI レビュアーからインラインレビューコメントが付い�
      `AME_AI_REVIEWER_APP_PRIVATE_KEY`) から発行されたインストールトークンを使用
    - 本文例: `「対応確認しました。LGTM ✅ Resolve してください。」`
 4. **スレッドを Resolve する** — LGTM 返信が来たら Resolve する。
-   - GitHub REST には対応エンドポイントが無い。GraphQL mutation `resolveReviewConversation`
+   - GitHub REST には対応エンドポイントが無い。GraphQL mutation `resolveReviewThread`
      経由で Resolve する。実装は `reply.py` → `github_client.resolve_review_thread` で行う。
 
 ### 2. 返信・Resolve の API まとめ
@@ -57,7 +57,7 @@ CI 上のレビュアートークン（GitHub App インストールトークン
   ame-ai-reviewer : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
 
 スレッド返信 : POST /repos/{repo}/pulls/{pr}/comments/{id}/replies
-Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
+Resolve     : GraphQL mutation resolveReviewThread(input: {threadId: ID!})
 ```
 
 > **トークン取得の優先順位（ファイルが存在しない場合は次を試す）**
