@@ -353,8 +353,6 @@ def _render_reply_workflow(
 name: AI Review Reply
 
 "on":
-  issue_comment:
-    types: [created]
   pull_request_review_comment:
     types: [created]
 
@@ -368,10 +366,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
-      github.event_name == 'issue_comment' &&
-      contains(github.event.comment.body, '@{reviewer_name}') &&
       github.event.comment.user.login != '{bot}' &&
-      !startsWith(github.event.comment.body, '/')
+      !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
+      '@{reviewer_name}')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -391,7 +388,7 @@ jobs:
       - name: Switch to PR branch
         env:
           GITHUB_REPOSITORY: ${{{{ github.repository }}}}
-          PR_NUMBER: ${{{{ github.event.issue.number }}}}
+          PR_NUMBER: ${{{{ github.event.pull_request.number }}}}
           GITHUB_PAT_TOKEN: ${{{{ steps.app_token.outputs.token }}}}
         run: |
           python -m ame_ai_review_system.main checkout "$PR_NUMBER"
@@ -400,7 +397,8 @@ jobs:
 {env_block}
           REVIEW_ENGINE: {engine}
 {opencode_url_env}
-          PR_NUMBER: ${{{{ github.event.issue.number }}}}
+          PR_NUMBER: ${{{{ github.event.pull_request.number }}}}
+          TRIGGER_COMMENT_ID: ${{{{ github.event.comment.id }}}}
         run: |
           python -m ame_ai_review_system.reply run "$PR_NUMBER"
 {_opencode_server_stop_step(engine)}

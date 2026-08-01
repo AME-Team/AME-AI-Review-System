@@ -220,6 +220,35 @@ def is_stale_loop(comment_bodies: list[str]) -> bool:
 # ============================================================================
 
 
+def _thread_is_pending(
+    root_id: int,
+    thread: list[dict[str, Any]] | None,
+    resolved_ids: set[int],
+    reviewer_name: str,
+) -> bool:
+    """1 スレッドが返信待ち状態かを判定する（_get_pending_threads と同一基準）."""
+    if thread is None or root_id in resolved_ids:
+        return False
+
+    replies = thread[1:]
+
+    mention_replies = [
+        r
+        for r in replies
+        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
+    ]
+    if not mention_replies:
+        return False
+
+    latest_mention_time = max(r.get("created_at", "") for r in mention_replies)
+    reviewer_replied_after = any(
+        r.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
+        and r.get("created_at", "") > latest_mention_time
+        for r in replies
+    )
+    return not reviewer_replied_after
+
+
 def _get_pending_threads(
     api_url: str,
     repo: str,
@@ -232,33 +261,40 @@ def _get_pending_threads(
     threads = _group_by_thread(comments)
     resolved_ids = _resolved_root_ids(int(pr), token)
 
-    pending: list[int] = []
-    for root_id, thread in threads.items():
-        if root_id in resolved_ids:
-            continue
+    return [
+        root_id
+        for root_id, thread in threads.items()
+        if _thread_is_pending(root_id, thread, resolved_ids, reviewer_name)
+    ]
 
-        replies = thread[1:]
 
-        mention_replies = [
-            r
-            for r in replies
-            if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
-        ]
-        if not mention_replies:
-            continue
+def _root_id_for_comment(
+    comments: list[dict[str, Any]],
+    comment_id: int,
+) -> int | None:
+    """トリガーコメントを含むスレッドのルートコメント ID を返す.
 
-        latest_mention_time = max(r.get("created_at", "") for r in mention_replies)
-        reviewer_replied_after = any(
-            r.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
-            and r.get("created_at", "") > latest_mention_time
-            for r in replies
-        )
-        if reviewer_replied_after:
-            continue
+    対象が見つからない（PR 本文コメント等の非インライン）場合は None。
+    """
+    for root_id, thread in _group_by_thread(comments).items():
+        if any(int(c["id"]) == comment_id for c in thread):
+            return root_id
+    return None
 
-        pending.append(root_id)
 
-    return pending
+def _thread_still_pending(
+    api_url: str,
+    repo: str,
+    pr: str,
+    thread_id: int,
+    token: str,
+    reviewer_name: str,
+) -> bool:
+    """投稿直前用の保留再チェック。並走実行でレビュアーが返信済みなら False."""
+    comments = _get_thread_comments(api_url, repo, pr, token)
+    thread = _find_thread(comments, thread_id)
+    resolved_ids = _resolved_root_ids(int(pr), token)
+    return _thread_is_pending(thread_id, thread, resolved_ids, reviewer_name)
 
 
 # ============================================================================
@@ -601,56 +637,34 @@ def _build_prompt_for_thread(
     return "\n".join(prompt_lines)
 
 
-def _cmd_run(pr_number_str: str) -> None:
-    api_url, repo = github_client.resolve_env()
-    token = os.environ.get("REVIEWER_TOKEN", "")
-    reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
-    base_ref = os.environ.get("BASE_REF", "main")
-    pr_number = int(pr_number_str)
-
-    if not token:
-        print("[reply] ERROR: REVIEWER_TOKEN not set", file=sys.stderr)
+def _process_thread(
+    api_url: str,
+    repo: str,
+    pr_number: int,
+    thread_id: int,
+    token: str,
+    reviewer_name: str,
+    base_ref: str,
+) -> None:
+    """1 スレッドへの LGTM / 追加指摘投稿を実行する."""
+    if not _thread_still_pending(
+        api_url, repo, str(pr_number), thread_id, token, reviewer_name
+    ):
+        print(f"[reply] Thread {thread_id} no longer pending, skip.")
         return
 
-    print(f"[reply] Scanning PR #{pr_number} for pending reply threads...")
-    pending = _get_pending_threads(
+    stale_status = _check_stale(
         api_url,
         repo,
         str(pr_number),
+        str(thread_id),
         token,
         reviewer_name,
     )
-    pending_count = len(pending)
-
-    if pending_count == 0:
-        print("[reply] No pending threads, done.")
-        return
-
-    print(f"[reply] {pending_count} thread(s) need reply.")
-
-    for thread_id in pending:
-        if not str(thread_id).isdigit():
-            print(f"[reply] WARNING: Invalid THREAD_ID '{thread_id}', skip.")
-            continue
-
-        print(f"[reply] Processing thread {thread_id}...")
-
-        # Stale-loop detection
-        stale_status = _check_stale(
-            api_url,
-            repo,
-            str(pr_number),
-            str(thread_id),
-            token,
-            reviewer_name,
-        )
-        if stale_status == "stale":
-            print(f"[reply] Thread {thread_id} is in stale-loop. Forcing LGTM.")
-            body = _DEFAULT_LGTM
-            status = _post_reply(api_url, repo, pr_number, thread_id, token, body)
-            print(f"[reply] Thread {thread_id} (stale-loop LGTM) → HTTP {status}.")
-            continue
-
+    if stale_status == "stale":
+        print(f"[reply] Thread {thread_id} is in stale-loop. Forcing LGTM.")
+        body = _DEFAULT_LGTM
+    else:
         # Build prompt
         prompt = _build_prompt_for_thread(
             api_url,
@@ -664,7 +678,7 @@ def _cmd_run(pr_number_str: str) -> None:
 
         if not prompt:
             print(f"[reply] Prompt empty for thread {thread_id}, skip.")
-            continue
+            return
 
         # Run engine
         engine_exit, engine_out = _run_engine(prompt)
@@ -686,9 +700,99 @@ def _cmd_run(pr_number_str: str) -> None:
                 )
                 body = _DEFAULT_LGTM
 
-        # Post reply
-        status = _post_reply(api_url, repo, pr_number, thread_id, token, body)
-        print(f"[reply] Thread {thread_id} → HTTP {status}.")
+    # 投稿直前の最新状態で並走実行による重複 LGTM を防ぐ (Issue #39)。
+    # チェック〜投稿間の残存 TOCTOU 窓は許容する。同一 PR の並走を concurrency
+    # で直列化しないのは、投稿遅延を避けるため (設計判断)。
+    if not _thread_still_pending(
+        api_url, repo, str(pr_number), thread_id, token, reviewer_name
+    ):
+        print(f"[reply] Thread {thread_id} already replied meanwhile, skip.")
+        return
+
+    status = _post_reply(api_url, repo, pr_number, thread_id, token, body)
+    print(f"[reply] Thread {thread_id} → HTTP {status}.")
+
+
+def _cmd_run(pr_number_str: str) -> None:
+    api_url, repo = github_client.resolve_env()
+    token = os.environ.get("REVIEWER_TOKEN", "")
+    reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
+    base_ref = os.environ.get("BASE_REF", "main")
+    pr_number = int(pr_number_str)
+
+    if not token:
+        print("[reply] ERROR: REVIEWER_TOKEN not set", file=sys.stderr)
+        return
+
+    trigger_comment_id = os.environ.get("TRIGGER_COMMENT_ID", "").strip()
+
+    if trigger_comment_id:
+        # スコープモード: トリガーとなったインライン返信のスレッドだけに返信する (Issue #39)
+        print(f"[reply] Scoped to trigger comment {trigger_comment_id}...")
+        if not trigger_comment_id.isdigit():
+            print(
+                f"[reply] WARNING: Invalid TRIGGER_COMMENT_ID '{trigger_comment_id}', skip.",
+                file=sys.stderr,
+            )
+            print("[reply] Done.")
+            return
+        comments = _get_thread_comments(api_url, repo, str(pr_number), token)
+        root_id = _root_id_for_comment(comments, int(trigger_comment_id))
+        if root_id is None:
+            print(
+                f"[reply] Trigger comment {trigger_comment_id} is not in an inline "
+                "review thread, skip.",
+                file=sys.stderr,
+            )
+            print("[reply] Done.")
+            return
+        # 保留判定は _process_thread 冒頭の _thread_still_pending に一本化し、
+        # ここでの二重チェックによる API 重複を避ける (指摘対応)。
+        print(f"[reply] Processing thread {root_id}...")
+        _process_thread(
+            api_url,
+            repo,
+            pr_number,
+            root_id,
+            token,
+            reviewer_name,
+            base_ref,
+        )
+    else:
+        # レガシーモード: TRIGGER_COMMENT_ID 未設定時は全保留スレッドへ返信 (手動実行専用)。
+        # CI 経路は常にスコープモードのため、ここは API の N+1 再取得を許容する。
+        # スレッド毎に最新状態を再確認するのは投稿前の正確性 (並走対策) を優先するため。
+        print(f"[reply] Scanning PR #{pr_number} for pending reply threads...")
+        pending = _get_pending_threads(
+            api_url,
+            repo,
+            str(pr_number),
+            token,
+            reviewer_name,
+        )
+        pending_count = len(pending)
+
+        if pending_count == 0:
+            print("[reply] No pending threads, done.")
+            return
+
+        print(f"[reply] {pending_count} thread(s) need reply.")
+
+        for thread_id in pending:
+            if not str(thread_id).isdigit():
+                print(f"[reply] WARNING: Invalid THREAD_ID '{thread_id}', skip.")
+                continue
+
+            print(f"[reply] Processing thread {thread_id}...")
+            _process_thread(
+                api_url,
+                repo,
+                pr_number,
+                thread_id,
+                token,
+                reviewer_name,
+                base_ref,
+            )
 
     print("[reply] Done.")
 

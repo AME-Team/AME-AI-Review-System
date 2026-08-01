@@ -78,9 +78,11 @@ Resolve     : GraphQL mutation resolveReviewThread(input: {threadId: ID!})
 1. **レビュー実行**: PR コメントで `/request-review`
    が入力されたときにインラインコメントを投稿する（`review_command.yml`）。`/review`
    も同じコマンドのエイリアス。
-2. **返信判断**: `issue_comment: created` イベントで `@<レビュアー名>`
-   宛ての返信を検知する。**実際の diff を読んで LGTM か追加指摘かを判断**して返信する（`review_reply.yml`）。ただし
-   `/` で始まるコメント（コマンド）は返信判定の対象外。
+2. **返信判断**: インライン返信（`pull_request_review_comment: created` イベント）で
+   `@<レビュアー名>`
+   宛ての返信を検知する。**トリガーとなったスレッド 1 件だけに**、実際の diff を読んで LGTM か追加指摘かを判断して返信する（`review_reply.yml`、1 返信 =
+   1 LGTM / Issue #39）。ただし `/`
+   で始まるコメント（コマンド）は返信判定の対象外。PR 本文コメント（`issue_comment`）では発火しない。
 
 返信判断は `reply.py` (`python3 -m ame_ai_review_system.reply run`) → Claude
 Sonnet のフローで実行される。Claude はレビュアーとして「元の指摘内容」「開発者の返信」「PR の diff」を照合し、修正が十分かを判断する。
