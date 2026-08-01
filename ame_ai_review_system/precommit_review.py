@@ -39,9 +39,7 @@ def _staged_files() -> list[str]:
         "--name-only",
         "--diff-filter=d",
     ])
-    files = [line.strip() for line in out.splitlines() if line.strip()]
-    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
-    return review_config.filter_review_targets(files)
+    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def _truncate_diff(diff: str) -> str:
@@ -358,10 +356,30 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    staged_files = _staged_files()
+    raw_staged = _staged_files()
+    if not raw_staged:
+        # _staged_files は --diff-filter=d で削除を除くため、削除のみのステージは
+        # ここに落ちる。削除は AI レビュー対象外である旨を明示する。
+        deleted = precommit_state.run_git(
+            ["diff", "--cached", "--name-only", "--diff-filter=D"],
+        )
+        deleted_files = [line for line in deleted.splitlines() if line.strip()]
+        if deleted_files:
+            print(
+                f"[precommit-review] {len(deleted_files)} staged deletion(s); "
+                "deletions are not AI-reviewed; skipping.",
+                file=sys.stderr,
+            )
+        else:
+            print("[precommit-review] no staged changes; skipping.", file=sys.stderr)
+        return 0
+    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
+    staged_files = review_config.filter_review_targets(raw_staged)
     if not staged_files:
+        rel = review_config.review_exclusion_rel() or "ame_ai_review_system"
         print(
-            "[precommit-review] no staged changes to review; skipping.",
+            f"[precommit-review] {len(raw_staged)} staged file(s) under "
+            f"{rel} excluded (Issue #37); skipping.",
             file=sys.stderr,
         )
         return 0

@@ -37,6 +37,11 @@ STALE_ROUND_THRESHOLD = 3
 MAX_REVIEWS = 10
 MAX_DIFF_LINES = 4000
 HTTP_STATUS_OK = 200
+# 除外ディレクトリのみの変更でスキップ通知を投稿する際の重複防止マーカー (PR 番号が付与される)。
+SKIP_NOTICE_MARKER = "ame-review-skip-notice"
+# スキップ通知の既存判定で使うページサイズ / ページ上限。
+SKIP_NOTICE_PAGE_SIZE = 100
+SKIP_NOTICE_MAX_PAGES = 10
 
 
 def _get_env(key: str, default: str = "") -> str:
@@ -255,6 +260,96 @@ def _post_review(
         return 200, resp
 
 
+def skip_notice_already_posted(
+    comments: list[dict[str, Any]],
+    marker: str,
+    issue_url: str,
+) -> bool:
+    """対象 PR 向けのスキップ通知が既に投稿済みか判定する."""
+    normalized_issue_url = issue_url.rstrip("/")
+    return any(
+        marker in str(c.get("body", ""))
+        and str(c.get("issue_url", "")).rstrip("/") == normalized_issue_url
+        for c in comments
+    )
+
+
+def _post_skip_notice(api_url: str, repo: str, pr_number: int, token: str) -> None:
+    """レビュー対象外スキップの通知を PR へ一度だけ投稿する."""
+    # スキップ理由を PR へ通知して /request-review が無視されたことを可視化する。
+    # マーカー付きコメントを一度だけ投稿し、再リクエストでの重複を防ぐ。
+    notice_url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments"
+    # PR 番号入りマーカーで他 PR の通知と混同しない。
+    marker = f"{SKIP_NOTICE_MARKER}-pr{pr_number}"
+    issue_url = f"{api_url}/repos/{repo}/issues/{pr_number}"
+    try:
+        # 高速パス: リポジトリ横断の降順クエリで直近100件から判定 (1リクエスト)。
+        existing = github_client.http_request(
+            "GET",
+            f"{api_url}/repos/{repo}/issues/comments"
+            f"?sort=created&direction=desc&per_page={SKIP_NOTICE_PAGE_SIZE}",
+            token,
+        )
+        if isinstance(existing, list):
+            already_posted = skip_notice_already_posted(
+                cast("list[dict[str, Any]]", existing),
+                marker,
+                issue_url,
+            )
+        else:
+            print(
+                f"[review] Unexpected comments response type: "
+                f"{type(existing).__name__}",
+                file=sys.stderr,
+            )
+            already_posted = False
+        # 直近100件に無い場合は PR スコープを全ページ走査して確実に判定する。
+        if not already_posted:
+            page = 1
+            while page <= SKIP_NOTICE_MAX_PAGES:
+                resp = github_client.http_request(
+                    "GET",
+                    f"{notice_url}?per_page={SKIP_NOTICE_PAGE_SIZE}&page={page}",
+                    token,
+                )
+                if not isinstance(resp, list) or not resp:
+                    break
+                resp_list = cast("list[dict[str, Any]]", resp)
+                if skip_notice_already_posted(resp_list, marker, issue_url):
+                    already_posted = True
+                    break
+                if len(resp_list) < SKIP_NOTICE_PAGE_SIZE:
+                    break
+                page += 1
+    except RuntimeError as e:
+        print(
+            f"[review] Failed to check existing skip notice: {e}",
+            file=sys.stderr,
+        )
+        return
+    if already_posted:
+        print("[review] Skip notification already posted; skipping.")
+        return
+    # チェック→投稿は REST 上アトミックではないが、マーカー確認で重複の
+    # 実害を実用上ほぼ排除できる (ベストエフォート)。
+    body = (
+        "**レビュー対象外**\n\n"
+        "変更が `ame_ai_review_system/` 配下のみのため、AI レビューをスキップしました "
+        "(Issue #37)。`.ame-review/config.json` の `review_include_package_dir` を "
+        "`true` にすると対象になります。\n\n"
+        f"<!-- {marker} -->"
+    )
+    try:
+        github_client.http_request(
+            "POST",
+            notice_url,
+            token,
+            body={"body": body},
+        )
+    except RuntimeError as e:
+        print(f"[review] Failed to notify skip reason: {e}", file=sys.stderr)
+
+
 def _run_engine_text(prompt: str, settings: dict[str, Any]) -> str | None:
     return payload_module.engine_output_text(_run_engine_capture(settings, prompt))
 
@@ -362,21 +457,7 @@ def cmd_review(args: argparse.Namespace) -> int:
     if not diff.strip():
         print("[review] No diff outside ame_ai_review_system. Skipping review.")
         if token:
-            # スキップ理由を PR へ通知して /request-review が無視されたことを可視化する。
-            body = (
-                "**レビュー対象外**\n\n"
-                "変更が `ame_ai_review_system/` 配下のみのため、AI レビューをスキップしました "
-                "(Issue #37)。`config.json` の `review_include_package_dir` を `true` にすると対象になります。"
-            )
-            try:
-                github_client.http_request(
-                    "POST",
-                    f"{api_url}/repos/{repo}/issues/{pr_number}/comments",
-                    token,
-                    body={"body": body},
-                )
-            except RuntimeError as e:
-                print(f"[review] Failed to notify skip reason: {e}", file=sys.stderr)
+            _post_skip_notice(api_url, repo, pr_number, token)
         return 0
 
     diff_lines = diff.count("\n")
