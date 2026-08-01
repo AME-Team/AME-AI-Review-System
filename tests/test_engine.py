@@ -486,12 +486,12 @@ def test_run_engine_warns_non_claude_budget(
     assert "budget limit is not enforced" in err.err
 
 
-def test_run_engine_hides_non_claude_budget_warning_without_flag(
+def test_run_engine_hides_non_claude_budget_warning_with_zero_flag(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # Issue #40: 非表示時はエンジン名が漏れないよう budget 警告も抑止する。
-    monkeypatch.delenv("AME_ENGINE_SHOW_INFO", raising=False)
+    monkeypatch.setenv("AME_ENGINE_SHOW_INFO", "0")
     _patch_adapter(monkeypatch, result="ok")
     run_engine(
         {
@@ -513,12 +513,35 @@ def test_run_engine_hides_non_claude_budget_warning_without_flag(
 # --- engine info banner (Issue #40) -----------------------------------------
 
 
-def test_run_engine_banner_hidden_without_flag(
+def test_run_engine_banner_shown_by_default(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # AME_ENGINE_SHOW_INFO 未設定時はエンジン情報バナーを出力しない (既定=非表示)。
+    # AME_ENGINE_SHOW_INFO 未注入時は既定で表示 (後方互換・config 既定の表示と一致)。
     monkeypatch.delenv("AME_ENGINE_SHOW_INFO", raising=False)
+    _patch_adapter(monkeypatch, result="ok")
+    run_engine(
+        {
+            "engine": "claude",
+            "model": "sonnet",
+            "thinking": "high",
+            "budget": 2.0,
+            "sdk_lang": "python",
+            "timeout": 600.0,
+            "role": "review",
+        },
+        "PROMPT",
+    )
+    err = capsys.readouterr().err
+    assert "[engine] claude starting" in err
+
+
+def test_run_engine_banner_hidden_with_zero_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 非表示は明示値 0 で制御する (Issue #40)。
+    monkeypatch.setenv("AME_ENGINE_SHOW_INFO", "0")
     _patch_adapter(monkeypatch, result="ok")
     run_engine(
         {
@@ -540,7 +563,7 @@ def test_run_engine_banner_shown_with_flag(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # AME_ENGINE_SHOW_INFO=1 注入時のみエンジン情報バナーを出力する (Issue #40)。
+    # AME_ENGINE_SHOW_INFO=1 注入時はエンジン情報バナーを出力する (Issue #40)。
     monkeypatch.setenv("AME_ENGINE_SHOW_INFO", "1")
     _patch_adapter(monkeypatch, result="ok")
     run_engine(

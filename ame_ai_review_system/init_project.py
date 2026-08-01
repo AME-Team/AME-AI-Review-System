@@ -256,7 +256,7 @@ def _render_command_workflow(
         if engine == "opencode"
         else ""
     )
-    # Issue #40: エンジン情報の表示/非表示は Variables (実値エコー) / Secrets (マスク) で制御する。
+    # Issue #40: エンジン情報の表示/非表示は Variables (実値表示) / Secrets (マスク) で制御する。
     # この文字列は f-string でないため、${{ ... }} はそのまま出力される。
     # REVIEW_ENGINE は未登録時に従来の既定エンジンへフォールバック (後方互換)。
     engine_info_env = (
@@ -359,7 +359,7 @@ def _render_reply_workflow(
         if engine == "opencode"
         else ""
     )
-    # Issue #40: エンジン情報の表示/非表示は Variables (実値エコー) / Secrets (マスク) で制御する。
+    # Issue #40: エンジン情報の表示/非表示は Variables (実値表示) / Secrets (マスク) で制御する。
     # この文字列は f-string でないため、${{ ... }} はそのまま出力される。
     # REVIEW_ENGINE は未登録時に従来の既定エンジンへフォールバック (後方互換)。
     engine_info_env = (

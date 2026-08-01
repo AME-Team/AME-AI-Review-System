@@ -59,10 +59,14 @@ def _first_nonempty(*values: str | None) -> str | None:
 def _engine_info_enabled() -> bool:
     """エンジン情報バナーを出力すべきかを判定する.
 
-    親プロセスが config トグルを反映して ``AME_ENGINE_SHOW_INFO=1`` を注入する。
-    未注入 (1 以外) の場合は既定で非表示 (Issue #40)。
+    親プロセスが config トグルを反映して ``AME_ENGINE_SHOW_INFO`` を注入する。
+    未注入の場合は既定で表示 (後方互換・config の既定表示と一致)。非表示にするには
+    ``0`` / ``false`` を明示的に注入する (Issue #40)。
     """
-    return os.environ.get(_ENGINE_INFO_ENV) == "1"
+    raw = os.environ.get(_ENGINE_INFO_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no"}
 
 
 def apply_engine_info_env(
@@ -72,14 +76,11 @@ def apply_engine_info_env(
 ) -> dict[str, str]:
     """エンジン情報バナー表示フラグを子プロセス env へ反映する (Issue #40).
 
-    表示時は ``AME_ENGINE_SHOW_INFO=1`` を注入し、非表示時は既存値を掃除する。
-    ``_engine_info_enabled`` と対になり、注入漏れによる既定非表示へのフォールバック
-    (バナー・予算警告の消失) を防ぐ共通入口。
+    表示時は ``AME_ENGINE_SHOW_INFO=1``、非表示時は ``0`` を明示的に注入する。
+    ``_engine_info_enabled`` と対になり、config トグルからバナー・budget 警告の
+    出力可否を一貫して伝える共通入口。注入漏れ時は既定で表示へフォールバックする。
     """
-    if show_info:
-        env["AME_ENGINE_SHOW_INFO"] = "1"
-    else:
-        env.pop("AME_ENGINE_SHOW_INFO", None)
+    env["AME_ENGINE_SHOW_INFO"] = "1" if show_info else "0"
     return env
 
 

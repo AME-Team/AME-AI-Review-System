@@ -108,6 +108,8 @@ def config_bool(
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
+        if not value.strip():
+            return default
         return value.strip().lower() in {"1", "true", "yes"}
     return bool(value)
 

@@ -359,7 +359,7 @@ def test_build_env_sets_show_info_when_default() -> None:
     assert env["AME_ENGINE_SHOW_INFO"] == "1"
 
 
-def test_build_env_removes_show_info_when_false() -> None:
+def test_build_env_sets_show_info_zero_when_false() -> None:
     env = precommit_engine.build_env(
         {"PATH": "/usr/bin", "AME_ENGINE_SHOW_INFO": "1"},
         {
@@ -370,4 +370,4 @@ def test_build_env_removes_show_info_when_false() -> None:
             "show_info": False,
         },
     )
-    assert "AME_ENGINE_SHOW_INFO" not in env
+    assert env["AME_ENGINE_SHOW_INFO"] == "0"
