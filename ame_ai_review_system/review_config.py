@@ -180,10 +180,11 @@ def _is_path_under(path: str, rel: str) -> bool:
 
 def _split_diff_sections(diff_text: str) -> list[list[str]]:
     """``diff --git`` ヘッダ行で diff をファイル単位のセクションへ分割する."""
+    lines = diff_text.splitlines()
     sections: list[list[str]] = []
     current: list[str] = []
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
+    for i, line in enumerate(lines):
+        if line.startswith("diff --git ") and _looks_like_diff_header(lines, i):
             if current:
                 sections.append(current)
             current = [line]
@@ -192,6 +193,33 @@ def _split_diff_sections(diff_text: str) -> list[list[str]]:
     if current:
         sections.append(current)
     return sections
+
+
+# ヘッダ直後に現れるファイル境界の目印。差分の内容行 (追加/削除) は必ず
+# ``+`` / ``-`` / スペースで始まるため、この判定で誤分割しない。
+_DIFF_HEADER_FOLLOWERS = (
+    "index ",
+    "new file mode ",
+    "deleted file mode ",
+    "old mode ",
+    "new mode ",
+    "similarity index ",
+    "dissimilarity index ",
+    "rename from ",
+    "rename to ",
+    "copy from ",
+    "copy to ",
+    "--- ",
+    "+++ ",
+)
+
+
+def _looks_like_diff_header(lines: list[str], i: int) -> bool:
+    """``diff --git`` 行がファイル境界か (直後の数行にヘッダ対が続くか) 判定する."""
+    for j in range(i + 1, min(i + 4, len(lines))):
+        if lines[j].startswith(_DIFF_HEADER_FOLLOWERS):
+            return True
+    return False
 
 
 # ``diff --git a/foo b/foo`` ヘッダ内のパストークン。空白を含むパスは git が

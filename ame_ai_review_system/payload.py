@@ -124,8 +124,9 @@ def build_repair_prompt(broken: str) -> str:
     """壊れたレビュー出力から JSON を復元する修復用プロンプトを組み立てる."""
     # 弱いモデルはツール呼び出し構文や余計な前後テキストを付けて JSON を壊すことがある。
     # 修復用プロンプトは小さく保ち、スキーマを明示して JSON のみを返させる。
-    # 埋め込み前にバックティックを全て除去し、````` ``` ```` フェンスを途中で閉じないようにする。
-    safe = broken.replace("`", "\u201e")
+    # 埋め込み前にバックティックを ``·`` (U+00B7) へ置換し、````` ``` ```` フェンスを
+    # 途中で閉じたり、``\u201e`` の連続と紛れないようにする。
+    safe = broken.replace("`", "\u00b7")
     return (
         "あなたは JSON 修復のアシスタントです。\n"
         "以下は AI コードレビューの出力ですが、JSON として壊れています。\n"
@@ -146,9 +147,14 @@ _FULLWIDTH_MARKER_RE = re.compile("\uff5c\uff5c" + r"[\s\S]*?" + "\uff5c\uff5c")
 
 def _strip_tool_call_syntax(raw: str) -> str:
     """ツール呼び出しブロックを除去して JSON 抽出の成功確率を上げる (構造的修復)."""
-    raw = _TOOL_CALL_BLOCK_RE.sub("", raw)
-    raw = _INVOKE_BLOCK_RE.sub("", raw)
-    return _FULLWIDTH_MARKER_RE.sub("", raw)
+    stripped = _TOOL_CALL_BLOCK_RE.sub("", raw)
+    stripped = _INVOKE_BLOCK_RE.sub("", stripped)
+    # ツール呼び出しブロックが検出された場合のみ全幅マーカーを除去する。
+    # パース失敗の原因がツール呼び出しと無関係な場合に、JSON 本文の Markdown
+    # 装飾 (全幅縦棒等) を誤って壊さないようにする。
+    if stripped != raw:
+        return _FULLWIDTH_MARKER_RE.sub("", stripped)
+    return stripped
 
 
 def repair_review_json(

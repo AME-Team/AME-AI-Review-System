@@ -70,8 +70,9 @@ async function main() {
   });
 
   const session = await client.session.create({ body: { title: "ame-review" } });
-  // session.create は { data: {...} } を返す (SDK 1.18.x)。id は data 配下にある。
-  const sessionId = session?.data?.id;
+  // session.create の応答は SDK バージョンにより { data: {...} } と生値の両方の
+  // 契約があり得るため、prompt 側と同様に両方へ対応する。
+  const sessionId = session?.data?.id || session?.id;
   if (!sessionId) {
     console.error("[opencode.mjs] failed to obtain session id from create response");
     process.exit(1);
