@@ -32,23 +32,34 @@ if: >-
 
 ---
 
-## 2. LLM エンジンの `command not found` エラーが発生する
+## 2. LLM エンジンの SDK / サーバ接続エラーが発生する
 
-### 症状: コマンドが見つからない
+### 症状: エンジン呼び出し失敗
 
-GitHub Actions のログに `[engine] '<binary>' not found on PATH (engine=...)`
-が出力され、レビュー実行ステップが失敗する。
+GitHub Actions のログに SDK 未インストールやサーバ接続エラーが出力されます。たとえば Claude では
+`[engine] claude-agent-sdk is not installed` が出ます。OpenCode では
+`[opencode.mjs] failed to connect to OpenCode server`
+が出ます。これによりレビュー実行ステップが失敗します。
 
 ### 原因: ランナー環境の未セットアップ
 
-Actions ランナー環境に、選択したエンジンの CLI（既定の `claude`、または `opencode` /
-`agy`）がインストールされていない、または実行パスが通っていません。
+Actions ランナー環境に、選択したエンジンの SDK がインストールされていない、または認証情報が未設定です。各エンジンは SDK 経由で動作する（`engine.py`
+は CLI バイナリのサブプロセス呼び出しを廃止済み）。
 
-### 対策: CLI のインストール
+- `claude` … `claude-agent-sdk`（Python）または
+  `@anthropic-ai/claude-agent-sdk`（TypeScript サイドカー）
+- `opencode` … `@opencode-ai/sdk`（TypeScript サイドカー）。サーバ起動に `opencode`
+  CLI（`opencode serve`）が必要
+- `antigravity` … `google-antigravity`（Python SDK）
 
-Actions のホストランナー、あるいは使用しているコンテナ環境内に使用するエンジンの CLI ツールをインストールしてください。また、インストールされたディレクトリが
-`PATH` 環境変数に含まれていることを確認してください。エンジンは `config.json` の `engine`
-または環境変数 `REVIEW_ENGINE` で選択します。
+### 対策: SDK と認証情報のセットアップ
+
+Actions のホストランナー、あるいは使用しているコンテナ環境内に使用するエンジンの SDK と認証情報をセットアップしてください。Python
+SDK は `pip install 'ame-ai-review-system[claude]'` / `[antigravity]`
+の extras で導入します。TypeScript SDK は `engines/ts/` 配下の `npm`
+依存で導入します。OpenCode は追加で `opencode` CLI をインストールし `opencode serve`
+でサーバを起動すること。エンジンは `config.json` の `engine` または環境変数 `REVIEW_ENGINE`
+で選択します。
 
 ---
 
