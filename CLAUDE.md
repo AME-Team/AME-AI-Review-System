@@ -5,29 +5,18 @@
 ### マージフロー
 
 ```text
-feature/* | bug/* | chore/*  ──►  dev  ──►  main
-         作業ブランチ              統合先    リリース
+feature/* | bug/* | chore/*  ──►  main
+         作業ブランチ              リリース
 ```
 
 ### PR のデフォルト base
 
-- **AI Agent が PR を作成する際のデフォルト base は `dev` とする。**
-- `gh pr create --base dev --head <ブランチ名>` の形式で作成すること。
-- ユーザーが `main` を明示的に指示した場合のみ `--base main` を使う。
-
-### dev → main PR の作成
-
-ユーザーから「main へ昇格」「リリース」「dev →
-main の PR を作成」等の明示的な指示があった場合のみ、以下のコマンドで PR を作成する。
-
-```bash
-gh pr create --base main --head dev --title "release: dev → main" --body "..."
-```
+- **AI Agent が PR を作成する際のデフォルト base は `main` とする。**
+- `gh pr create --base main --head <ブランチ名>` の形式で作成すること。
 
 ### 禁止事項
 
-- `gh pr create` の `--base` を省略しない（デフォルトが `main` になるため）。
-- 作業ブランチから直接 `main` へ PR を作成しない。
+- `gh pr create` の `--base` を省略しない。
 
 ## PR レビュー対応フロー（必須）
 
@@ -49,7 +38,7 @@ PR に AI レビュアーからインラインレビューコメントが付い�
      `AME_AI_REVIEWER_APP_PRIVATE_KEY`) から発行されたインストールトークンを使用
    - 本文例: `「対応確認しました。LGTM ✅ Resolve してください。」`
 4. **スレッドを Resolve する** — LGTM 返信が来たら Resolve する。
-   - GitHub REST には対応エンドポイントが無い。GraphQL mutation `resolveReviewConversation`
+   - GitHub REST には対応エンドポイントが無い。GraphQL mutation `resolveReviewThread`
      経由で Resolve する。実装は `reply.py` → `github_client.resolve_review_thread` で行う。
 
 ### 2. 返信・Resolve の API まとめ
@@ -68,7 +57,7 @@ CI 上のレビュアートークン（GitHub App インストールトークン
   ame-ai-reviewer : ~/.config/ame-ai-review-system/ame-ai-reviewer.token
 
 スレッド返信 : POST /repos/{repo}/pulls/{pr}/comments/{id}/replies
-Resolve     : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
+Resolve     : GraphQL mutation resolveReviewThread(input: {threadId: ID!})
 ```
 
 > **トークン取得の優先順位（ファイルが存在しない場合は次を試す）**

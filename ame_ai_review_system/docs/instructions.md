@@ -6,7 +6,7 @@
 ### 本レビューシステムの特徴
 
 - **ベースブランチ全累積差分レビュー (`origin/<base>...HEAD`;
-  base は main または dev)**: 複数コミットを含むPRでも差分の全容を漏らさず正確に評価。
+  base は main)**: 複数コミットを含むPRでも差分の全容を漏らさず正確に評価。
 - **厳格なデフォルト静的解析**: 機械的指摘は前段の静的解析 (tsc / eslint / mypy / ruff /
   semgrep) で高い精度で捕捉。
 - **Gate 1 (ローカル) & Gate 2
@@ -140,5 +140,5 @@ Code 等）がこのプロジェクトで PR 修正作業を行う場合は、�
 3. **LGTM 待機と Resolve 処理**: AI レビュアーからの `LGTM`
    返信が API 経由で取得できるまで待機し、確認後にスレッドを Resolve（解決）に変更すること。
    - Resolve API: GitHub REST に相当エンドポイントが無いため GraphQL mutation
-     `resolveReviewConversation(input: {threadId: ID!})` を使用（`reply.py` →
+     `resolveReviewThread(input: {threadId: ID!})` を使用（`reply.py` →
      `github_client.resolve_review_thread` がラップ）。

@@ -40,7 +40,7 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
 
 _RESOLVE_THREAD_MUTATION = """
 mutation($threadId: ID!) {
-  resolveReviewConversation(input: {threadId: $threadId}) {
+  resolveReviewThread(input: {threadId: $threadId}) {
     thread { id isResolved }
   }
 }

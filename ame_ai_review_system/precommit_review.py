@@ -72,8 +72,11 @@ def _build_diff(base_ref: str) -> str:
     # 「今回のコミット対象」が必ずレビューに含まれるようにする。
     # diff 内のバックティック (docstring の削除等) でプロンプト構造が壊れないようサニタイズ。
     parts: list[str] = []
+    # Issue #37: 除外対象ディレクトリ配下の差分を除去してからサニタイズする。
     staged_diff = _sanitize_for_codeblock(
-        precommit_state.run_git(["diff", "--cached"]).strip(),
+        review_config.filter_review_diff(
+            precommit_state.run_git(["diff", "--cached"]).strip(),
+        ),
     )
     if staged_diff:
         parts.append(
@@ -82,9 +85,11 @@ def _build_diff(base_ref: str) -> str:
             + "\n```",
         )
     branch_diff = _sanitize_for_codeblock(
-        precommit_state.run_git(
-            ["diff", f"origin/{base_ref}...HEAD"],
-        ).strip(),
+        review_config.filter_review_diff(
+            precommit_state.run_git(
+                ["diff", f"origin/{base_ref}...HEAD"],
+            ).strip(),
+        ),
     )
     if branch_diff:
         parts.append(
@@ -351,9 +356,32 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    staged_files = _staged_files()
+    raw_staged = _staged_files()
+    if not raw_staged:
+        # _staged_files は --diff-filter=d で削除を除くため、削除のみのステージは
+        # ここに落ちる。削除は AI レビュー対象外である旨を明示する。
+        deleted = precommit_state.run_git(
+            ["diff", "--cached", "--name-only", "--diff-filter=D"],
+        )
+        deleted_files = [line for line in deleted.splitlines() if line.strip()]
+        if deleted_files:
+            print(
+                f"[precommit-review] {len(deleted_files)} staged deletion(s); "
+                "deletions are not AI-reviewed; skipping.",
+                file=sys.stderr,
+            )
+        else:
+            print("[precommit-review] no staged changes; skipping.", file=sys.stderr)
+        return 0
+    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
+    staged_files = review_config.filter_review_targets(raw_staged)
     if not staged_files:
-        print("[precommit-review] no staged changes; skipping.", file=sys.stderr)
+        rel = review_config.review_exclusion_rel() or "ame_ai_review_system"
+        print(
+            f"[precommit-review] {len(raw_staged)} staged file(s) under "
+            f"{rel} excluded (Issue #37); skipping.",
+            file=sys.stderr,
+        )
         return 0
 
     # base_ref も LLM プロンプトに埋め込むため、branch と同基準で検証する。
@@ -459,7 +487,19 @@ def main(argv: list[str] | None = None) -> int:
             raise
         with fh:
             fh.write(output)
-        review, is_fallback = payload.parse_review_json_with_flag(str(review_tmp))
+        review, is_fallback = payload.parse_review_json_with_flag(
+            str(review_tmp),
+            repair=lambda broken: payload.repair_review_json(
+                broken,
+                lambda p: payload.engine_output_text(
+                    _run_engine(
+                        p,
+                        engine_path,
+                        review_config.apply_repair_model(engine_settings),
+                    ),
+                ),
+            ),
+        )
     finally:
         review_tmp.unlink(missing_ok=True)
 

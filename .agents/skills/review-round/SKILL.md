@@ -62,7 +62,7 @@ PR 上で実行する品質ゲートです。以下のループを未解決ス�
    - LGTM: `対応確認しました。LGTM ✅ Resolve してください。`
    - 追加指摘 → Step 6 に戻る
 9. **Resolve** — LGTM が届いたスレッドを解決済みに変更
-   - API: GraphQL mutation `resolveReviewConversation(input: {threadId: ID!})`
+   - API: GraphQL mutation `resolveReviewThread(input: {threadId: ID!})`
 10. **未解決スレッドチェック**
     - 残っていれば Step 6 に戻る
     - ゼロなら最終レビューへ
@@ -101,7 +101,7 @@ GraphQL      : https://api.github.com/graphql
 レビュー依頼   : POST /repos/{repo}/issues/{pr}/comments
 コメント取得   : GET  /repos/{repo}/pulls/{pr}/comments
 スレッド返信   : POST /repos/{repo}/pulls/{pr}/comments/{id}/replies
-Resolve       : GraphQL mutation resolveReviewConversation(input: {threadId: ID!})
+Resolve       : GraphQL mutation resolveReviewThread(input: {threadId: ID!})
 ```
 
 > GitHub Actions 上では `GITHUB_REPOSITORY` / `GITHUB_API_URL`

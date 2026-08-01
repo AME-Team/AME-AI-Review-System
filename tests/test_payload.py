@@ -54,3 +54,112 @@ def test_parse_review_json_with_flag_false_on_valid(tmp_path: Path) -> None:
     res, is_fallback = parse_review_json_with_flag(str(tmp_file))
     assert is_fallback is False
     assert res["summary"] == "LGTM"
+
+
+def test_parse_review_json_repair_fixes_broken_output(tmp_path: Path) -> None:
+    broken = (
+        '<invoke name="bash">\n'
+        "git status\n"
+        "</invoke>\n"
+        '{"summary": "repaired", "comments": []}\n'
+        "trailing text"
+    )
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text(broken, encoding="utf-8")
+
+    def _repair(raw: str) -> str | None:
+        assert "git status" in raw
+        return '{"summary": "repaired", "comments": []}'
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file), repair=_repair)
+    assert is_fallback is False
+    assert res["summary"] == "repaired"
+
+
+def test_parse_review_json_repair_none_keeps_fallback(tmp_path: Path) -> None:
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    res, is_fallback = parse_review_json_with_flag(
+        str(tmp_file),
+        repair=lambda _raw: None,
+    )
+    assert is_fallback is True
+    assert res["comments"] == []
+
+
+def test_parse_review_json_repair_retries_on_broken_first_attempt(
+    tmp_path: Path,
+) -> None:
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    calls = {"n": 0}
+
+    def _repair(_raw: str) -> str | None:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            return "still broken"
+        return '{"summary": "recovered", "comments": []}'
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file), repair=_repair)
+    assert is_fallback is False
+    assert res["summary"] == "recovered"
+    assert calls["n"] == 2
+
+
+def test_structural_repair_preserves_fullwidth_bars_in_repair_input(
+    tmp_path: Path,
+) -> None:
+    # ツール呼び出しブロックを含まない壊れ出力では全幅マーカー除去を適用せず、
+    # JSON 本文の全幅縦棒 (Markdown 装飾等) を修復入力へそのまま渡す。
+    broken = '{"summary": "a \uff5c b", "comments": []'
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text(broken, encoding="utf-8")
+
+    received: dict[str, str] = {}
+
+    def _repair(raw: str) -> str | None:
+        received["raw"] = raw
+        return '{"summary": "fixed", "comments": []}'
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file), repair=_repair)
+    assert is_fallback is False
+    assert res["summary"] == "fixed"
+    assert "\uff5c" in received["raw"]
+
+
+def test_parse_review_json_structural_repair_without_llm(tmp_path: Path) -> None:
+    # ツール呼び出しブロック内の「{」によりブレーススキャンが失敗し、
+    # 構造的修復 (ツール呼び出し構文の除去) が実際に駆動されることを確認する。
+    broken = (
+        "<tool_calls>\n"
+        '<invoke name="bash">\n'
+        "echo '{\n"
+        "</invoke>\n"
+        "</tool_calls>\n"
+        '{"summary": "structural", "comments": []}\n'
+    )
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text(broken, encoding="utf-8")
+
+    called = {"llm": False}
+
+    def _repair(_raw: str) -> str | None:
+        called["llm"] = True
+        return None
+
+    res, is_fallback = parse_review_json_with_flag(str(tmp_file), repair=_repair)
+    assert is_fallback is False
+    assert res["summary"] == "structural"
+    assert called["llm"] is False
+
+
+def test_build_repair_prompt_sanitizes_fence() -> None:
+    from ame_ai_review_system.payload import build_repair_prompt
+
+    broken = '前書き\n```json\n{"summary": "x"}\n```\n後書き'
+    prompt = build_repair_prompt(broken)
+    assert "```json" not in prompt
+    assert "\u00b7\u00b7\u00b7json" in prompt
+    assert prompt.count("```") == 2

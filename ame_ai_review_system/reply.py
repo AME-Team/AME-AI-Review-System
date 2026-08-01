@@ -25,7 +25,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import github_client
+from . import github_client, review_config
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
 
@@ -140,6 +140,8 @@ def _get_pr_diff(
             raw = None
         if raw:
             raw = diff_utils.compact_diff(raw)
+            # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
+            raw = review_config.filter_review_diff(raw)
             all_lines = raw.splitlines()
             if len(all_lines) > max_diff_lines:
                 return (
@@ -167,6 +169,8 @@ def _get_pr_diff(
         except subprocess.CalledProcessError:
             return ""
     result = diff_utils.compact_diff(result)
+    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
+    result = review_config.filter_review_diff(result)
     all_lines = result.splitlines()
     if len(all_lines) > max_diff_lines:
         return (

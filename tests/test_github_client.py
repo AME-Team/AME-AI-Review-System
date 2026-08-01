@@ -441,7 +441,7 @@ def test_resolve_review_thread_matches_comment_id(
     ) -> dict[str, Any]:
         mutation_calls.append({"query": query, "variables": variables})
         return {
-            "resolveReviewConversation": {
+            "resolveReviewThread": {
                 "thread": {"id": variables["threadId"], "isResolved": True},
             },
         }
