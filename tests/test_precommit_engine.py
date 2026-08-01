@@ -318,3 +318,56 @@ def test_build_env_omits_budget_when_none() -> None:
         {"engine": "opencode", "model": None, "thinking": "high", "budget": None},
     )
     assert "REVIEW_BUDGET_USD" not in env or env.get("REVIEW_BUDGET_USD") is None
+
+
+# ---------------------------
+# show_engine_info_gate1 / AME_ENGINE_SHOW_INFO (Issue #40)
+# ---------------------------
+
+
+def test_resolve_show_info_defaults_true() -> None:
+    settings = precommit_engine.resolve_engine_settings(
+        config={"engine": "claude"},
+        env={},
+    )
+    assert settings["show_info"] is True
+
+
+def test_resolve_show_info_gate1_false() -> None:
+    settings = precommit_engine.resolve_engine_settings(
+        config={"show_engine_info_gate1": False},
+        env={},
+    )
+    assert settings["show_info"] is False
+
+
+def test_resolve_show_info_string_false() -> None:
+    # config.user.json で "false" が文字列として書かれても false と解釈する (Issue #40)。
+    settings = precommit_engine.resolve_engine_settings(
+        config={"show_engine_info_gate1": "false"},
+        env={},
+    )
+    assert settings["show_info"] is False
+
+
+def test_build_env_sets_show_info_when_default() -> None:
+    # show_info 未指定 (後方互換) は既定で表示フラグを注入する。
+    env = precommit_engine.build_env(
+        {"PATH": "/usr/bin"},
+        {"engine": "opencode", "model": None, "thinking": "high", "budget": None},
+    )
+    assert env["AME_ENGINE_SHOW_INFO"] == "1"
+
+
+def test_build_env_sets_show_info_zero_when_false() -> None:
+    env = precommit_engine.build_env(
+        {"PATH": "/usr/bin", "AME_ENGINE_SHOW_INFO": "1"},
+        {
+            "engine": "opencode",
+            "model": None,
+            "thinking": "high",
+            "budget": None,
+            "show_info": False,
+        },
+    )
+    assert env["AME_ENGINE_SHOW_INFO"] == "0"

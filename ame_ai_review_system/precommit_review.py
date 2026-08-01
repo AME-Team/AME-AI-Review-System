@@ -424,14 +424,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # cfg を再利用して二重読み込みを回避。
     engine_settings = precommit_engine.resolve_engine_settings(config=cfg)
-    print(
-        f"[precommit-review] running AI review on branch '{branch}' "
-        f"(staged files: {len(staged_files)}; "
-        f"engine={engine_settings['engine']}, "
-        f"model={engine_settings['model'] or '<engine-default>'}, "
-        f"thinking={engine_settings['thinking']})...",
-        file=sys.stderr,
-    )
+    # Issue #40: エンジン情報 (engine/model/thinking) のバナーは
+    # show_engine_info_gate1 が true のときのみ出力する (既定=表示)。
+    if engine_settings.get("show_info", True):
+        print(
+            f"[precommit-review] running AI review on branch '{branch}' "
+            f"(staged files: {len(staged_files)}; "
+            f"engine={engine_settings['engine']}, "
+            f"model={engine_settings['model'] or '<engine-default>'}, "
+            f"thinking={engine_settings['thinking']})...",
+            file=sys.stderr,
+        )
 
     exit_code, output, engine_err = _run_engine(prompt, engine_path, engine_settings)
     if engine_err.strip():

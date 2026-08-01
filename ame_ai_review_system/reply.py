@@ -25,7 +25,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import github_client, review_config
+from . import engine, github_client, review_config
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
 
@@ -487,7 +487,7 @@ def _post_reply(
         return _HTTP_STATUS_OK
 
 
-def _run_engine(prompt: str) -> tuple[int, str]:
+def _run_engine(prompt: str, *, show_info: bool = True) -> tuple[int, str]:
     """Run engine.py with prompt, return (exit_code, stdout)."""
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -508,6 +508,10 @@ def _run_engine(prompt: str) -> tuple[int, str]:
 
     err_file = out_file + ".err"
 
+    # Issue #40: Gate 2 のエンジン情報バナー表示フラグを子プロセスへ注入する。
+    engine_env = dict(os.environ)
+    engine.apply_engine_info_env(engine_env, show_info=show_info)
+
     try:
         with (
             pathlib.Path(prompt_file).open("r", encoding="utf-8") as pfi,
@@ -525,6 +529,7 @@ def _run_engine(prompt: str) -> tuple[int, str]:
                 stdin=pfi,
                 stdout=fout,
                 stderr=efi,
+                env=engine_env,
                 timeout=600,
                 check=False,
             )
@@ -645,6 +650,8 @@ def _process_thread(
     token: str,
     reviewer_name: str,
     base_ref: str,
+    *,
+    show_info: bool = True,
 ) -> None:
     """1 スレッドへの LGTM / 追加指摘投稿を実行する."""
     if not _thread_still_pending(
@@ -681,7 +688,7 @@ def _process_thread(
             return
 
         # Run engine
-        engine_exit, engine_out = _run_engine(prompt)
+        engine_exit, engine_out = _run_engine(prompt, show_info=show_info)
 
         if engine_exit != 0 or not engine_out.strip():
             print("[reply] Engine failed, using default LGTM.")
@@ -726,6 +733,13 @@ def _cmd_run(pr_number_str: str) -> None:
 
     trigger_comment_id = os.environ.get("TRIGGER_COMMENT_ID", "").strip()
 
+    # Issue #40: Gate 2 の表示トグルは run 入口で一度だけ読み、スレッド処理へ渡す。
+    show_info = review_config.config_bool(
+        review_config.load_config(),
+        "show_engine_info_gate2",
+        default=True,
+    )
+
     if trigger_comment_id:
         # スコープモード: トリガーとなったインライン返信のスレッドだけに返信する (Issue #39)
         print(f"[reply] Scoped to trigger comment {trigger_comment_id}...")
@@ -757,6 +771,7 @@ def _cmd_run(pr_number_str: str) -> None:
             token,
             reviewer_name,
             base_ref,
+            show_info=show_info,
         )
     else:
         # レガシーモード: TRIGGER_COMMENT_ID 未設定時は全保留スレッドへ返信 (手動実行専用)。
@@ -792,6 +807,7 @@ def _cmd_run(pr_number_str: str) -> None:
                 token,
                 reviewer_name,
                 base_ref,
+                show_info=show_info,
             )
 
     print("[reply] Done.")

@@ -272,7 +272,7 @@ def _patch_cmd_run(
     monkeypatch.setattr(reply, "_resolved_root_ids", lambda *_args: set())
     processed: list[int] = []
     monkeypatch.setattr(
-        reply, "_process_thread", lambda *args: processed.append(args[3])
+        reply, "_process_thread", lambda *args, **_kwargs: processed.append(args[3])
     )
     monkeypatch.setenv("REVIEWER_TOKEN", "tok")
     return processed
@@ -336,7 +336,7 @@ def test_cmd_run_legacy_scan_all_when_no_trigger(
     monkeypatch.setattr(reply, "_get_pending_threads", lambda *_args: [10, 20])
     processed: list[int] = []
     monkeypatch.setattr(
-        reply, "_process_thread", lambda *args: processed.append(args[3])
+        reply, "_process_thread", lambda *args, **_kwargs: processed.append(args[3])
     )
     monkeypatch.setenv("REVIEWER_TOKEN", "tok")
     monkeypatch.delenv("TRIGGER_COMMENT_ID", raising=False)
@@ -378,7 +378,7 @@ def test_process_thread_posts_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         reply,
         "_run_engine",
-        lambda *_args: (0, '{"lgtm": true, "reply": "LGTM"}'),
+        lambda *_args, **_kwargs: (0, '{"lgtm": true, "reply": "LGTM"}'),
     )
     reply._process_thread("api", "octo/repo", 7, 10, "tok", "ame-ai-reviewer", "main")
     assert bodies == ["LGTM"]
@@ -407,7 +407,25 @@ def test_process_thread_skips_when_no_longer_pending(
     monkeypatch.setattr(
         reply,
         "_run_engine",
-        lambda *_args: (0, '{"lgtm": true, "reply": "LGTM"}'),
+        lambda *_args, **_kwargs: (0, '{"lgtm": true, "reply": "LGTM"}'),
     )
     reply._process_thread("api", "octo/repo", 7, 10, "tok", "ame-ai-reviewer", "main")
     assert bodies == []
+
+
+# --- engine info injection sentinel (Issue #40) -----------------------------
+
+
+def test_run_engine_injects_show_info_by_default(
+    capture_engine_env: dict[str, Any],
+) -> None:
+    # 哨戒テスト: 既定 (show_info=True) では子プロセスへ表示フラグを注入する (Issue #40)。
+    reply._run_engine("PROMPT")
+    assert capture_engine_env["env"].get("AME_ENGINE_SHOW_INFO") == "1"
+
+
+def test_run_engine_omits_show_info_when_gate2_false(
+    capture_engine_env: dict[str, Any],
+) -> None:
+    reply._run_engine("PROMPT", show_info=False)
+    assert capture_engine_env["env"].get("AME_ENGINE_SHOW_INFO") == "0"
