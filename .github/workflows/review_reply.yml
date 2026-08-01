@@ -1,17 +1,17 @@
 ---
-# PR コメントへの返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
+# インライン返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
 #
-# トリガー: issue_comment / pull_request_review_comment (PR 上のコメント・インライン返信で発火)。
-# Issue コメントでは発火しないようフィルタする。
-# (github.event.issue.pull_request != null || github.event.pull_request != null)
+# トリガー: pull_request_review_comment (インライン返信のみ)。
+# 1 投稿に対して LGTM は「そのスレッドだけ」に投稿する (Issue #39)。
+# PR 本文コメント (issue_comment) では発火しない。再レビューは /request-review を使う。
 # BASE_REF は直前の checkout ステップが $GITHUB_ENV へ書き込む値を自然に使わせるため
-# ここでは明示上書きしない (issue_comment / pull_request_review_comment イベントでは github.base_ref は設定されない)。
+# ここでは明示上書きしない (pull_request_review_comment イベントでは github.base_ref は設定されない)。
+# 並走実行の重複 LGTM 対策は reply.py の投稿前保留再チェックで行う。
+# 同一 PR の並走を concurrency で直列化しないのは投稿遅延を避けるため (設計判断)。
 
 name: AI Review Reply
 
 "on":
-  issue_comment:
-    types: [created]
   pull_request_review_comment:
     types: [created]
 
@@ -25,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
-      (github.event.issue.pull_request != null || github.event.pull_request != null) &&
       github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
       !startsWith(github.event.comment.body, '/') && contains(github.event.comment.body,
       '@ame-ai-reviewer')
@@ -69,7 +68,7 @@ jobs:
       - name: Switch to PR branch
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
@@ -88,13 +87,14 @@ jobs:
         env:
           REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
           REVIEWER_NAME: ame-ai-reviewer
-          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           REVIEW_ENGINE: opencode
           OPENCODE_URL: ${{ env.OPENCODE_URL }}
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
           REPLY_MODEL: ${{ vars.REPLY_MODEL }}
           REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+          TRIGGER_COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           python3 -m ame_ai_review_system.reply run "$PR_NUMBER"
       - name: Stop OpenCode server

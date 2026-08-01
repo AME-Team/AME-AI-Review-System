@@ -102,12 +102,12 @@ sequenceDiagram
     GitHub-->>Developer: インラインコメントで通知
 
     Note over Developer, GitHub: 2. 返信・LGTM 判定フロー
-    Developer->>GitHub: コメント返信 "@ame-ai-reviewer[bot] 修正しました"
-    GitHub->>Actions: イベント: issue_comment (created)
-    Actions->>Actions: スレッド・最新diffの取得 (reply.py)
+    Developer->>GitHub: インライン返信 "@ame-ai-reviewer[bot] 修正しました"
+    GitHub->>Actions: イベント: pull_request_review_comment (created)
+    Actions->>Actions: トリガーされたスレッドのみ処理 (reply.py)
     Actions->>Engine: スレッド履歴 + 最新diff
     Engine-->>Actions: LGTM判定結果 (テキスト)
-    Actions->>GitHub: スレッドへの返信投稿 (LGTM / 追加指摘)
+    Actions->>GitHub: そのスレッドへの返信投稿 (LGTM / 追加指摘)
     GitHub-->>Developer: 返信で通知
 ```
 
@@ -133,9 +133,12 @@ sequenceDiagram
     や PR メタデータを後続ステップへ渡す共通ヘルパ。`review_command.yml` / `review_reply.yml`
     で利用する。
   - `setup` — 開発環境セットアップ補助。
-- **`reply.py`** 開発者からの返信コメントを検知して起動（`reply run`
-  サブコマンド）。GitHub の PR コメントスレッドを走査し、AI宛てメンションでAIが未返信のスレッドを特定する。また、会話履歴と最新の Git
-  diff から、Claude 用の返信判定プロンプトを生成し、`engine.py` 経由で LGTM か追加指摘かを判断する。
+- **`reply.py`** 開発者からのインライン返信コメントを検知して起動（`reply run`
+  サブコマンド）。トリガーとなった返信コメント（`TRIGGER_COMMENT_ID`）を含む**そのスレッド 1 件のみ**に LGTM
+  / 追加指摘を返信する（1 投稿 = 1 返信、Issue
+  #39）。投稿直前にも保留状態を再チェックして並走実行による重複 LGTM を防ぐ。`TRIGGER_COMMENT_ID`
+  未設定時（手動実行等）は AI 宛てメンションで AI が未返信のスレッドを走査して全件へ返信する。返信判定プロンプトは会話履歴と最新の Git
+  diff から生成し、`engine.py` 経由で LGTM か追加指摘かを判断する。
 - **`precommit_review.py`** pre-commit フック本体。 `git commit`
   実行時にステージ済み差分 + ブランチ差分 (`origin/<base>...HEAD`) を `review_prompt.txt` と結合して
   `engine.py`

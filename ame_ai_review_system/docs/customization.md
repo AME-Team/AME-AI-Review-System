@@ -142,9 +142,10 @@ security-review-command:
 
 ```yaml
 # 既存の一般レビュアー用ジョブの if 条件
+# トリガーは pull_request_review_comment (インライン返信) のみ。
+# PR 本文コメント (issue_comment) では発火しない。
 general-review-reply:
   if: >-
-    (github.event.issue.pull_request != null || github.event.pull_request != null) &&
     github.event.comment.user.login != 'ame-ai-reviewer[bot]' && github.event.comment.user.login !=
     'security-reviewer[bot]' && !startsWith(github.event.comment.body, '/') &&
     contains(github.event.comment.body, '@ame-ai-reviewer')
@@ -158,7 +159,6 @@ security-review-reply:
   name: Security Review Reply (security-reviewer)
   runs-on: ubuntu-latest
   if: >-
-    (github.event.issue.pull_request != null || github.event.pull_request != null) &&
     github.event.comment.user.login != 'ame-ai-reviewer[bot]' && github.event.comment.user.login !=
     'security-reviewer[bot]' && !startsWith(github.event.comment.body, '/') &&
     contains(github.event.comment.body, '@security-reviewer')
@@ -189,7 +189,7 @@ security-review-reply:
     - name: Switch to PR branch
       env:
         GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.issue.number }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
       run: |
         python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
@@ -197,11 +197,12 @@ security-review-reply:
       env:
         REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
         REVIEWER_NAME: security-reviewer
-        PR_NUMBER: ${{ github.event.issue.number }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE }}
         REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
         REVIEW_THINKING: ${{ vars.REVIEW_THINKING }}
+        TRIGGER_COMMENT_ID: ${{ github.event.comment.id }}
       run: |
         python3 -m ame_ai_review_system.reply run "$PR_NUMBER"
 ```

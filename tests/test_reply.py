@@ -128,6 +128,80 @@ def test_group_by_thread_orphan_reply_ignored() -> None:
     assert grouped == {}
 
 
+# --- _root_id_for_comment -------------------------------------------------
+
+
+def test_root_id_for_comment_finds_thread() -> None:
+    comments = [
+        _comment(10, "rootA"),
+        _comment(20, "rootB"),
+        _comment(11, "a1", in_reply_to=10),
+        _comment(12, "a2", in_reply_to=10),
+        _comment(21, "b1", in_reply_to=20),
+    ]
+    assert reply._root_id_for_comment(comments, 11) == 10
+    assert reply._root_id_for_comment(comments, 12) == 10
+    assert reply._root_id_for_comment(comments, 21) == 20
+
+
+def test_root_id_for_comment_root_itself() -> None:
+    comments = [_comment(10, "rootA"), _comment(11, "a1", in_reply_to=10)]
+    assert reply._root_id_for_comment(comments, 10) == 10
+
+
+def test_root_id_for_comment_unknown_returns_none() -> None:
+    """非インラインコメント（PR 本文コメント等）は None を返す."""
+    comments = [_comment(10, "rootA")]
+    assert reply._root_id_for_comment(comments, 999) is None
+
+
+# --- _thread_is_pending ---------------------------------------------------
+
+
+def _thread_is_pending_for(thread: list[dict[str, Any]]) -> bool:
+    return reply._thread_is_pending(
+        int(thread[0]["id"]), thread, set(), "ame-ai-reviewer"
+    )
+
+
+def test_thread_is_pending_with_mention() -> None:
+    thread = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat"),
+    ]
+    assert _thread_is_pending_for(thread) is True
+
+
+def test_thread_is_pending_without_mention() -> None:
+    thread = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat"),
+    ]
+    assert _thread_is_pending_for(thread) is False
+
+
+def test_thread_is_pending_after_reviewer_reply() -> None:
+    thread = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat"),
+        _comment(
+            12,
+            "対応確認しました。LGTM ✅",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+        ),
+    ]
+    assert _thread_is_pending_for(thread) is False
+
+
+def test_thread_is_pending_resolved() -> None:
+    thread = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat"),
+    ]
+    assert reply._thread_is_pending(10, thread, {10}, "ame-ai-reviewer") is False
+
+
 # --- _resolved_root_ids (GraphQL isResolved integration) ------------------
 
 
@@ -183,3 +257,138 @@ def test_mention_detection_rejects_unrelated_mention() -> None:
     assert not github_client.mentions_reviewer(
         "@other-user 修正しました", "ame-ai-reviewer"
     )
+
+
+# --- _cmd_run scoped mode (TRIGGER_COMMENT_ID) ----------------------------
+
+
+def _patch_cmd_run(
+    monkeypatch: pytest.MonkeyPatch, comments: list[dict[str, Any]]
+) -> list[int]:
+    monkeypatch.setattr(
+        github_client, "resolve_env", lambda: ("https://api.github.com", "octo/repo")
+    )
+    monkeypatch.setattr(reply, "_get_thread_comments", lambda *_args: comments)
+    monkeypatch.setattr(reply, "_resolved_root_ids", lambda *_args: set())
+    processed: list[int] = []
+    monkeypatch.setattr(
+        reply, "_process_thread", lambda *args: processed.append(args[3])
+    )
+    monkeypatch.setenv("REVIEWER_TOKEN", "tok")
+    return processed
+
+
+def test_cmd_run_scoped_processes_only_trigger_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TRIGGER_COMMENT_ID で指したスレッドだけを処理する (Issue #39)."""
+    comments = [
+        _comment(10, "rootA", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat", in_reply_to=10),
+        _comment(20, "rootB", login="ame-ai-reviewer[bot]"),
+        _comment(21, "@ame-ai-reviewer 修正しました", login="octocat", in_reply_to=20),
+    ]
+    processed = _patch_cmd_run(monkeypatch, comments)
+    monkeypatch.setenv("TRIGGER_COMMENT_ID", "11")
+    reply._cmd_run("7")
+    assert processed == [10]
+
+
+def test_cmd_run_scoped_unknown_comment_skips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非インラインのトリガーコメントでは何も処理しない."""
+    comments = [_comment(10, "rootA", login="ame-ai-reviewer[bot]")]
+    processed = _patch_cmd_run(monkeypatch, comments)
+    monkeypatch.setenv("TRIGGER_COMMENT_ID", "999")
+    reply._cmd_run("7")
+    assert processed == []
+
+
+def test_cmd_run_scoped_not_pending_skips(monkeypatch: pytest.MonkeyPatch) -> None:
+    """レビュアーが既に返信済みのスレッドは処理しない."""
+    comments = [
+        _comment(10, "rootA", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat", in_reply_to=10),
+        _comment(
+            12,
+            "対応確認しました。LGTM ✅",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+            in_reply_to=10,
+        ),
+    ]
+    processed = _patch_cmd_run(monkeypatch, comments)
+    monkeypatch.setenv("TRIGGER_COMMENT_ID", "11")
+    reply._cmd_run("7")
+    assert processed == []
+
+
+def test_cmd_run_legacy_scan_all_when_no_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TRIGGER_COMMENT_ID 未設定時は全保留スレッドを処理する (後方互換)."""
+    monkeypatch.setattr(
+        github_client, "resolve_env", lambda: ("https://api.github.com", "octo/repo")
+    )
+    monkeypatch.setattr(reply, "_get_pending_threads", lambda *_args: [10, 20])
+    processed: list[int] = []
+    monkeypatch.setattr(
+        reply, "_process_thread", lambda *args: processed.append(args[3])
+    )
+    monkeypatch.setenv("REVIEWER_TOKEN", "tok")
+    monkeypatch.delenv("TRIGGER_COMMENT_ID", raising=False)
+    reply._cmd_run("7")
+    assert processed == [10, 20]
+
+
+# --- _process_thread (投稿前再チェック) ------------------------------------
+
+
+def test_process_thread_posts_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reply, "_thread_still_pending", lambda *_args: True)
+    bodies: list[str] = []
+
+    def record_post(*args: object) -> int:
+        bodies.append(str(args[5]))
+        return 200
+
+    monkeypatch.setattr(reply, "_post_reply", record_post)
+    monkeypatch.setattr(reply, "_check_stale", lambda *_args: "ok")
+    monkeypatch.setattr(reply, "_build_prompt_for_thread", lambda *_args: "prompt")
+    monkeypatch.setattr(
+        reply,
+        "_run_engine",
+        lambda *_args: (0, '{"lgtm": true, "reply": "LGTM"}'),
+    )
+    reply._process_thread("api", "octo/repo", 7, 10, "tok", "ame-ai-reviewer", "main")
+    assert bodies == ["LGTM"]
+
+
+def test_process_thread_skips_when_no_longer_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """エンジン実行後にスレッドが非保留化していたら投稿しない (競合負け)."""
+    calls = {"n": 0}
+
+    def still_pending(*_args: object) -> bool:
+        calls["n"] += 1
+        return calls["n"] < 2  # 初回は True、投稿直前は False
+
+    monkeypatch.setattr(reply, "_thread_still_pending", still_pending)
+    bodies: list[str] = []
+
+    def record_post(*args: object) -> int:
+        bodies.append(str(args[5]))
+        return 200
+
+    monkeypatch.setattr(reply, "_post_reply", record_post)
+    monkeypatch.setattr(reply, "_check_stale", lambda *_args: "ok")
+    monkeypatch.setattr(reply, "_build_prompt_for_thread", lambda *_args: "prompt")
+    monkeypatch.setattr(
+        reply,
+        "_run_engine",
+        lambda *_args: (0, '{"lgtm": true, "reply": "LGTM"}'),
+    )
+    reply._process_thread("api", "octo/repo", 7, 10, "tok", "ame-ai-reviewer", "main")
+    assert bodies == []

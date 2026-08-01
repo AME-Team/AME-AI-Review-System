@@ -23,6 +23,10 @@
 
 - 認証モデルを API キーへ移行。(Claude: `ANTHROPIC_API_KEY`, Antigravity: `GEMINI_API_KEY`,
   OpenCode: `auth.json`)
+- 返信判定 (`review_reply.yml` /
+  `reply run`) を**インライン返信のみ**トリガーに変更し、トリガーとなったスレッド 1 件だけに LGTM
+  / 追加指摘を返信するようにした。投稿直前の保留再チェックも追加し、並走実行による重複 LGTM を防止 (Issue
+  #39)。`TRIGGER_COMMENT_ID` 未設定時は従来の全スレッド走査へフォールバック。
 
 ### Removed
 
