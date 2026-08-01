@@ -305,8 +305,10 @@ def test_cmd_run_scoped_unknown_comment_skips(
     assert processed == []
 
 
-def test_cmd_run_scoped_not_pending_skips(monkeypatch: pytest.MonkeyPatch) -> None:
-    """レビュアーが既に返信済みのスレッドは処理しない."""
+def test_cmd_run_scoped_delegates_pending_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """保留判定は _process_thread へ委譲し、_cmd_run では二重チェックしない."""
     comments = [
         _comment(10, "rootA", login="ame-ai-reviewer[bot]"),
         _comment(11, "@ame-ai-reviewer 修正しました", login="octocat", in_reply_to=10),
@@ -321,7 +323,7 @@ def test_cmd_run_scoped_not_pending_skips(monkeypatch: pytest.MonkeyPatch) -> No
     processed = _patch_cmd_run(monkeypatch, comments)
     monkeypatch.setenv("TRIGGER_COMMENT_ID", "11")
     reply._cmd_run("7")
-    assert processed == []
+    assert processed == [10]
 
 
 def test_cmd_run_legacy_scan_all_when_no_trigger(
@@ -343,6 +345,23 @@ def test_cmd_run_legacy_scan_all_when_no_trigger(
 
 
 # --- _process_thread (投稿前再チェック) ------------------------------------
+
+
+def test_process_thread_skips_when_not_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """スレッドが最初から保留でなければ投稿しない."""
+    monkeypatch.setattr(reply, "_thread_still_pending", lambda *_args: False)
+    bodies: list[str] = []
+
+    def record_post(*args: object) -> int:
+        bodies.append(str(args[5]))
+        return 200
+
+    monkeypatch.setattr(reply, "_post_reply", record_post)
+    monkeypatch.setattr(reply, "_check_stale", lambda *_args: "ok")
+    reply._process_thread("api", "octo/repo", 7, 10, "tok", "ame-ai-reviewer", "main")
+    assert bodies == []
 
 
 def test_process_thread_posts_reply(monkeypatch: pytest.MonkeyPatch) -> None:

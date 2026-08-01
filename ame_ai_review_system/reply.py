@@ -746,13 +746,8 @@ def _cmd_run(pr_number_str: str) -> None:
             )
             print("[reply] Done.")
             return
-        resolved_ids = _resolved_root_ids(pr_number, token)
-        if not _thread_is_pending(
-            root_id, _find_thread(comments, root_id), resolved_ids, reviewer_name
-        ):
-            print(f"[reply] Thread {root_id} is not pending, skip.")
-            print("[reply] Done.")
-            return
+        # 保留判定は _process_thread 冒頭の _thread_still_pending に一本化し、
+        # ここでの二重チェックによる API 重複を避ける (指摘対応)。
         print(f"[reply] Processing thread {root_id}...")
         _process_thread(
             api_url,
