@@ -43,7 +43,7 @@ GitHub Actions のログに SDK 未インストールやサーバ接続エラー
 
 ### 原因: ランナー環境の未セットアップ
 
-Actions ランナー環境に、選択したエンジンの SDK がインストールされていない、または認証情報が未設定です。各エンジンは SDK 経由で動作する（`engine.py`
+Actions ランナー環境に、選択したエンジンの SDK がインストールされていない、認証情報が未設定、または OpenCode サーバ（`opencode serve`）が未起動です。各エンジンは SDK 経由で動作する（`engine.py`
 は CLI バイナリのサブプロセス呼び出しを廃止済み）。
 
 - `claude` … `claude-agent-sdk`（Python）または
