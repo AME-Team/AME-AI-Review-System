@@ -1,3 +1,4 @@
+# pyright: basic
 from __future__ import annotations
 
 import io
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 from ame_ai_review_system import paths, review_config
 from ame_ai_review_system.review_config import (
+    _referenced_subpaths,
     apply_repair_model,
     config_bool,
     excluded_package_reference_note,
@@ -512,7 +514,11 @@ def _package_exists(monkeypatch: pytest.MonkeyPatch, *, exists: bool) -> None:
     def _exists(_rel: str) -> bool:
         return exists
 
+    def _subpaths_exist(_rel: str, _subpaths: set[str]) -> bool:
+        return exists
+
     monkeypatch.setattr(review_config, "_package_exists_in_repo", _exists)
+    monkeypatch.setattr(review_config, "_package_subpaths_exist", _subpaths_exist)
 
 
 def test_reference_note_returned_when_diff_references_package(
@@ -618,6 +624,83 @@ def test_reference_note_ignores_similar_but_different_names(
         [],
         "+xame_ai_review_system and ame_ai_review_system2",
     )
+
+
+def test_referenced_subpaths_extracts_module() -> None:
+    assert _referenced_subpaths(
+        "ame_ai_review_system",
+        "python3 -m ame_ai_review_system.skip_guard --exit-code",
+    ) == {"skip_guard"}
+
+
+def test_referenced_subpaths_extracts_path() -> None:
+    assert _referenced_subpaths(
+        "ame_ai_review_system",
+        "npm --prefix ame_ai_review_system/engines/ts install",
+    ) == {"engines/ts"}
+
+
+def test_referenced_subpaths_empty_without_suffix() -> None:
+    assert not _referenced_subpaths(
+        "ame_ai_review_system",
+        "the ame_ai_review_system package is vendored",
+    )
+
+
+def test_referenced_subpaths_strips_trailing_punctuation() -> None:
+    assert _referenced_subpaths(
+        "ame_ai_review_system",
+        "ame_ai_review_system.skip_guard.",
+    ) == {"skip_guard"}
+
+
+def test_reference_note_empty_when_referenced_subpath_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # 参照されたサブモジュールが実在しない場合 (typo 等) は注記を付けない。
+    _exclude_package(monkeypatch, tmp_path)
+    _package_exists(monkeypatch, exists=False)
+    # _package_exists_in_repo は True だが、サブパス検証だけ失敗するケースを再現する。
+    monkeypatch.setattr(
+        review_config,
+        "_package_exists_in_repo",
+        lambda _rel: True,
+    )
+    assert not excluded_package_reference_note(
+        [],
+        "python3 -m ame_ai_review_system.skip_guard",
+    )
+
+
+def test_reference_note_verifies_subpath_via_git(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # 実 git リポジトリで、参照されたサブモジュールが実在する場合のみ注記が付くことを確認する。
+    import subprocess as sp
+
+    root = tmp_path / "repo"
+    pkg = root / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    (pkg / "skip_guard.py").write_text("def main():\n    pass\n", encoding="utf-8")
+    sp.run(["git", "init", "-q"], cwd=root, check=True)
+    sp.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
+    sp.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+    sp.run(["git", "add", "."], cwd=root, check=True)
+    sp.run(["git", "commit", "-qm", "init"], cwd=root, check=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": False},
+    )
+    diff = "+  entry: python3 -m ame_ai_review_system.skip_guard"
+    assert "vendored" in excluded_package_reference_note([], diff)
+    # 参照先が存在しないサブモジュールの場合、注記は付かない。
+    missing_diff = "+  entry: python3 -m ame_ai_review_system.no_such_module"
+    assert not excluded_package_reference_note([], missing_diff)
 
 
 def _restore_env(key: str, old: str | None) -> None:

@@ -24,10 +24,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from . import paths
-
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
+
+from . import paths
 
 _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
@@ -218,23 +218,29 @@ def excluded_package_reference_note(files: list[str], diff_text: str) -> str:
     除外されると、モデルが「diff に無い = モジュール不存在」と誤判定し、HIGH/MIDDLE の
     誤指摘でコミットがブロックされる (Issue #47)。
 
-    そこで、除外対象パッケージが変更ファイルや diff から参照されており、かつ実体が
-    リポジトリに存在する場合のみ、プロンプトへ「vendored 済み・レビュー対象外」である旨の
-    注記を返す。該当しない場合は空文字を返す。
+    そこで、除外対象パッケージが変更ファイルや diff から参照されており、かつ参照先
+    (サブモジュール/パス) の実体がリポジトリに存在する場合のみ、プロンプトへ
+    「vendored 済み・レビュー対象外」である旨の注記を返す。該当しない場合は空文字を返す。
 
     - パッケージがリポジトリ外 (pip 等) にある場合: 除外対象ではないため空文字。
     - ``review_include_package_dir: true`` の場合: 除外していないため空文字。
     - 参照が無い、または実体が存在しない場合: 注記不要のため空文字。
+    - 参照されたサブモジュールの 1 つでも実在しない場合: typo 等の実バグを見逃さないよう
+      注記しない (モデルが従来どおり指摘できる)。
     """
     rel = review_exclusion_rel()
     if rel is None:
         return ""
     pkg_name = rel.split("/")[-1]
-    if not _text_references_package(pkg_name, diff_text) and not any(
-        _text_references_package(pkg_name, f) for f in files
-    ):
+    texts: list[str] = [diff_text, *files]
+    if not any(_text_references_package(pkg_name, t) for t in texts):
         return ""
     if not _package_exists_in_repo(rel):
+        return ""
+    subpaths: set[str] = set()
+    for t in texts:
+        subpaths |= _referenced_subpaths(pkg_name, t)
+    if subpaths and not _package_subpaths_exist(rel, subpaths):
         return ""
     return (
         "\n## 注記: vendored パッケージの参照 (レビュー対象外)\n"
@@ -246,6 +252,16 @@ def excluded_package_reference_note(files: list[str], diff_text: str) -> str:
     )
 
 
+def append_reference_note(lines: list[str], files: list[str], diff_text: str) -> None:
+    """プロンプトの行リストへ vendored パッケージ参照注記を追記する (Issue #47).
+
+    注記不要 (除外対象外・参照なし・実体なし) の場合は何も追加しない。
+    """
+    note = excluded_package_reference_note(files, diff_text)
+    if note:
+        lines.append(note)
+
+
 def _text_references_package(pkg_name: str, text: str) -> bool:
     """``text`` がパッケージ名 (``ame_ai_review_system`` 等) を参照しているか判定する."""
     if not text:
@@ -253,12 +269,42 @@ def _text_references_package(pkg_name: str, text: str) -> bool:
     return re.search(r"\b" + re.escape(pkg_name) + r"\b", text) is not None
 
 
+def _referenced_subpaths(pkg_name: str, text: str) -> set[str]:
+    """``text`` からパッケージ名に続く参照サブパス (モジュール名/パス) を抽出する.
+
+    ``ame_ai_review_system.skip_guard`` から ``skip_guard``、
+    ``ame_ai_review_system/engines/ts`` から ``engines/ts`` を取り出す。
+    参照先が無い (単体の ``ame_ai_review_system`` 等) 場合は空集合を返す。
+    """
+    if not text:
+        return set()
+    pattern = re.compile(r"\b" + re.escape(pkg_name) + r"[./]([A-Za-z0-9_./-]+)")
+    return {
+        m.group(1).rstrip(".,;:)]}>")
+        for m in pattern.finditer(text)
+        if m.group(1).rstrip(".,;:)]}>")
+    }
+
+
+_exists_cache: dict[tuple[str, str], bool] = {}
+
+
 def _package_exists_in_repo(rel: str) -> bool:
     """除外対象パッケージがリポジトリに存在するか判定する.
 
     ``git ls-files --error-unmatch`` で追跡ファイルの存在を機械的に検証する (Issue #47)。
     git が利用できない環境では、作業ツリーのディレクトリ存在をフォールバックに使う。
+    検証結果は ``(project_root, rel)`` をキーにプロセス内キャッシュする。
     """
+    key = (str(paths.project_root()), rel)
+    if key in _exists_cache:
+        return _exists_cache[key]
+    exists = _package_exists_check(rel)
+    _exists_cache[key] = exists
+    return exists
+
+
+def _package_exists_check(rel: str) -> bool:
     try:
         result = subprocess.run(
             ["git", "ls-files", "--error-unmatch", rel.rstrip("/") + "/"],
@@ -273,6 +319,53 @@ def _package_exists_in_repo(rel: str) -> bool:
     except (OSError, subprocess.SubprocessError):
         pass
     return (paths.project_root() / rel).is_dir()
+
+
+def _package_subpaths_exist(rel: str, subpaths: Iterable[str]) -> bool:
+    """参照された全サブパスが実在する場合のみ ``True`` を返す.
+
+    1 つでも欠落があれば ``False`` (typo / バージョン差の可能性が高い)。
+    """
+    return all(_package_subpath_exists(rel, subpath) for subpath in sorted(subpaths))
+
+
+_subpath_cache: dict[tuple[str, str, str], bool] = {}
+
+
+def _package_subpath_exists(rel: str, subpath: str) -> bool:
+    """``rel`` 配下の参照サブパス (モジュール/ディレクトリ) の実在を判定する.
+
+    検証結果は ``(project_root, rel, subpath)`` をキーにプロセス内キャッシュする。
+    """
+    key = (str(paths.project_root()), rel, subpath)
+    if key in _subpath_cache:
+        return _subpath_cache[key]
+    exists = _package_subpath_check(rel, subpath)
+    _subpath_cache[key] = exists
+    return exists
+
+
+def _package_subpath_check(rel: str, subpath: str) -> bool:
+    candidates = [
+        f"{rel}/{subpath}.py",
+        f"{rel}/{subpath}.pyi",
+        f"{rel}/{subpath}/",
+        f"{rel}/{subpath}",
+    ]
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", *candidates],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            cwd=paths.project_root(),
+        )
+        if result.returncode == 0:
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return any((paths.project_root() / c).exists() for c in candidates)
 
 
 def _split_diff_sections(diff_text: str) -> list[list[str]]:

@@ -214,6 +214,11 @@ def test_build_prompt_adds_reference_note_for_excluded_package(
         lambda: {"review_include_package_dir": False},
     )
     monkeypatch.setattr(review_config, "_package_exists_in_repo", lambda _rel: True)
+    monkeypatch.setattr(
+        review_config,
+        "_package_subpaths_exist",
+        lambda _rel, _subpaths: True,
+    )
     prompt = build_prompt(
         "main",
         "feature/x",
