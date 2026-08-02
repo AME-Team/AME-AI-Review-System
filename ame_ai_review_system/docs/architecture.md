@@ -2,7 +2,7 @@
 
 本システムは、ローカル（Gate 1: pre-commit）と CI/CD（Gate 2:
 PR）の二重のゲートウェイから構成されています。軽量で拡張性の高いアーキテクチャを採用しており、各LLMツール（Claude
-Code / OpenCode / Antigravity CLI）と接続する `engine.py` を通じて実行されます。
+Code / OpenCode / Antigravity）と接続する `engine.py` を通じて実行されます。
 
 ## システムの核心的特徴と設計思想
 
@@ -19,8 +19,8 @@ Code / OpenCode / Antigravity CLI）と接続する `engine.py` を通じて実�
    - ローカルコミット時（Gate 1）と CI/CD PR時（Gate
      2）の二段階で品質を検証する。欠陥をローカルで早期検知（Shift-Left）しつつCIで確実なガードを展開する。
 4. **Codingエージェント連携 & 広範なコンテキスト検証**
-   - LLMエンジンとして Claude Code / OpenCode / Antigravity
-     CLI 等を指定可能。全リポジトリを参照し「コード修正に伴うドキュメント（Documents）も更新されているか」などの整合性チェックを柔軟に実現する。
+   - LLMエンジンとして Claude Code / OpenCode /
+     Antigravity等を指定可能。全リポジトリを参照し「コード修正に伴うドキュメント（Documents）も更新されているか」などの整合性チェックを柔軟に実現する。
 
 ---
 
@@ -155,8 +155,8 @@ sequenceDiagram
 ### 2. 設定・ビジネスロジック（Pythonスクリプト）
 
 - **`engine.py`** LLM エンジンアダプタ。プロンプトを stdin で受け取り、設定に応じて `claude` /
-  `opencode run` / `agy`
-  のいずれかを起動し、モデルのテキスト応答を stdout へ出力する。各エンジンごとの出力形式の違いはここで吸収し、呼び出し側はエンジンの種類を意識しなくてよい。
+  `opencode` / `antigravity` のいずれかの **SDK**（Python
+  SDK または TypeScript サイドカー）を呼び出し、モデルのテキスト応答を stdout へ出力する。CLI バイナリのサブプロセス呼び出しは廃止済みで、各エンジンの SDK 経由で実行する。各エンジンごとの出力形式の違いはここで吸収し、呼び出し側はエンジンの種類を意識しなくてよい。
 - **`review_config.py`** `config.json` / `config.user.json` の読み込みと `/request-review`
   コマンドを判定するヘルパ。 `get <key>` で設定値を、`is-review-command <body>`
   でコマンド判定結果を出力する。設定の優先順位は `config.user.json` >
@@ -174,47 +174,61 @@ sequenceDiagram
 
 ## LLM エンジン (engine.py) の動作原理
 
-本システムでは、API を直接叩くコードを書く代わりに、`engine.py`
-が各エンジンの CLI をサブプロセス起動する。呼び出し側は `main.py` / `reply.py`
+本システムでは、API を直接叩くコードを書く代わりに、`engine.py` が各エンジンの **SDK**（Python
+SDK または TypeScript サイドカー）を呼び出す。**エンジン本体のレビュー生成は SDK 経由**であり、CLI バイナリのサブプロセス呼び出しは廃止済み（現行実装:
+`engine.py` が `engines/`
+配下のアダプタ経由で各 SDK を呼び出す）。ただし OpenCode は SDK の接続先として `opencode serve`
+サーバが必要で、その起動に `opencode` CLI を使う。呼び出し側は `main.py` / `reply.py`
 経由で起動し、エンジンの種類を意識しなくてよい。エンジン・モデル・思考量・予算は `config.json` /
 `config.user.json` または環境変数で指定する。
 
 解決順序: 環境変数 > `config.user.json` > `config.json` > デフォルト。
 
-### 対応エンジンと思考量のマッピング
+### 対応エンジンと SDK のマッピング
 
-| エンジン        | CLI バイナリ   | 思考量 (high/medium/low) の渡し方              |
-| --------------- | -------------- | ---------------------------------------------- |
-| `claude` (既定) | `claude -p`    | `--effort high\|medium\|low`                   |
-| `opencode`      | `opencode run` | `--variant high\|medium\|minimal`              |
-| `antigravity`   | `agy`          | モデル名の括弧 `"<model> (High\|Medium\|Low)"` |
+| エンジン        | SDK / 起動方式                                                                                                                | 思考量 (high/medium/low) の渡し方           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `claude` (既定) | `claude-agent-sdk` (Python) または `@anthropic-ai/claude-agent-sdk` (TypeScript サイドカー `engines/ts/claude.mjs`)           | `effort` オプション (`low`/`medium`/`high`) |
+| `opencode`      | `@opencode-ai/sdk` (TypeScript サイドカー `engines/ts/opencode.mjs`)。別途起動した `opencode serve` サーバへ SDK で接続する。 | `variant` (`high`/`medium`/`minimal`)       |
+| `antigravity`   | `google-antigravity` (Python, `google.antigravity`)                                                                           | `ThinkingLevel` (`LOW`/`MEDIUM`/`HIGH`)     |
+
+> **SDK 言語の選択**: `claude` は Python / TypeScript 両方の SDK をサポートする（`sdk_lang`
+> で切替）。`opencode` は TypeScript SDK のみ、`antigravity` は Python
+> SDK のみ提供される。TypeScript SDK は `engines/ts/*.mjs` サイドカーを `node`
+> で起動し、stdin/stdout でプロセス間通信する。
 
 **切り替え時の注意**: モデル名の名前空間はエンジンごとに異なる。`claude` は `config.json` の
 `model`（既定 `sonnet`）を使用する。`opencode` / `antigravity` では Claude 専用名を渡さず、環境変数
-`REVIEW_MODEL` でエンジン固有のモデル名を指定する。 `opencode` は `REVIEW_MODEL` 未設定時、`-m`
-を省略して OpenCode 既定値を使う。 `antigravity` は思考量をモデル名に埋め込むため `REVIEW_MODEL`
-が必須（例: `Gemini 3.5 Pro`）。
+`REVIEW_MODEL` でエンジン固有のモデル名を指定する。 `opencode` は `REVIEW_MODEL`
+未設定の場合 SDK への model パラメータを省略し、OpenCode の既定モデルが使用される。 `antigravity`
+では `REVIEW_MODEL` で Gemini モデル名（例: `gemini-2.5-pro`）を指定する。
 
-**出力形式**: 各エンジンの生出力は `engine.py` がプレーンテキストへ正規化する。
+**出力形式**: 各 SDK の応答は
+`engine.py`（およびサイドカー）がプレーンテキストへ正規化する。呼び出し側はエンジン・SDK 言語を意識せず stdout のテキストを扱える。
 
-- `claude`: `--output-format text`
-- `opencode`: `--format json`（NDJSON の `{"type":"text"}` イベントを結合）
-- `antigravity`: `agy --print` の生テキスト
+**検証済み SDK / CLI バージョン**:
 
-フラグ名はバージョンにより異なりうるため、切替時に `--help` で確認すること。
+- Claude Agent SDK (`claude-agent-sdk` / `@anthropic-ai/claude-agent-sdk`)
+- OpenCode SDK (`@opencode-ai/sdk`)。サーバ起動には OpenCode CLI
+  `1.18.3`（`opencode serve`）を使用する。
+- Google Antigravity SDK (`google-antigravity`)
 
-**検証済み CLI バージョン**:
+バージョン違いでは SDK の API 形状に差異が生じうる。導入時に各 SDK のドキュメントで確認すること。
 
-- OpenCode `1.18.3`: `opencode run --format json`
-- Antigravity CLI `agy 1.0.16`: `agy --print "<prompt>" --model "<model> (High)"`
+### なぜ SDK を採用しているか？
 
-バージョン違いではフラグ・構文に差異が生じうる。導入時に各 CLI の `--help` で確認すること。
+1. **設定が極めてシンプル**: ランナー上で各 SDK の認証が通っていれば、API クライアントライブラリやトークン管理が不要になる。
+2. **モデル設定が容易**: 設定ファイルや環境変数でエンジン・モデル・思考量を切り替えられる。
+3. **依存ゼロ（コア）**: `engine.py` 本体は標準ライブラリのみで動作し、SDK はオプション extras
+   (`[claude]` /
+   `[antigravity]`) または Node サイドカーで導入する。新規パッケージ依存をコアへ増やさない。
 
 ### 設定例（`config.json`）
 
 ```json
 {
   "engine": "claude",
+  "sdk_lang": "python",
   "model": "sonnet",
   "thinking": "high",
   "review_budget_usd": 2.0,
@@ -223,6 +237,11 @@ sequenceDiagram
   "show_engine_info_gate2": true
 }
 ```
+
+> **`sdk_lang`（Claude のみ）**: `claude` エンジンは Python / TypeScript 両方の SDK をサポートする。
+> `sdk_lang` に `"python"` または `"typescript"` を指定して切替える（既定は `python`）。`opencode`
+> はTypeScript、`antigravity` は Python のみで固定のため本キーは無視される。環境変数
+> `REVIEW_SDK_LANG` （後方互換: Claude は `CLAUDE_SDK_LANG`）でも上書き可能。
 
 > **エンジン情報の表示制御 (Issue #40)**: `engine.py` のバナーと非 Claude の budget 警告は環境変数
 > `AME_ENGINE_SHOW_INFO` で制御する。**未注入の場合は既定で表示**（config の
@@ -254,14 +273,9 @@ sequenceDiagram
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `REVIEW_ENGINE`          | `claude` / `opencode` / `antigravity`                                                                                                 |
 | `REVIEW_MODEL`           | エンジン固有のモデル名（後方互換: `CLAUDE_MODEL` も可）                                                                               |
+| `REVIEW_SDK_LANG`        | SDK 言語（`python` / `typescript`）。Claude エンジンのみ有効（後方互換: `CLAUDE_SDK_LANG`）。                                         |
 | `REVIEW_THINKING`        | `high` / `medium` / `low`                                                                                                             |
-| `REVIEW_BUDGET_USD`      | クラウド予算。Claude の `--max-budget-usd` のみ効果あり。                                                                             |
+| `REVIEW_BUDGET_USD`      | クラウド予算。Claude SDK の `max_budget_usd` オプションのみ効果あり。                                                                 |
 | `REPLY_BUDGET_USD`       | 返信ロール専用の予算。未設定時は `REVIEW_BUDGET_USD` にフォールバック。                                                               |
 | `REVIEW_TIMEOUT_SECONDS` | エンジン実行のタイムアウト（既定 600 秒）。                                                                                           |
 | `AME_ENGINE_SHOW_INFO`   | エンジン情報バナーの表示制御。未注入=表示 / `0`・`false`・`no`=非表示（Issue #40）。親プロセスが `apply_engine_info_env` で注入する。 |
-
-### なぜ CLI 呼び出しを採用しているか？
-
-1. **設定が極めてシンプル**: ランナー上で各 CLI の認証が通っていれば、API クライアントライブラリやトークン管理が不要になる。
-2. **モデル設定が容易**: 設定ファイルや環境変数でエンジン・モデル・思考量を切り替えられる。
-3. **依存ゼロ**: `engine.py` は標準ライブラリのみで動作し、新規パッケージ依存を増やさない。

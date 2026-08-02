@@ -12,13 +12,16 @@
 
 - 配布名: `ame-ai-review-system`（import 名: `ame_ai_review_system`）
 - コアは標準ライブラリのみ。LLM エンジン SDK はオプション extras:
-  - `[claude]` → `claude-agent-sdk`
+  - `[claude]` → `claude-agent-sdk`（Python SDK）。TypeScript
+    SDK（`@anthropic-ai/claude-agent-sdk`）サイドカーでも利用可
   - `[antigravity]` → `google-antigravity`
   - `[all]` → 両方
-  - OpenCode は CLI（`opencode-ai`）経由のため Python extras は不要（Node は opencode
-    CLI のインストールのみ）
+  - OpenCode は TypeScript SDK（`@opencode-ai/sdk`）サイドカー経由のため Python
+    extras は不要。Node で `engines/ts/` の依存をインストールする。サーバ起動に `opencode`
+    CLI が必要。
 - wheel 同梱データ: `review_prompt.txt`, `.semgrep/rules.yml`,
-  `templates/`（pre-commit プロファイル／ワークフロー），`engines/ts/claude.mjs`（Claude-TS サイドカー）
+  `templates/`（pre-commit プロファイル／ワークフロー），`engines/ts/claude.mjs`,
+  `engines/ts/opencode.mjs`（TypeScript SDK サイドカー）
 
 ## ローカルビルド検証
 
@@ -44,7 +47,8 @@ API トークン不要。PyPI 側で GitHub Actions からの OIDC 公開を許�
 
 1. `ame_ai_review_system/__init__.py` の `__version__` を上げる。
 2. `CHANGELOG.md` を更新。
-3. `dev` → `main` へ昇格する PR を作成・マージ（本リポジトリのブランチポリシー）。
+3. `main` へマージする PR を作成・マージする（本リポジトリのブランチポリシー: 作業ブランチ →
+   `main`）。
 4. `main` でタグを打つ:
 
    ```bash

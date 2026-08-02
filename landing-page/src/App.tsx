@@ -136,7 +136,7 @@ const translations: Record<Locale, TranslationResource> = {
       "ローカルコミット時（Gate 1）とCI/CDのPR時（Gate 2）の二段階で静的解析とAIレビューを実行。早期検出（Shift-Left）とPRでの強固なガードを両立します。",
     featureAgentTitle: "Codingエージェント & 広範コンテキスト検証",
     featureAgentDesc:
-      "Claude Code, OpenCode, Antigravity CLIなどのCodingエージェントをエンジンに指定可能。差分外を含む全リポジトリを参照し「コード修正に伴うDocumentsの更新有無」なども自動チェック可能。",
+      "Claude Code, OpenCode, AntigravityなどのCodingエージェントをエンジンに指定可能。差分外を含む全リポジトリを参照し「コード修正に伴うDocumentsの更新有無」なども自動チェック可能。",
     featureLoopTitle: "停滞ループ自動検出",
     featureLoopDesc:
       "指摘内容のJaccard類似度を自動評価。進展のない堂々巡りの議論（無限ループ）を検知すると強制的にLGTMを発行しデリバリー速度の低下を防ぎます。",
@@ -156,7 +156,7 @@ const translations: Record<Locale, TranslationResource> = {
     engineOpencodeTitle: "OpenCode",
     engineOpencodeDesc:
       "オープンソースエージェント。Anthropic, OpenRouter, DeepSeek, Tencent など多種多様なLLMプロバイダーを統合利用可能。",
-    engineAntigravityTitle: "Antigravity CLI",
+    engineAntigravityTitle: "Antigravity",
     engineAntigravityDesc:
       "Google DeepMind開発の高度なAIエージェント。広範なコンテキスト検証と段階的なReasoning Effort(High/Medium/Low)に対応。",
     demoTitle: "ローカル検証の体験",
@@ -237,7 +237,7 @@ const translations: Record<Locale, TranslationResource> = {
       "Combines local pre-commit verification (Gate 1) with CI pull request reviews (Gate 2), ensuring local Shift-Left and solid CI gating.",
     featureAgentTitle: "Coding Agent & Full Context Analysis",
     featureAgentDesc:
-      "Supports Claude Code, OpenCode, and Antigravity CLI. Refers to full repository context to automatically check if documentation updates match code changes.",
+      "Supports Claude Code, OpenCode, and Antigravity. Refers to full repository context to automatically check if documentation updates match code changes.",
     featureLoopTitle: "Stagnation Loop Detection",
     featureLoopDesc:
       "Evaluates comment Jaccard similarity to catch circular discussions, issuing forced LGTMs to maintain team velocity.",
@@ -257,7 +257,7 @@ const translations: Record<Locale, TranslationResource> = {
     engineOpencodeTitle: "OpenCode",
     engineOpencodeDesc:
       "Open-source agent engine supporting multi-provider models (Anthropic, OpenRouter, DeepSeek, Tencent, etc.).",
-    engineAntigravityTitle: "Antigravity CLI",
+    engineAntigravityTitle: "Antigravity",
     engineAntigravityDesc:
       "Next-gen agent by Google DeepMind with deep context reasoning and configurable effort controls.",
     demoTitle: "Experience Local Verification",
@@ -774,7 +774,7 @@ const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) =>
           </div>
           <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <code>claude -p</code> / Budget limit
+            <code>claude-agent-sdk</code> / Budget limit
           </div>
         </div>
 
@@ -796,11 +796,11 @@ const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) =>
           </div>
           <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <code>opencode run</code> / OpenRouter
+            <code>@opencode-ai/sdk</code> / OpenRouter
           </div>
         </div>
 
-        {/* Antigravity CLI */}
+        {/* Antigravity */}
         <div className="flex flex-col gap-4 p-6 rounded-2xl bg-white dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 shadow-sm hover:shadow-md transition-shadow">
           <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xl">
             Ag
@@ -818,7 +818,7 @@ const EngineComparisonSection: React.FC<{ t: TranslationResource }> = ({ t }) =>
           </div>
           <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <code>agy</code> / Gemini Reasoning
+            <code>google-antigravity</code> / Gemini Reasoning
           </div>
         </div>
       </div>
