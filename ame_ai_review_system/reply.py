@@ -363,6 +363,11 @@ def _cmd_build(pr: str, thread_id_str: str) -> None:
             diff,
             "```",
         ]
+        # Issue #47: 除外した vendored パッケージが参照されている場合は存在を注記し、
+        # 「モジュール不存在」という誤判定で LGTM を拒否しないようにする。
+        note = review_config.excluded_package_reference_note([], diff)
+        if note:
+            prompt_lines += ["", note]
 
     print("\n".join(prompt_lines))
 
@@ -638,6 +643,11 @@ def _build_prompt_for_thread(
             diff,
             "```",
         ]
+        # Issue #47: 除外した vendored パッケージが参照されている場合は存在を注記し、
+        # 「モジュール不存在」という誤判定で LGTM を拒否しないようにする。
+        note = review_config.excluded_package_reference_note([], diff)
+        if note:
+            prompt_lines += ["", note]
 
     return "\n".join(prompt_lines)
 

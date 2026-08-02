@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from ame_ai_review_system import (
+    paths,
     post_commit_reset,
     precommit_review,
     precommit_state,
@@ -195,6 +196,58 @@ def test_build_prompt_contains_required_sections() -> None:
     assert "src/a.py" in prompt
     assert "src/b.py" in prompt
     assert "diff content" in prompt
+
+
+def test_build_prompt_adds_reference_note_for_excluded_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #47: 除外した vendored パッケージが差分から参照されるとプロンプトへ注記される。
+    root = tmp_path / "repo"
+    pkg = root / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": False},
+    )
+    monkeypatch.setattr(review_config, "_package_exists_in_repo", lambda _rel: True)
+    prompt = build_prompt(
+        "main",
+        "feature/x",
+        [".pre-commit-config.yaml"],
+        "python3 -m ame_ai_review_system.skip_guard を追加",
+        "BASE PROMPT",
+    )
+    assert "注記: vendored パッケージの参照" in prompt
+    assert "存在" in prompt
+
+
+def test_build_prompt_omits_reference_note_without_reference(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    pkg = root / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": False},
+    )
+    monkeypatch.setattr(review_config, "_package_exists_in_repo", lambda _rel: True)
+    prompt = build_prompt(
+        "main",
+        "feature/x",
+        ["src/app.py"],
+        "diff content without reference",
+        "BASE PROMPT",
+    )
+    assert "注記: vendored パッケージの参照" not in prompt
 
 
 # ---------------------------

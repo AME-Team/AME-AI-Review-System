@@ -198,19 +198,19 @@ env:
 }
 ```
 
-| キー                              | デフォルト | 説明                                                                                                                                                                                                       |
-| --------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `precommit_review_enabled`        | `true`     | `true` にすると `git commit` 時にローカルで AI レビューが走り、指摘があればコミットをブロックする。                                                                                                        |
-| `precommit_require_static_checks` | `true`     | `true` の場合、AI レビュー実行前に ruff / mypy を staged ファイルに対して実行し、全て pass した場合のみ AI レビューを実行する。                                                                            |
-| `precommit_engine`                | `"auto"`   | pre-commit レビューのエンジン。`"auto"` で実装に使っているツールを自動検出。`"claude"` / `"opencode"` / `"antigravity"` で明示指定も可。                                                                   |
-| `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値 (opencode なら実装で使っているモデル)。                                                                                                      |
-| `precommit_thinking`              | (なし)     | pre-commit レビューの思考量。省略時は PR の `thinking` を継承。                                                                                                                                            |
-| `precommit_review_budget_usd`     | (なし)     | pre-commit レビュー専用の予算 (Claude のみ効果)。省略時は PR の `review_budget_usd` を継承。                                                                                                               |
-| `sdk_lang`                        | `"python"` | SDK 言語。Claude エンジンのみ有効で `"python"` / `"typescript"` を切替え（環境変数 `REVIEW_SDK_LANG` / 後方互換 `CLAUDE_SDK_LANG` でも指定可）。`opencode` は TypeScript、`antigravity` は Python で固定。 |
-| `review_include_package_dir`      | `false`    | 移植先で vendored した `ame_ai_review_system/` 配下を AI レビュー対象にするか (Issue #37)。既定は対象外 (既にレビュー済みのため)。`true` にすると対象になる。                                              |
-| `review_repair_model`             | (なし)     | 壊れたレビュー JSON を修復する際に使うモデル。省略時は本体と同じモデル。弱いモデルが JSON を壊す場合に、より強いモデルを指定すると修復成功率が上がる。修復は最大 2 回試行される。                          |
-| `show_engine_info_gate1`          | `true`     | pre-commit レビュー (Gate 1) でエンジン・モデル・思考量のバナーを表示するか (Issue #40)。`false` で非表示 (非 Claude エンジンの budget 未強制警告も抑止)。                                                 |
-| `show_engine_info_gate2`          | `true`     | PR レビュー (Gate 2) でエンジン・モデル・思考量のバナーを表示するか (Issue #40)。`false` で非表示 (非 Claude エンジンの budget 未強制警告も抑止)。CI ログに表示される値は Variables / Secrets で制御する。 |
+| キー                              | デフォルト | 説明                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `precommit_review_enabled`        | `true`     | `true` にすると `git commit` 時にローカルで AI レビューが走り、指摘があればコミットをブロックする。                                                                                                                                                                                                                                                                     |
+| `precommit_require_static_checks` | `true`     | `true` の場合、AI レビュー実行前に ruff / mypy を staged ファイルに対して実行し、全て pass した場合のみ AI レビューを実行する。                                                                                                                                                                                                                                         |
+| `precommit_engine`                | `"auto"`   | pre-commit レビューのエンジン。`"auto"` で実装に使っているツールを自動検出。`"claude"` / `"opencode"` / `"antigravity"` で明示指定も可。                                                                                                                                                                                                                                |
+| `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値 (opencode なら実装で使っているモデル)。                                                                                                                                                                                                                                                                   |
+| `precommit_thinking`              | (なし)     | pre-commit レビューの思考量。省略時は PR の `thinking` を継承。                                                                                                                                                                                                                                                                                                         |
+| `precommit_review_budget_usd`     | (なし)     | pre-commit レビュー専用の予算 (Claude のみ効果)。省略時は PR の `review_budget_usd` を継承。                                                                                                                                                                                                                                                                            |
+| `sdk_lang`                        | `"python"` | SDK 言語。Claude エンジンのみ有効で `"python"` / `"typescript"` を切替え（環境変数 `REVIEW_SDK_LANG` / 後方互換 `CLAUDE_SDK_LANG` でも指定可）。`opencode` は TypeScript、`antigravity` は Python で固定。                                                                                                                                                              |
+| `review_include_package_dir`      | `false`    | 移植先で vendored した `ame_ai_review_system/` 配下を AI レビュー対象にするか (Issue #37)。既定は対象外 (既にレビュー済みのため)。`true` にすると対象になる。対象外でも、`.pre-commit-config.yaml` や README などから `ame_ai_review_system.*` を参照している変更をレビューする際は、パッケージがリポジトリに存在する旨の注記がプロンプトに自動付与される (Issue #47)。 |
+| `review_repair_model`             | (なし)     | 壊れたレビュー JSON を修復する際に使うモデル。省略時は本体と同じモデル。弱いモデルが JSON を壊す場合に、より強いモデルを指定すると修復成功率が上がる。修復は最大 2 回試行される。                                                                                                                                                                                       |
+| `show_engine_info_gate1`          | `true`     | pre-commit レビュー (Gate 1) でエンジン・モデル・思考量のバナーを表示するか (Issue #40)。`false` で非表示 (非 Claude エンジンの budget 未強制警告も抑止)。                                                                                                                                                                                                              |
+| `show_engine_info_gate2`          | `true`     | PR レビュー (Gate 2) でエンジン・モデル・思考量のバナーを表示するか (Issue #40)。`false` で非表示 (非 Claude エンジンの budget 未強制警告も抑止)。CI ログに表示される値は Variables / Secrets で制御する。                                                                                                                                                              |
 
 > [!NOTE] **pre-commit AI レビューのエンジン自動検出** `precommit_engine: "auto"`
 > (既定) の場合、pre-commit フックが自身のプロセスツリーを親方向へたどり、`opencode` / `claude` /
@@ -220,6 +220,12 @@ env:
 >
 > **無限ループ回避**:
 > LOW レベルの指摘のみが 2 回連続で続いた場合は、コミットを通す仕様。コミット成功時に streak カウンタは 0 にリセットされる（post-commit フック）。エンジン失敗時は fail-closed でコミットをブロックする。
+>
+> **vendored パッケージ参照の注記 (Issue #47)**: `review_include_package_dir: false`（既定）で
+> `ame_ai_review_system/`
+> をレビュー差分から除外する運用では、`.pre-commit-config.yaml`（`python3 -m ame_ai_review_system.skip_guard`
+> 等）や README が参照するモジュールが diff に見えないため、モデルが「モジュール不存在」と誤判定してコミットをブロックする場合がある。これを防ぐため、差分・変更ファイルが除外対象パッケージを参照し、かつ実体がリポジトリに存在する場合、プロンプトに「vendored 済み・レビュー対象外」の注記を自動付与する。初回導入コミットのようにパッケージ本体を一括追加する場合は、`review_include_package_dir: true`
+> にすると本体もレビュー対象にできる。
 >
 > **前段の静的解析が必須** `precommit_require_static_checks: true`
 > (既定) の場合、AI レビュー実行前に ruff check / ruff format --check /

@@ -19,6 +19,7 @@ import contextlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -203,6 +204,75 @@ def filter_review_diff(diff_text: str) -> str:
 
 def _is_path_under(path: str, rel: str) -> bool:
     return path == rel or path.startswith(rel + "/")
+
+
+# ============================================================================
+# Issue #47: 除外した vendored パッケージが参照されている場合のプロンプト注記
+# ============================================================================
+
+
+def excluded_package_reference_note(files: list[str], diff_text: str) -> str:
+    """Review 対象から除外した vendored パッケージの参照注記を返す.
+
+    ``review_include_package_dir: false`` (既定) で vendored パッケージ配下が diff から
+    除外されると、モデルが「diff に無い = モジュール不存在」と誤判定し、HIGH/MIDDLE の
+    誤指摘でコミットがブロックされる (Issue #47)。
+
+    そこで、除外対象パッケージが変更ファイルや diff から参照されており、かつ実体が
+    リポジトリに存在する場合のみ、プロンプトへ「vendored 済み・レビュー対象外」である旨の
+    注記を返す。該当しない場合は空文字を返す。
+
+    - パッケージがリポジトリ外 (pip 等) にある場合: 除外対象ではないため空文字。
+    - ``review_include_package_dir: true`` の場合: 除外していないため空文字。
+    - 参照が無い、または実体が存在しない場合: 注記不要のため空文字。
+    """
+    rel = review_exclusion_rel()
+    if rel is None:
+        return ""
+    pkg_name = rel.split("/")[-1]
+    if not _text_references_package(pkg_name, diff_text) and not any(
+        _text_references_package(pkg_name, f) for f in files
+    ):
+        return ""
+    if not _package_exists_in_repo(rel):
+        return ""
+    return (
+        "\n## 注記: vendored パッケージの参照 (レビュー対象外)\n"
+        f"- `{rel}/` はレビュー対象外のため diff には含まれていませんが、リポジトリに"
+        "存在します (vendored 済み)。\n"
+        f"- diff 内で参照されている `{pkg_name}.` / `{pkg_name}/` などのモジュール・パスは"
+        f"実在するため、`{pkg_name}` に関する「モジュールが存在しない」という指摘は"
+        "行わないでください。\n"
+    )
+
+
+def _text_references_package(pkg_name: str, text: str) -> bool:
+    """``text`` がパッケージ名 (``ame_ai_review_system`` 等) を参照しているか判定する."""
+    if not text:
+        return False
+    return re.search(r"\b" + re.escape(pkg_name) + r"\b", text) is not None
+
+
+def _package_exists_in_repo(rel: str) -> bool:
+    """除外対象パッケージがリポジトリに存在するか判定する.
+
+    ``git ls-files --error-unmatch`` で追跡ファイルの存在を機械的に検証する (Issue #47)。
+    git が利用できない環境では、作業ツリーのディレクトリ存在をフォールバックに使う。
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel.rstrip("/") + "/"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            cwd=paths.project_root(),
+        )
+        if result.returncode == 0:
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return (paths.project_root() / rel).is_dir()
 
 
 def _split_diff_sections(diff_text: str) -> list[list[str]]:

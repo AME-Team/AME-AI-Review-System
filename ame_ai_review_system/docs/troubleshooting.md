@@ -207,3 +207,26 @@ GitHub Actions の該当ワークフローログ（`general-review-command`
    で別パスを指定している場合は、そのパスが正しいか確認すること。
 3. **環境変数による上書き**: 環境変数（`PRECOMMIT_REVIEW_*` / `REVIEW_*`）は `config.user.json`
    より優先される。シェルの `env | grep PRECOMMIT` で意図せず設定されていないか確認すること。
+
+---
+
+## 9. vendored パッケージが「モジュール不存在」と誤指摘されコミットがブロックされる
+
+### 症状: `ame_ai_review_system` が存在しないという HIGH / MIDDLE 指摘が出る
+
+`.pre-commit-config.yaml` や README が、vendored パッケージを参照しているとします。（例:
+`python3 -m ame_ai_review_system.skip_guard`）AI レビューが「差分に無い = モジュール不存在」と誤判定し、コミットがブロックされます。
+
+### 原因: レビュー差分からの除外
+
+`review_include_package_dir: false`（既定）では、`ame_ai_review_system/`
+配下がレビュー差分から除外されます (Issue
+#37)。モデルは diff にしかパッケージを見られないため、参照先の実在を判断できません。
+
+### 対策: 自動注記（Issue #47）
+
+差分・変更ファイルが除外対象パッケージを参照し、実体がリポジトリに存在する場合は、プロンプトへ注記が自動付与されます。「vendored 済み・レビュー対象外」の旨を記すため、誤指摘が抑止されます。この注記は
+`git ls-files` による実体検証が成功した場合のみ付きます。
+
+初回導入コミット（パッケージ本体を一括追加）では、`.ame-review/config.json` で
+`review_include_package_dir: true` にしてください。本体もレビュー対象にできます。

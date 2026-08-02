@@ -178,6 +178,14 @@ def _build_review_prompt(
     prompt += commit_log + "\n```\n\n"
     prompt += "## diff\n```diff\n"
     prompt += diff + "\n```\n"
+    # Issue #47: 除外した vendored パッケージが参照されている場合は、存在を注記して
+    # 「モジュール不存在」という誤指摘を防ぐ。
+    note = review_config.excluded_package_reference_note(
+        [f for f in changed_files.splitlines() if f.strip()],
+        diff,
+    )
+    if note:
+        prompt += note + "\n"
 
     return prompt
 

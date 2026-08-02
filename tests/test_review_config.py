@@ -12,6 +12,7 @@ from ame_ai_review_system import paths, review_config
 from ame_ai_review_system.review_config import (
     apply_repair_model,
     config_bool,
+    excluded_package_reference_note,
     filter_review_diff,
     filter_review_targets,
     is_review_command,
@@ -500,6 +501,123 @@ def test_filter_review_diff_after_compact_diff(
     result = filter_review_diff(compact_diff(diff))
     assert "ame_ai_review_system/main.py" not in result
     assert "src/app.py" in result
+
+
+# ============================================================================
+# Issue #47: 除外した vendored パッケージの参照注記
+# ============================================================================
+
+
+def _package_exists(monkeypatch: pytest.MonkeyPatch, *, exists: bool) -> None:
+    def _exists(_rel: str) -> bool:
+        return exists
+
+    monkeypatch.setattr(review_config, "_package_exists_in_repo", _exists)
+
+
+def test_reference_note_returned_when_diff_references_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    _package_exists(monkeypatch, exists=True)
+    diff = (
+        "diff --git a/.pre-commit-config.yaml b/.pre-commit-config.yaml\n"
+        "+- id: ai-skip-guard\n"
+        "+  entry: python3 -m ame_ai_review_system.skip_guard\n"
+    )
+    note = excluded_package_reference_note([], diff)
+    assert "ame_ai_review_system" in note
+    assert "レビュー対象外" in note
+    assert "存在" in note
+
+
+def test_reference_note_returned_when_files_reference_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    _package_exists(monkeypatch, exists=True)
+    note = excluded_package_reference_note(
+        ["README.md"],
+        "diff --git a/README.md b/README.md\n+ame_ai_review_system/engines/ts の導入",
+    )
+    assert "ame_ai_review_system" in note
+
+
+def test_reference_note_empty_when_include_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    pkg = root / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": True},
+    )
+    assert not excluded_package_reference_note(
+        [],
+        "python3 -m ame_ai_review_system.skip_guard",
+    )
+
+
+def test_reference_note_empty_when_no_reference(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    _package_exists(monkeypatch, exists=True)
+    assert not excluded_package_reference_note(["src/app.py"], "+diff content")
+
+
+def test_reference_note_empty_when_package_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    _package_exists(monkeypatch, exists=False)
+    assert not excluded_package_reference_note(
+        [],
+        "python3 -m ame_ai_review_system.skip_guard",
+    )
+
+
+def test_reference_note_empty_when_not_vendored(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir(parents=True)
+    pkg = tmp_path / "site-packages" / "ame_ai_review_system"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "project_root", lambda: root)
+    monkeypatch.setattr(
+        review_config,
+        "load_config",
+        lambda: {"review_include_package_dir": False},
+    )
+    assert not excluded_package_reference_note(
+        [],
+        "python3 -m ame_ai_review_system.skip_guard",
+    )
+
+
+def test_reference_note_ignores_similar_but_different_names(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _exclude_package(monkeypatch, tmp_path)
+    _package_exists(monkeypatch, exists=True)
+    # 語境界 (\b) により `xame_ai_review_system` や `ame_ai_review_system2` は誤検知しない。
+    assert not excluded_package_reference_note(
+        [],
+        "+xame_ai_review_system and ame_ai_review_system2",
+    )
 
 
 def _restore_env(key: str, old: str | None) -> None:
