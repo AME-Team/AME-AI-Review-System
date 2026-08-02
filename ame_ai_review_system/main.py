@@ -662,15 +662,16 @@ def cmd_setup(_args: argparse.Namespace) -> int:
     print("[setup] Installing Python dev tools into the active venv...")
     try:
         subprocess.run(
-            ["uv", "pip", "install", "-r", "requirements-dev.txt"],
+            ["uv", "pip", "install", "-r", str(PROJ_ROOT / "requirements-dev.txt")],
             check=True,
+            cwd=PROJ_ROOT,
         )
     except subprocess.CalledProcessError as exc:
         print(f"[setup] ERROR: uv pip install failed: {exc}", file=sys.stderr)
         return 1
 
     print("[setup] Installing Node.js dev tools...")
-    subprocess.run(["npm", "ci"], check=False)
+    subprocess.run(["npm", "ci"], check=False, cwd=PROJ_ROOT)
 
     print("[setup] Installing pre-commit hooks...")
     subprocess.run(
@@ -688,6 +689,7 @@ def cmd_setup(_args: argparse.Namespace) -> int:
             "pre-push",
         ],
         check=False,
+        cwd=PROJ_ROOT,
     )
 
     print("[setup] Done. Run: pre-commit run --all-files")

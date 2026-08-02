@@ -50,10 +50,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install Python engine SDKs
-        # opencode エンジンは TS SDK (npm) のため不要。claude / antigravity エンジン用の
-        # Python SDK (claude-agent-sdk / google-antigravity) を setup-python へ導入する。
+        # REVIEW_ENGINE が opencode (既定) の場合は不要。claude / antigravity 時のみ導入する。
+        # エンジン解決は vars/secrets フォールバック (既定 opencode) で、下の reply ステップと同一。
         # 導入方法はエンジン欠落時のエラーメッセージと同じ uv コマンドに統一している。
+        env:
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE || secrets.REVIEW_ENGINE || 'opencode' }}
         run: |
+          if [ "$REVIEW_ENGINE" = "opencode" ]; then
+            echo "Engine is opencode; Python SDKs not required."
+            exit 0
+          fi
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
           uv pip install --system --python "$(command -v python3)" \
