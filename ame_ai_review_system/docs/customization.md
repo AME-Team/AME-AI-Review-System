@@ -240,8 +240,6 @@ security-review-reply:
 > による明示的な設定に基づく意図的な除外であり、pre-commit の SKIP 迂回をブロックする
 > `ai_review_enforce_no_skip` とは独立に動作する。
 
-> パッケージが PyPI インストール (リポジトリ外) の場合は vendored されていないため、この設定の影響を受けません。
-
 ### 3-2. それ以外のファイルを除外する（Git pathspec）
 
 通常、`git diff` を実行して差分を抽出する際に、パスを指定して除外できる。

@@ -51,12 +51,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install Python engine SDKs
+        # REVIEW_ENGINE が opencode (既定) の場合は不要。claude / antigravity 時のみ導入する。
+        # エンジン解決は vars/secrets フォールバック (既定 opencode) で、下の review ステップと同一。
+        # 導入方法はエンジン欠落時のエラーメッセージと同じ uv コマンドに統一している。
+        env:
+          REVIEW_ENGINE: ${{ vars.REVIEW_ENGINE || secrets.REVIEW_ENGINE || 'opencode' }}
+        run: |
+          if [ "$REVIEW_ENGINE" = "opencode" ]; then
+            echo "Engine is opencode; Python SDKs not required."
+            exit 0
+          fi
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install --system --python "$(command -v python3)" \
+            claude-agent-sdk google-antigravity
       - name: Install OpenCode CLI
         run: npm install -g opencode-ai
       - name: Install TS engine deps (vendored sidecar)
-        # 本リポジトリは ame_ai_review_system/ をトップレベルに vendored している。
-        # 移植先リポジトリは ame-review init が生成する .ame-review/engines-ts を
-        # 使用するため、この手書きワークフローは本リポジトリ専用でよい。
+        # ame_ai_review_system/ をトップレベルに vendored する運用 (ディレクトリコピー)
+        # を想定。本ファイルも含めて .github/ と ame_ai_review_system/ をコピーすれば
+        # 導入先でも同じパスで動作する。
         run: npm --prefix ame_ai_review_system/engines/ts install
       - name: Determine target PR and whether to run
         id: cmd
@@ -107,6 +122,9 @@ jobs:
           echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"
       - name: Run General Review
         if: steps.cmd.outputs.run_review == 'true'
+        # プロンプトは --prompt-file で明示せず paths.prompt_path() の既定解決に任せる。
+        # .ame-review/ が無い導入先 (コピー運用) では同梱の
+        # ame_ai_review_system/review_prompt.txt へフォールバックする (paths.py)。
         env:
           AME_AI_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
           REVIEWER_NAME: ame-ai-reviewer

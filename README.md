@@ -159,43 +159,17 @@ scripts/
   check_suppression_comments.py  # 抑制コメント検証スクリプト
 ```
 
-## クイックスタート（pip インストール）
+## クイックスタート
 
-PyPI からパッケージをインストールし、`ame-review init` で対象リポジトリへ設定を足場展開します。
-
-```bash
-# 1. インストール（使用するエンジンの SDK を extras で指定）
-pip install "ame-ai-review-system[claude]"      # Claude Agent SDK
-# pip install "ame-ai-review-system[antigravity]" # Google Antigravity SDK
-# pip install ame-ai-review-system                # OpenCode は TS SDK のため extras 不要
-
-# 2. 対象リポジトリへ設定を足場展開
-cd /path/to/your-repo
-ame-review init --profile python --engine claude
-# OpenCode の場合: ame-review init --profile python --engine opencode
-```
-
-`init` は `.ame-review/`（設定・プロンプト・Semgrep ルール）を生成します。また Gate
-2 ワークフロー・Gate 1
-pre-commit 設定・TS エンジン依存（Claude-TS の場合）も生成します。続けて GitHub App /
-Secret の設定手順を表示します。
-
-> **プロファイル**: `minimal`（AI フックのみ）／ `python`（＋ruff/mypy 等）／
-> `full`（＋Node/Shell/YAML/Secret 系）。 **エンジン**: `claude`（Python または TypeScript SDK）／
-> `opencode`（CLI サブプロセス経由）／ `antigravity`（Python SDK のみ）。
-
-詳細なセットアップ・Secret 設定・カスタマイズは [docs/setup.md](ame_ai_review_system/docs/setup.md)
-と [docs/distribution.md](ame_ai_review_system/docs/distribution.md) を参照。
-
----
-
-## クイックスタート（従来方式：ディレクトリコピー）
-
-> 上記 pip 方式を推奨します。本方式は後方互換のために残します。
-
-他プロジェクトへの導入は非常にシンプルです。
+本システムはパッケージを PyPI に公開していないため、ソースコードをコピーして導入する。他プロジェクトへの導入は非常にシンプルです。
 
 1. **資材のコピー**: `.github/` と `ame_ai_review_system/` を対象リポジトリのルートにコピーする。
+
+   ```bash
+   cp -r .github/ /path/to/your-repo/
+   cp -r ame_ai_review_system/ /path/to/your-repo/
+   ```
+
 2. **GitHub App の登録と Secret 設定**: レビュー用の GitHub
    App を作成し、対象リポジトリにインストールする。App の Credentials として以下を Secrets に登録する。
    - `AME_AI_REVIEWER_APP_ID` : GitHub App の App ID（数値）
@@ -209,6 +183,11 @@ Secret の設定手順を表示します。
    をプロジェクトの規約や観点に合わせてカスタマイズする。
 4. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。
 
+> [!NOTE] **エンジン別の SDK**: 既定の `opencode` エンジンはワークフローが TypeScript
+> SDK を自動導入します。`claude` / `antigravity` エンジンを使う場合は Python SDK（`claude-agent-sdk`
+> / `google-antigravity`）が必要です。エンジン別の認証・モデル設定などの詳細は
+> [セットアップガイド](ame_ai_review_system/docs/setup.md)を参照してください。
+>
 > [!NOTE] **pre-commit 時の AI レビューもデフォルトで有効** です。`git commit`
 > 時にローカルで AI レビューが走り、指摘があればコミットをブロックします。PR レビューとは独立して
 > `ame_ai_review_system/config.json` の `precommit_review_enabled` で ON/OFF できます。利用には

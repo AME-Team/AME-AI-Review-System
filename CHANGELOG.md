@@ -7,14 +7,9 @@
 
 ### Added
 
-- `ame-review init` サブコマンドを追加。 `.ame-review/`
-  設定・ワークフロー・pre-commit・TS 依存を足場展開する。
-- pip インストール可能化 (`ame-ai-review-system`)。オプション extras で `[claude]` / `[antigravity]`
-  / `[all]` の SDK 依存を導入できる。
 - エンジン SDK アダプタ層を追加。Claude /
   Antigravity は SDK 直駆動、OpenCode は CLI サブプロセス経由（SDK はサーバ起動型で CI 都度起動が煩雑なため）。
 - プロジェクトローカル設定 `.ame-review/` による repo 非依存パス解決。
-- PyPI 公開ワークフロー (`.github/workflows/release.yml`, Trusted Publishing/OIDC)。
 - 移植先で vendored した `ame_ai_review_system/` 配下を既定でレビュー対象外にする設定を追加 (Issue
   #37)。`review_include_package_dir` で切替可能。
 - このリポジトリ自身は `.ame-review/config.json` で `true` に設定し、配下をレビュー対象として運用。
@@ -30,5 +25,9 @@
 
 ### Removed
 
+- PyPI 公開・pip インストール経路を廃止。配布はソースコードコピー方式（`.github/` と
+  `ame_ai_review_system/` のコピー）に一本化 (Issue #45)。これに伴い `ame-review init`
+  サブコマンド、`.github/workflows/release.yml`、`pyproject.toml` の `[project.scripts]` /
+  `[project.optional-dependencies]` / hatchling ビルド設定、 `docs/distribution.md` を削除。
 - LLM CLI バイナリ (`claude`/`opencode`/`agy`) のサブプロセス呼び出し。
 - 未参照の `ame_ai_review_system/VERSION` ファイル。

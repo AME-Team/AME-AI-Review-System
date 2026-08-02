@@ -62,7 +62,7 @@ def _import_sdk() -> tuple[Any, Any, Any]:
     except ImportError as exc:
         msg = (
             "[engine] claude-agent-sdk is not installed. "
-            "Run: pip install 'ame-ai-review-system[claude]'"
+            "Run: uv pip install claude-agent-sdk (with your venv activated)"
         )
         raise SystemExit(msg) from exc
     return query, ClaudeAgentOptions, ResultMessage

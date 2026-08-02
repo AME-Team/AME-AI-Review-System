@@ -3,7 +3,7 @@
 // サーバは別プロセスで起動されていること (ame-review は接続のみ; 認証は OPENCODE_URL で指定)。
 //   OPENCODE_URL : 接続先 (既定 http://127.0.0.1:4096)。`opencode serve` 等で起動済みであること。
 //   OPENCODE_PASSWORD / OPENCODE_SERVER_PASSWORD : Basic 認証パスワード (serve 無認証時は不要)。
-// ame-review init が .ame-review/engines-ts/ へこのファイルと package.json を配置し
+// このファイルと package.json は ame_ai_review_system/engines/ts/ に同梱されており
 // npm ci で @opencode-ai/sdk を導入する (ESM 解決のため隣接 node_modules が必要)。
 // モデルは provider/model 形式 (例: anthropic/claude-sonnet-4) を指定すること。
 
