@@ -1,6 +1,6 @@
 // Claude Agent SDK (TypeScript) サイドカー。
 // stdin: プロンプト / stdout: レビュー結果テキスト / stderr: ログ。
-// ame-review init が .ame-review/engines-ts/ へこのファイルと package.json を配置し
+// このファイルと package.json は ame_ai_review_system/engines/ts/ に同梱されており
 // npm ci で @anthropic-ai/claude-agent-sdk を導入する (ESM 解決のため隣接 node_modules が必要)。
 
 import { query } from "@anthropic-ai/claude-agent-sdk";

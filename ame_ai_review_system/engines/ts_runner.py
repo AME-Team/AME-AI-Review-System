@@ -26,8 +26,9 @@ def _node_binary() -> str:
 
 
 def _sidecar_path(script: str) -> Path:
-    # init が .ame-review/engines-ts/ へサイドカーと package.json を配置し
-    # npm ci で隣接 node_modules を作る (ESM は NODE_PATH を無視するため隣接が必須)。
+    # プロジェクトローカル (.ame-review/engines-ts/) があれば優先、なければ
+    # vendored の ame_ai_review_system/engines/ts/ を使う
+    # (ESM は NODE_PATH を無視するため隣接 node_modules が必須)。
     project_local = paths.ame_review_dir() / "engines-ts" / script
     if project_local.exists():
         return project_local

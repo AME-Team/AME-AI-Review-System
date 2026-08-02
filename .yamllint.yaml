@@ -1,5 +1,5 @@
 # yamllint 設定（厳格）。--strict で警告もエラー扱いにする。
-# 導入（グローバル）: python -m pip install yamllint
+# 導入（グローバル）: uv tool install yamllint
 ---
 extends: default
 

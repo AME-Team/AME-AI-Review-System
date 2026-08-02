@@ -52,9 +52,9 @@ jobs:
       - name: Install OpenCode CLI
         run: npm install -g opencode-ai
       - name: Install TS engine deps (vendored sidecar)
-        # 本リポジトリは ame_ai_review_system/ をトップレベルに vendored している。
-        # 移植先リポジトリは ame-review init が生成する .ame-review/engines-ts を
-        # 使用するため、この手書きワークフローは本リポジトリ専用でよい。
+        # ame_ai_review_system/ をトップレベルに vendored する運用 (ディレクトリコピー)
+        # を想定。本ファイルも含めて .github/ と ame_ai_review_system/ をコピーすれば
+        # 導入先でも同じパスで動作する。
         run: npm --prefix ame_ai_review_system/engines/ts install
       - name: Get GitHub App installation token
         id: app_token

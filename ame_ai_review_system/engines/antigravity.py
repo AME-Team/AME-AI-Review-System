@@ -51,7 +51,7 @@ def _import_sdk() -> Any:
     except ImportError as exc:
         msg = (
             "[engine] google-antigravity is not installed. "
-            "Run: pip install 'ame-ai-review-system[antigravity]'"
+            "Run: uv pip install google-antigravity"
         )
         raise SystemExit(msg) from exc
     return antigravity

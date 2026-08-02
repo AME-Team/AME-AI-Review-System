@@ -13,9 +13,9 @@
 #       導入済みのツール」を直接呼ぶ。設定の正本は各設定ファイル。
 #
 # ── 初回セットアップ ──────────────────────────────────────────────────────────
-#   pip install ruff mypy codespell yamllint pre-commit pyright
+#   uv tool install ruff mypy codespell yamllint pre-commit pyright
 #   npm ci
-#   # shellcheck: apt install shellcheck  または  pip install shellcheck-py
+#   # shellcheck: apt install shellcheck  または  uv tool install shellcheck-py
 #   # actionlint: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 #   # gitleaks  : apt install gitleaks  または  brew install gitleaks
 #   pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push
