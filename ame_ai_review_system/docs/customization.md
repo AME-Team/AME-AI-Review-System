@@ -265,8 +265,8 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 | ---------------------- | ----------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------- |
 | **Python**             | Ruff, mypy, pyright                                   | 構文エラー・未使用変数・厳格な型チェック (strict)              | `pyproject.toml`                                            |
 | **セキュリティ**       | Semgrep Custom, Gitleaks, detect-private-key          | 自作規約（ broad catch/kill 予防など）、機密情報・鍵検出       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
-| **フロントエンド**     | ESLint, tsc, Stylelint                                | TS/JS構文チェック（`--max-warnings=0`）、型不整合、CSS検証     | `eslint.config.js`, `tsconfig.json`                         |
-| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check | Markdown構文、誤字脱字、Mermaidダイアグラム構文検証            | `.markdownlint-cli2.yaml`, `.textlintrc`                    |
+| **フロントエンド**     | ESLint, tsc, Stylelint                                | TS/JS構文チェック（`--max-warnings=0`）、型不整合、CSS検証     | `eslint.config.mjs`, `tsconfig.json`                        |
+| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check | Markdown構文、誤字脱字、Mermaidダイアグラム構文検証            | `.markdownlint-cli2.jsonc`, `.textlintrc`                   |
 | **設定/データ**        | yamllint, check-yaml/toml/json, SQLFluff              | YAML/TOML/JSON構文検証、SQLフォーマットチェック                | `.yamllint.yaml`, `.sqlfluff`                               |
 | **シェル/CI**          | ShellCheck, actionlint                                | bash/shスクリプトバグ検知、GitHub Actions構文検証              | `.shellcheckrc`, `.actionlint.yaml`                         |
 | **Git衛生**            | commitlint, check-merge-conflict, check-case-conflict | コミットメッセージ規約、マージコンフリクトマーカー検出         | `.commitlintrc.json`, pre-commit-hooks                      |
@@ -310,7 +310,7 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
   `true`（デフォルト）の場合、静的解析がパスした時のみ AI レビューに進む。`false`
   の場合は静的解析の成否に関わらず AI レビューする。
 - **`precommit_engine`**: デフォルトは `"auto"` であり、動作中の AI ツール（Claude Code, OpenCode,
-  Antigravity CLI）を自動検出する。明示的に `"claude"`, `"opencode"`, `"antigravity"`
+  Antigravity）を自動検出する。明示的に `"claude"`, `"opencode"`, `"antigravity"`
   を指定して固定できる。
 - **`precommit_model`**: pre-commit レビューで使うモデルを指定。省略時はエンジン既定値。
 - **`precommit_thinking`**: 思考量（`high` / `medium` / `low`）。省略時は PR の `thinking` を継承。
@@ -354,12 +354,13 @@ PR レビュー（Gate 2）のエンジン・モデル・思考量は、GitHub �
 GitHub のリポジトリ設定 > Settings > Secrets and variables > Actions >
 Variables から以下の変数を登録します。
 
-| 変数名            | 説明                  | 有効値                                        |
-| ----------------- | --------------------- | --------------------------------------------- |
-| `REVIEW_ENGINE`   | 使用する LLM エンジン | `claude`, `opencode`, `antigravity`           |
-| `REVIEW_MODEL`    | 使用するモデル        | エンジンに応じて指定（例: `sonnet`, `gpt-5`） |
-| `REVIEW_THINKING` | 思考量                | `high`, `medium`, `low`                       |
-| `REPLY_MODEL`     | 返信判定モデル        | エンジンに応じて指定                          |
+| 変数名            | 説明                    | 有効値                                                |
+| ----------------- | ----------------------- | ----------------------------------------------------- |
+| `REVIEW_ENGINE`   | 使用する LLM エンジン   | `claude`, `opencode`, `antigravity`                   |
+| `REVIEW_MODEL`    | 使用するモデル          | エンジンに応じて指定（例: `sonnet`, `gpt-5`）         |
+| `REVIEW_SDK_LANG` | SDK 言語（Claude のみ） | `python`, `typescript`（後方互換: `CLAUDE_SDK_LANG`） |
+| `REVIEW_THINKING` | 思考量                  | `high`, `medium`, `low`                               |
+| `REPLY_MODEL`     | 返信判定モデル          | エンジンに応じて指定                                  |
 
 > [!NOTE] 環境変数の優先順位は **GitHub Variables > `config.user.json` >
 > `config.json` > デフォルト値** です。Variables に設定した値が最も優先されます。
@@ -412,7 +413,7 @@ Gate 2 ではエンジン情報（エンジン名・モデル・思考量）が 
 
 ### Coding Agent 選択のメリットと広範コンテキスト検証
 
-本システムは単なる API 連携ではなく、実機の **Claude Code**, **OpenCode**, **Antigravity CLI**
+本システムは単なる API 連携ではなく、実機の **Claude Code**, **OpenCode**, **Antigravity**
 などの Coding
 Agent と連携します。プロンプトカスタマイズにより、以下のような高度な全体最適化の検証を自動で実施できます。
 

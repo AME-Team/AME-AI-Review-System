@@ -31,8 +31,8 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 | ---------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | **Python**             | ruff (lint, ALL+preview), ruff-format, mypy (strict), pyright                     | `pyproject.toml`                                            |
 | **セキュリティ**       | semgrep-custom（自作7ルール）, gitleaks, detect-private-key                       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
-| **フロントエンド**     | eslint (`--max-warnings=0`), tsc `--noEmit`, stylelint                            | `eslint.config.js`, `tsconfig.json`                         |
-| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check（自作）                     | `.markdownlint-cli2.yaml`, `.textlintrc`                    |
+| **フロントエンド**     | eslint (`--max-warnings=0`), tsc `--noEmit`, stylelint                            | `eslint.config.mjs`, `tsconfig.json`                        |
+| **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check（自作）                     | `.markdownlint-cli2.jsonc`, `.textlintrc`                   |
 | **設定/データ**        | yamllint (strict), check-yaml / check-toml / check-json, sqlfluff                 | `.yamllint.yaml`, `.sqlfluff`                               |
 | **シェル/CI**          | shellcheck, actionlint                                                            | `.shellcheckrc`, `.actionlint.yaml`                         |
 | **Git衛生**            | commitlint, check-merge-conflict, check-case-conflict, check-added-large-files 等 | `.commitlintrc.json`, pre-commit-hooks                      |
@@ -46,10 +46,10 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 ## 特徴
 
 - **ベースブランチとの全累積差分レビュー**: 従来のコミット単位の差分チェックでは複数コミットを含むPRの全容把握が困難であった。本システムは
-  `origin/<base>...HEAD`（`main` または
-  `dev`）の全累積差分を評価対象とし、PR全体の整合性を正確に追跡・評価する。
-- **ブランチフロー**: 作業ブランチ（feature / bug / chore 等） → `dev` → `main`。AI
-  Agent はデフォルトで `dev` をベースに PR を作成する。
+  `origin/<base>...HEAD`（既定は
+  `main`）の全累積差分を評価対象とし、PR全体の整合性を正確に追跡・評価する。
+- **ブランチフロー**: 作業ブランチ（feature / bug / chore 等） → `main`。AI Agent はデフォルトで
+  `main` をベースに PR を作成する。
 - **厳格なデフォルト静的解析**: tsc / eslint (--max-warnings=0) / mypy / ruff /
   semgrep 等の約25ツールを標準装備。機械的な問題は前段にて高い精度で捕捉する構造である。
 - **Gate 1（pre-commit）& Gate 2（PR）の二重品質ゲート**: ローカルコミット時（Gate 1）とCI/CD
@@ -97,8 +97,7 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 2）の品質チェックフローをブラウザ上でシミュレーションできるインタラクティブな紹介サイトを同梱しています。
 
 公開サイト: <https://tarminjapan.github.io/AME-AI-Review-System/> （`main`
-ブランチへの push で GitHub Pages に自動デプロイされます。開発は `dev`
-ブランチを統合先として進めます）
+ブランチへの push で GitHub Pages に自動デプロイされます）
 
 ### 起動・ビルドコマンド
 
