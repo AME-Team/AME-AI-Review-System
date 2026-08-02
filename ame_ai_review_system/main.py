@@ -638,9 +638,10 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 def cmd_setup(_args: argparse.Namespace) -> int:
     """Install dependencies and configure pre-commit hooks."""
+    import shutil
     import subprocess
 
-    print("[setup] Installing Python static analysis tools...")
+    print("[setup] Installing Python static analysis tools (uv tool)...")
     py_tools = [
         "ruff",
         "mypy",
@@ -651,7 +652,13 @@ def cmd_setup(_args: argparse.Namespace) -> int:
         "pyright",
         "pytest",
     ]
-    subprocess.run([sys.executable, "-m", "pip", "install", *py_tools], check=False)
+    if shutil.which("uv") is None:
+        print(
+            "[setup] uv not found on PATH. Install it first: https://docs.astral.sh/uv/"
+        )
+    else:
+        for tool in py_tools:
+            subprocess.run(["uv", "tool", "install", tool], check=False)
 
     print("[setup] Installing Node.js dev tools...")
     subprocess.run(["npm", "ci"], check=False)

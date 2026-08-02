@@ -51,6 +51,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install Python engine SDKs
+        # opencode エンジンは TS SDK (npm) のため不要。claude / antigravity エンジン用の
+        # Python SDK (claude-agent-sdk / google-antigravity) を setup-python へ導入する。
+        # 導入方法はエンジン欠落時のエラーメッセージと同じ uv コマンドに統一している。
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install --system --python "$(command -v python3)" \
+            claude-agent-sdk google-antigravity
       - name: Install OpenCode CLI
         run: npm install -g opencode-ai
       - name: Install TS engine deps (vendored sidecar)

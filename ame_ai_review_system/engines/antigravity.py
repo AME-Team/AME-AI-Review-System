@@ -46,12 +46,13 @@ async def _run(prompt: str, settings: dict[str, Any], ag: Any) -> str:
 
 
 def _import_sdk() -> Any:
+    import importlib
+
     try:
-        from google import antigravity
+        return importlib.import_module("google.antigravity")
     except ImportError as exc:
         msg = (
             "[engine] google-antigravity is not installed. "
-            "Run: uv pip install google-antigravity"
+            "Run: uv pip install google-antigravity (with your venv activated)"
         )
         raise SystemExit(msg) from exc
-    return antigravity

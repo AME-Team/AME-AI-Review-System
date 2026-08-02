@@ -184,6 +184,11 @@ scripts/
    をプロジェクトの規約や観点に合わせてカスタマイズする。
 4. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。
 
+> [!NOTE] **エンジン別の SDK**: 既定の `opencode` エンジンはワークフローが TypeScript
+> SDK を自動導入します。`claude` / `antigravity` エンジンを使う場合は Python SDK（`claude-agent-sdk`
+> / `google-antigravity`）が必要です。エンジン別の認証・モデル設定などの詳細は
+> [セットアップガイド](ame_ai_review_system/docs/setup.md)を参照してください。
+>
 > [!NOTE] **pre-commit 時の AI レビューもデフォルトで有効** です。`git commit`
 > 時にローカルで AI レビューが走り、指摘があればコミットをブロックします。PR レビューとは独立して
 > `ame_ai_review_system/config.json` の `precommit_review_enabled` で ON/OFF できます。利用には

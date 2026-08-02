@@ -8,6 +8,7 @@
 #   (.venv/bin を有効化すれば pre-commit run がすべてのフックを呼べる)
 codespell
 claude-agent-sdk
+google-antigravity
 mypy
 pre-commit>=4.0
 pre-commit-hooks
