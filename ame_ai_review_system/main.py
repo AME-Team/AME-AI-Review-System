@@ -639,26 +639,35 @@ def cmd_review(args: argparse.Namespace) -> int:
 def cmd_setup(_args: argparse.Namespace) -> int:
     """Install dependencies and configure pre-commit hooks."""
     import shutil
-    import subprocess
 
-    print("[setup] Installing Python static analysis tools (uv tool)...")
-    py_tools = [
-        "ruff",
-        "mypy",
-        "codespell",
-        "yamllint",
-        "sqlfluff",
-        "pre-commit",
-        "pyright",
-        "pytest",
-    ]
     if shutil.which("uv") is None:
         print(
-            "[setup] uv not found on PATH. Install it first: https://docs.astral.sh/uv/"
+            "[setup] ERROR: uv not found on PATH. Install it first: "
+            "https://docs.astral.sh/uv/",
+            file=sys.stderr,
         )
-    else:
-        for tool in py_tools:
-            subprocess.run(["uv", "tool", "install", tool], check=False)
+        return 1
+    if os.environ.get("VIRTUAL_ENV") is None:
+        print(
+            "[setup] ERROR: no active venv. Create and activate one first: "
+            "uv venv .venv --python 3.12 && source .venv/bin/activate",
+            file=sys.stderr,
+        )
+        return 1
+
+    # pre-commit の language: system フックは ruff / mypy 等を直接呼ぶため、
+    # ツールを isolated な ~/.local/bin へ入れると PATH 依存で実行に失敗する。
+    # requirements-dev.txt（正本）をアクティブな venv へ入れて .venv/bin 経由で
+    # 呼べるようにする。
+    print("[setup] Installing Python dev tools into the active venv...")
+    try:
+        subprocess.run(
+            ["uv", "pip", "install", "-r", "requirements-dev.txt"],
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"[setup] ERROR: uv pip install failed: {exc}", file=sys.stderr)
+        return 1
 
     print("[setup] Installing Node.js dev tools...")
     subprocess.run(["npm", "ci"], check=False)

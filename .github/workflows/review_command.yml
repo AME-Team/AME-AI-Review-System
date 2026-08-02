@@ -116,6 +116,9 @@ jobs:
           echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"
       - name: Run General Review
         if: steps.cmd.outputs.run_review == 'true'
+        # プロンプトは --prompt-file で明示せず paths.prompt_path() の既定解決に任せる。
+        # .ame-review/ が無い導入先 (コピー運用) では同梱の
+        # ame_ai_review_system/review_prompt.txt へフォールバックする (paths.py)。
         env:
           AME_AI_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
           REVIEWER_NAME: ame-ai-reviewer

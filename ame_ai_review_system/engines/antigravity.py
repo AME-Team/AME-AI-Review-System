@@ -48,6 +48,10 @@ async def _run(prompt: str, settings: dict[str, Any], ag: Any) -> str:
 def _import_sdk() -> Any:
     import importlib
 
+    # `from google import antigravity` は mypy の attr-defined で落ちる
+    # (google は namespace package で、google-antigravity を導入済みでも
+    # mypy が google.antigravity 属性を静的に解決できない)。
+    # importlib で動的解決しつつ claude_python.py と同じ遅延 import パターンを保つ。
     try:
         return importlib.import_module("google.antigravity")
     except ImportError as exc:
