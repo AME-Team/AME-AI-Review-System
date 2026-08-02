@@ -701,6 +701,12 @@ def test_reference_note_verifies_subpath_via_git(
     # 参照先が存在しないサブモジュールの場合、注記は付かない。
     missing_diff = "+  entry: python3 -m ame_ai_review_system.no_such_module"
     assert not excluded_package_reference_note([], missing_diff)
+    # ドット連鎖の末尾が属性アクセス (main.run()) でも、モジュール本体が存在すれば注記が付く。
+    (pkg / "main.py").write_text("def run():\n    pass\n", encoding="utf-8")
+    sp.run(["git", "add", "."], cwd=root, check=True)
+    sp.run(["git", "commit", "-qm", "add main"], cwd=root, check=True)
+    attr_diff = "+x = ame_ai_review_system.main.run()"
+    assert "vendored" in excluded_package_reference_note([], attr_diff)
 
 
 def _restore_env(key: str, old: str | None) -> None:

@@ -235,20 +235,23 @@ def excluded_package_reference_note(files: list[str], diff_text: str) -> str:
     texts: list[str] = [diff_text, *files]
     if not any(_text_references_package(pkg_name, t) for t in texts):
         return ""
-    if not _package_exists_in_repo(rel):
-        return ""
     subpaths: set[str] = set()
     for t in texts:
         subpaths |= _referenced_subpaths(pkg_name, t)
-    if subpaths and not _package_subpaths_exist(rel, subpaths):
+    # 参照先サブパスがある場合はそちらを検証する。ない場合 (単体のパッケージ名参照) は
+    # パッケージディレクトリの存在を検証する。
+    if subpaths:
+        if not _package_subpaths_exist(rel, subpaths):
+            return ""
+    elif not _package_exists_in_repo(rel):
         return ""
     return (
         "\n## 注記: vendored パッケージの参照 (レビュー対象外)\n"
         f"- `{rel}/` はレビュー対象外のため diff には含まれていませんが、リポジトリに"
         "存在します (vendored 済み)。\n"
-        f"- diff 内で参照されている `{pkg_name}.` / `{pkg_name}/` などのモジュール・パスは"
-        f"実在するため、`{pkg_name}` に関する「モジュールが存在しない」という指摘は"
-        "行わないでください。\n"
+        f"- 差分やコメントで参照されている `{pkg_name}.` / `{pkg_name}/` などの"
+        f"モジュール・パスは実在するため、`{pkg_name}` に関する「モジュールが存在しない」"
+        "という指摘は行わないでください。\n"
     )
 
 
@@ -275,6 +278,8 @@ def _referenced_subpaths(pkg_name: str, text: str) -> set[str]:
     ``ame_ai_review_system.skip_guard`` から ``skip_guard``、
     ``ame_ai_review_system/engines/ts`` から ``engines/ts`` を取り出す。
     参照先が無い (単体の ``ame_ai_review_system`` 等) 場合は空集合を返す。
+    ドット連鎖の末尾は属性アクセス (``main.run()`` 等) の可能性があるため除去せず、
+    検証側でプレフィックスへ縮めて確認する。
     """
     if not text:
         return set()
@@ -325,36 +330,53 @@ def _package_subpaths_exist(rel: str, subpaths: Iterable[str]) -> bool:
     """参照された全サブパスが実在する場合のみ ``True`` を返す.
 
     1 つでも欠落があれば ``False`` (typo / バージョン差の可能性が高い)。
+    ``git ls-files`` は全サブパスの候補パスをまとめて 1 回起動する。
     """
-    return all(_package_subpath_exists(rel, subpath) for subpath in sorted(subpaths))
+    subpaths = sorted(set(subpaths))
+    if not subpaths:
+        return True
+    candidates = {
+        subpath: _package_subpath_candidates(rel, subpath) for subpath in subpaths
+    }
+    matched = _package_matched_files(
+        [c for cs in candidates.values() for c in cs],
+    )
+    root = paths.project_root()
+    for cs in candidates.values():
+        if any(_candidate_matched(c, matched) for c in cs):
+            continue
+        if not any((root / c).exists() for c in cs):
+            return False
+    return True
 
 
-_subpath_cache: dict[tuple[str, str, str], bool] = {}
+def _package_subpath_candidates(rel: str, subpath: str) -> list[str]:
+    """``subpath`` の実在検証に使う候補パスを列挙する.
 
-
-def _package_subpath_exists(rel: str, subpath: str) -> bool:
-    """``rel`` 配下の参照サブパス (モジュール/ディレクトリ) の実在を判定する.
-
-    検証結果は ``(project_root, rel, subpath)`` をキーにプロセス内キャッシュする。
+    ``main.run`` のようなドット連鎖はモジュール ``main`` の属性アクセスである可能性が
+    高いため、末尾セグメントを順に取り除いたプレフィックスも候補に含める
+    (``main.run`` → ``rel/main/run.py`` と ``rel/main.py`` の両方)。
     """
-    key = (str(paths.project_root()), rel, subpath)
-    if key in _subpath_cache:
-        return _subpath_cache[key]
-    exists = _package_subpath_check(rel, subpath)
-    _subpath_cache[key] = exists
-    return exists
+    parts = subpath.replace(".", "/").split("/")
+    candidates: list[str] = []
+    for i in range(len(parts), 0, -1):
+        prefix = "/".join(parts[:i])
+        candidates.extend(
+            [
+                f"{rel}/{prefix}.py",
+                f"{rel}/{prefix}.pyi",
+                f"{rel}/{prefix}/",
+                f"{rel}/{prefix}",
+            ],
+        )
+    return candidates
 
 
-def _package_subpath_check(rel: str, subpath: str) -> bool:
-    candidates = [
-        f"{rel}/{subpath}.py",
-        f"{rel}/{subpath}.pyi",
-        f"{rel}/{subpath}/",
-        f"{rel}/{subpath}",
-    ]
+def _package_matched_files(candidates: list[str]) -> set[str]:
+    """``git ls-files`` で候補パス群と一致する追跡ファイルの集合を返す."""
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--error-unmatch", *candidates],
+            ["git", "ls-files", "--", *candidates],
             capture_output=True,
             text=True,
             check=False,
@@ -362,10 +384,18 @@ def _package_subpath_check(rel: str, subpath: str) -> bool:
             cwd=paths.project_root(),
         )
         if result.returncode == 0:
-            return True
+            return {line.strip() for line in result.stdout.splitlines() if line.strip()}
     except (OSError, subprocess.SubprocessError):
         pass
-    return any((paths.project_root() / c).exists() for c in candidates)
+    return set()
+
+
+def _candidate_matched(candidate: str, matched: set[str]) -> bool:
+    if candidate in matched:
+        return True
+    if candidate.endswith("/"):
+        return any(path.startswith(candidate) for path in matched)
+    return False
 
 
 def _split_diff_sections(diff_text: str) -> list[list[str]]:
