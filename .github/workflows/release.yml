@@ -1,0 +1,79 @@
+---
+# タグ push (v*) で wheel / sdist をビルドし GitHub Release に添付する。
+#
+# 配布先は Release の Assets から wheel を pip install する:
+#   pip install <release-wheel-url>
+#
+# Release URL の形式は README と docs/setup.md を参照。
+#
+# 事前条件:
+#   __init__.py の __version__ とタグ名 (v<version>) を一致させること。
+#   整合性は verify ステップで機械検査される。
+
+name: Release
+
+"on":
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # Release 作成・アセット添付に必要
+
+jobs:
+  build-and-release:
+    name: Build wheel and attach to Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          SRC_VERSION=$(grep -oP '__version__ = "\K[^"]+' ame_ai_review_system/__init__.py)
+          echo "Tag version:    $TAG_VERSION"
+          echo "Source version: $SRC_VERSION"
+          if [ "$TAG_VERSION" != "$SRC_VERSION" ]; then
+            echo "::error::Version mismatch (tag=$TAG_VERSION, src=$SRC_VERSION)"
+            echo "  Update ame_ai_review_system/__init__.py __version__ before tagging."
+            exit 1
+          fi
+
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+          python -m build
+
+      - name: Verify wheel contains package data
+        run: |
+          WHL=$(ls dist/ame_ai_review_system-*.whl)
+          echo "Inspecting $WHL..."
+          for asset in \
+            "ame_ai_review_system/.semgrep/rules.yml" \
+            "ame_ai_review_system/config.json" \
+            "ame_ai_review_system/review_prompt.txt" \
+            "ame_ai_review_system/engines/ts/package.json" \
+            "ame_ai_review_system/templates/precommit/python.yaml"; do
+            unzip -l "$WHL" | grep -q "$asset" || {
+              echo "::error::Missing in wheel: $asset"
+              exit 1
+            }
+            echo "  OK: $asset"
+          done
+
+      - name: Upload distributions to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ame_ai_review_system-*.whl
+            dist/ame_ai_review_system-*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true

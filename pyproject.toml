@@ -1,16 +1,24 @@
 # AME-AI-Review-System プロジェクト定義 ＋ ツール設定。
 #
-# パッケージは PyPI に公開しない（ソースコードコピー方式で配布）。そのためビルド
-# バックエンド・entry point・extras は持たず、本ファイルはツール設定の正本として運用する。
+# 配布方式: GitHub Release のタグ付き wheel を pip install する（PyPI 非公開）。
+# バージョンは ame_ai_review_system/__init__.py の __version__ を正とし、
+# hatchling が動的読み込みする。コアは依存ゼロ・標準ライブラリのみで動作。
 # 開発用の SDK 依存は requirements-dev.txt で管理する。
 # 静的解析ツール設定は後半に保持。厳格度: ruff ALL + preview + mypy strict で運用。
+
+# ---------------------------------------------------------------------------
+# Build system (hatchling)
+# ---------------------------------------------------------------------------
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
 
 # ---------------------------------------------------------------------------
 # Project metadata
 # ---------------------------------------------------------------------------
 [project]
 name = "ame-ai-review-system"
-version = "0"
+dynamic = ["version"]
 description = "Dual-gate (pre-commit + PR) AI code review system with SDK-backed LLM engines."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,6 +44,29 @@ dependencies = []
 Homepage = "https://github.com/tarminjapan/AME-AI-Review-System"
 Repository = "https://github.com/tarminjapan/AME-AI-Review-System"
 Issues = "https://github.com/tarminjapan/AME-AI-Review-System/issues"
+
+# ---------------------------------------------------------------------------
+# Console scripts (CLI entry point)
+# ---------------------------------------------------------------------------
+# 従来の `python -m ame_ai_review_system.main` も後方互換で動く。
+# pip install 後は `ame-ai-reviewer review <PR>` 等で呼べる。
+[project.scripts]
+ame-ai-reviewer = "ame_ai_review_system.main:main"
+
+# ---------------------------------------------------------------------------
+# Hatchling build configuration
+# ---------------------------------------------------------------------------
+# バージョン正は ame_ai_review_system/__init__.py の __version__。
+[tool.hatch.version]
+path = "ame_ai_review_system/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ame_ai_review_system"]
+
+# 非 Python アセット（Semgrep ルール・TS サイドカー・テンプレート・設定ファイル）は
+# packages 指定で ame_ai_review_system/ 以下の全ファイルが自動的に wheel に含まれる。
+# .py 以外も（.semgrep/rules.yml, config.json, review_prompt.txt, docs/, engines/ts/,
+# templates/ 等）含まれるため、force-include は不要。
 
 # ---------------------------------------------------------------------------
 # Ruff: lint + format（超厳格）
