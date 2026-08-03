@@ -138,9 +138,42 @@ bash scripts/install-hooks.sh
 
 別のリポジトリに本システムを導入する手順は以下の通りです。
 
-### Step 1: ファイルのコピー
+### Step 1: コアの導入（方式 A / B から選択）
 
-本リポジトリの以下のディレクトリを、導入先のリポジトリのルートに丸ごとコピーします。
+#### 方式 A: wheel インストール（推奨）
+
+最新 Release の wheel を `pip install` する。
+
+```bash
+pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
+```
+
+URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
+ページの最新バージョンに置き換えること。
+
+使用する LLM エンジンの SDK を追加（オプション）。PyPI 非公開のため、extras ではなく個別パッケージとして導入する。
+
+```bash
+pip install claude-agent-sdk       # Claude Python SDK
+pip install google-antigravity     # Antigravity (Gemini)
+```
+
+OpenCode / Claude-TS エンジンを使う場合は、TypeScript
+SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。venv 環境を推奨（システム Python では権限エラーになる場合がある）。Phase
+2 でこの手順を自動化する予定。
+
+```bash
+cd "$(python -c 'from ame_ai_review_system import paths; print(paths.package_dir() / "engines" / "ts")')"
+npm install
+```
+
+> [!NOTE] Phase
+> 1 時点の wheel は Python コアのみ。CI ワークフロー（`.github/workflows/`）と pre-commit 設定は方式 B のディレクトリコピー、または後続 Phase（再利用可能ワークフロー Phase
+> 3 / `ame-ai-reviewer init` Phase 4）で導入する。
+
+#### 方式 B: ディレクトリコピー（オフライン・細かなカスタマイズ向け）
+
+本リポジトリの以下のディレクトリを、導入先のリポジトリのルートに丸ごとコピーする。
 
 - `.github/`
 - `ame_ai_review_system/`

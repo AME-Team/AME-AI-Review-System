@@ -40,8 +40,8 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 | **自作リポジトリ規約** | prohibit-suppression-comments, repo-hygiene                                       | `scripts/check_suppression_comments.py`                     |
 | **テスト**             | pytest, vitest（pre-push / pre-merge-commit 連携）                                | `pyproject.toml`, `vitest.config.ts`                        |
 
-本リポジトリは、別のプロジェクトへ `.github/` と `ame_ai_review_system/`
-をコピペするだけで、この仕組みを移植可能です。
+本リポジトリは、別のプロジェクトへ簡単に移植可能です。 `pip install`（GitHub
+Release の wheel）または `.github/` と `ame_ai_review_system/` のコピペで導入できます。
 
 ## 特徴
 
@@ -81,9 +81,12 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 - **ユーザー固有設定オーバーライド**:
   `config.user.json`（Git 管理対象外）で環境依存の設定（エンジン・モデル・思考量など）を上書き可能。`config.json`
   より優先される。
-- **簡単移植**: `.github/` と `ame_ai_review_system/`
-  の2つのディレクトリを他リポジトリにコピーするだけで導入完了。GitHub
-  Actions と AI レビュー機能が自動で有効化される。
+- **簡単移植**: 2 つの導入方式を提供。
+  - **wheel インストール（推奨）**: GitHub Release の wheel を `pip install`
+    するだけでコアを導入。更新は URL のバージョン番号を書き換えるだけ。LLM エンジン SDK は
+    `[claude]` / `[antigravity]` / `[all]` extras で追加。
+  - **ディレクトリコピー**: `.github/` と `ame_ai_review_system/`
+    を他リポジトリにコピーする方式（オフライン環境や細かなカスタマイズ時に）。
 - **対話型の修正サイクル**: 開発者が `@<レビュアー名>`
   で返信すると、AI が最新コードを再評価してスレッドに返答。
 - **重大度ラベル**: 指摘を `CRITICAL` / `HIGH` / `MIDDLE` / `LOW` の 4 段階で分類。
@@ -161,14 +164,46 @@ scripts/
 
 ## クイックスタート
 
-本システムはパッケージを PyPI に公開していないため、ソースコードをコピーして導入する。他プロジェクトへの導入は非常にシンプルです。
+本システムは GitHub
+Release のタグ付き wheel を配布している（PyPI 非公開）。他プロジェクトへの導入は非常にシンプルです。
 
-1. **資材のコピー**: `.github/` と `ame_ai_review_system/` を対象リポジトリのルートにコピーする。
+1. **コアの導入**（いずれかを選択）:
+
+   **方式 A: wheel インストール（推奨）**
+
+   ```bash
+   pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
+   ```
+
+   URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
+   ページの最新バージョンに置き換えること。
+
+   使用する LLM エンジンの SDK を追加（オプション）。PyPI 非公開のため、extras ではなく個別パッケージとして導入する。
+
+   ```bash
+   pip install claude-agent-sdk       # Claude Python SDK
+   pip install google-antigravity     # Antigravity (Gemini)
+   ```
+
+   OpenCode / Claude-TS エンジンを使う場合は、TypeScript
+   SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。venv 環境を推奨（システム Python では権限エラーになる場合がある）。Phase
+   2 でこの手順を自動化する予定。
+
+   ```bash
+   cd "$(python -c 'from ame_ai_review_system import paths; print(paths.package_dir() / "engines" / "ts")')"
+   npm install
+   ```
+
+   **方式 B: ディレクトリコピー**（オフライン環境・細かなカスタマイズ向け）
 
    ```bash
    cp -r .github/ /path/to/your-repo/
    cp -r ame_ai_review_system/ /path/to/your-repo/
    ```
+
+   > [!NOTE] **CI ワークフロー連携**: Phase
+   > 1 時点の wheel は Python コアのみ。CI ワークフロー（`.github/workflows/`）と pre-commit 設定は方式 B のコピー、または後続 Phase の再利用可能ワークフロー（Phase
+   > 3）・ `ame-ai-reviewer init` （Phase 4）で導入する。
 
 2. **GitHub App の登録と Secret 設定**: レビュー用の GitHub
    App を作成し、対象リポジトリにインストールする。App の Credentials として以下を Secrets に登録する。
