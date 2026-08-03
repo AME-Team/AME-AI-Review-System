@@ -159,27 +159,50 @@ def _build_review_prompt(
     reviewer_prompt_file: pathlib.Path,
 ) -> str:
     """Build the review prompt for the AI engine."""
-    prompt = reviewer_prompt_file.read_text(encoding="utf-8")
-    prompt += "\n\n## PR 情報\n"
-    prompt += f"- PR #: {pr_number}\n"
-    prompt += f"- タイトル: {pr_title}\n"
-    prompt += f"- マージ先: {base_ref}\n"
-    prompt += f"- 説明: {pr_body or '（なし）'}\n"
+    prompt_lines = [
+        reviewer_prompt_file.read_text(encoding="utf-8"),
+        "",
+        "## PR 情報",
+        f"- PR #: {pr_number}",
+        f"- タイトル: {pr_title}",
+        f"- マージ先: {base_ref}",
+        f"- 説明: {pr_body or '（なし）'}",
+    ]
 
     if review_count >= STALE_ROUND_THRESHOLD:
-        prompt += f"\n## ⚠️ 収束シグナル（ラウンド {review_count + 1}）\n"
-        prompt += f"この PR は既に {review_count} 回レビュー済みです。\n"
-        prompt += "新規機能追加の指摘や些末な改善提案は抑制し、\n"
-        prompt += "既存指摘への対応確認と CRITICAL/HIGH のみに集中してください。\n"
+        prompt_lines += [
+            "",
+            f"## ⚠️ 収束シグナル（ラウンド {review_count + 1}）",
+            f"この PR は既に {review_count} 回レビュー済みです。",
+            "新規機能追加の指摘や些末な改善提案は抑制し、",
+            "既存指摘への対応確認と CRITICAL/HIGH のみに集中してください。",
+        ]
 
-    prompt += "\n## 変更ファイル一覧\n```\n"
-    prompt += changed_files + "\n```\n\n"
-    prompt += "## コミット一覧\n```\n"
-    prompt += commit_log + "\n```\n\n"
-    prompt += "## diff\n```diff\n"
-    prompt += diff + "\n```\n"
-
-    return prompt
+    prompt_lines += [
+        "",
+        "## 変更ファイル一覧",
+        "```",
+        changed_files,
+        "```",
+        "",
+        "## コミット一覧",
+        "```",
+        commit_log,
+        "```",
+        "",
+        "## diff",
+        "```diff",
+        diff,
+        "```",
+    ]
+    # Issue #47: 除外した vendored パッケージが参照されている場合は、存在を注記して
+    # 「モジュール不存在」という誤指摘を防ぐ。
+    review_config.append_reference_note(
+        prompt_lines,
+        [f for f in changed_files.splitlines() if f.strip()],
+        diff,
+    )
+    return "\n".join(prompt_lines)
 
 
 def _run_engine_capture(

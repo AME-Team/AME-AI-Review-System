@@ -134,6 +134,9 @@ def _build_prompt(
         # _build_diff が既に各セクションを ```diff で囲んでいるため、ここでは追加しない。
         diff,
     ]
+    # Issue #47: 除外した vendored パッケージが参照されている場合は、存在を注記して
+    # 「モジュール不存在」という誤指摘を防ぐ。
+    review_config.append_reference_note(sections, staged_files, diff)
     return "\n".join(sections)
 
 
