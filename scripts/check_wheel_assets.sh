@@ -19,7 +19,10 @@ assets=(
 
 echo "Inspecting ${WHL}..."
 for asset in "${assets[@]}"; do
-  if unzip -l "$WHL" | grep -q "$asset"; then
+  # unzip -l の最終フィールド (ファイル名) と完全一致で検証する。
+  # grep -F だと部分一致で rules.yml.bak 等の誤検知があり、正規表現だと
+  # ドットが任意文字に一致するため、awk で $NF == asset の厳密比較を使う。
+  if unzip -l "$WHL" | awk -v a="$asset" '$NF == a {exit 0} END {exit 1}'; then
     echo "  OK: $asset"
   else
     echo "::error::Missing in wheel: $asset"

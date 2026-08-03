@@ -40,11 +40,11 @@ classifiers = [
 ]
 dependencies = []
 
-# LLM エンジン SDK は使用エンジンに応じて optional extras で導入する。
+# LLM エンジン SDK は使用エンジンに応じて optional extras で導入できる。
 # 既定は依存ゼロ（標準ライブラリのみ）で軽量配布を維持する。
-#   pip install ame-ai-review-system[claude]       # Claude Python SDK
-#   pip install ame-ai-review-system[antigravity]  # Antigravity (Gemini)
-#   pip install ame-ai-review-system[all]          # 両方
+# PyPI 非公開のため extras は direct URL 構文を使う:
+#   pip install "ame-ai-review-system[claude] @ <wheel-url>"
+# または個別に pip install claude-agent-sdk でもよい (README 推奨手順)。
 # OpenCode / Claude-TS は TypeScript SDK を使うため npm 別途導入が必要
 # (engines/ts/ の package.json。Phase 2 で初回 npm install を自動化予定)。
 [project.optional-dependencies]
@@ -74,6 +74,10 @@ path = "ame_ai_review_system/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ame_ai_review_system"]
+
+# 開発者が engines/ts/ で npm install すると node_modules ができる。
+# これが wheel に混入すると肥大化するため除外する。
+exclude = ["ame_ai_review_system/engines/ts/node_modules"]
 
 # 非 Python アセット（Semgrep ルール・TS サイドカー・テンプレート・設定ファイル）は
 # packages 指定で ame_ai_review_system/ 以下の全ファイルが自動的に wheel に含まれる。

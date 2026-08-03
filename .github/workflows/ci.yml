@@ -237,6 +237,8 @@ jobs:
         run: pyright --warnings
 
       - name: Verify package build (wheel + sdist + package-data)
+        # 事前ステップ (Install project-specific pip dependencies) で
+        # $GITHUB_WORKSPACE/.venv が作成済みのため、それを利用する。
         # 配布用 wheel/sdist がビルド可能で、必須アセット (Semgrep ルール /
         # 設定 / プロンプト / TS サイドカー / テンプレート) が wheel に同梱
         # されているかを PR 段階で担保する。アセット検証は

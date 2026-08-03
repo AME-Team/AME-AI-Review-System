@@ -148,16 +148,18 @@ bash scripts/install-hooks.sh
 pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
 ```
 
-使用する LLM エンジンに応じて extras を指定する。
+URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
+ページの最新バージョンに置き換えること。
+
+使用する LLM エンジンの SDK を追加（オプション）。PyPI 非公開のため、extras ではなく個別パッケージとして導入する。
 
 ```bash
-pip install "ame-ai-review-system[claude]"       # Claude Python SDK
-pip install "ame-ai-review-system[antigravity]"  # Antigravity (Gemini)
-pip install "ame-ai-review-system[all]"          # 両方
+pip install claude-agent-sdk       # Claude Python SDK
+pip install google-antigravity     # Antigravity (Gemini)
 ```
 
 OpenCode / Claude-TS エンジンを使う場合は、TypeScript
-SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。Phase
+SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。venv 環境を推奨（システム Python では権限エラーになる場合がある）。Phase
 2 でこの手順を自動化する予定。
 
 ```bash
