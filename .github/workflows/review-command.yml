@@ -52,11 +52,11 @@ name: AI Code Review (Reusable Command)
       private-key:
         required: true
       opencode-auth-b64:
-        required: true
+        required: false
       antigravity-oauth-b64:
-        required: true
+        required: false
       gemini-oauth-b64:
-        required: true
+        required: false
       review-engine:
         required: false
       review-model:

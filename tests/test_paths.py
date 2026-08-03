@@ -255,6 +255,19 @@ def test_ensure_engines_ts_redeploys_when_new_file_added(
     assert calls == [["npm", "install"], ["npm", "install"]]
 
 
+def test_ensure_engines_ts_skips_redeploy_when_only_lockfile_differs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_engines_ts(tmp_path, monkeypatch)
+    dst = paths.ensure_engines_ts()
+    (dst / "node_modules").mkdir()
+    # npm install が生成する package-lock.json の差分では再展開しない (ループ防止)。
+    (dst / "package-lock.json").write_text("LOCK", encoding="utf-8")
+    paths.ensure_engines_ts()
+    assert calls == [["npm", "install"]]
+
+
 def test_ensure_engines_ts_reuses_existing_dest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

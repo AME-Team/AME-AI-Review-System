@@ -146,23 +146,46 @@ def _engines_ts_up_to_date(dst: Path, src: Path) -> bool:
 
     ファイル群を再帰比較し、1 つでも差分があれば False。バージョン更新で古い
     ``.ame-review/engines-ts`` が残り、新エンジンと乖離するのを防ぐ。
-    ``node_modules`` は npm 依存のローカル成果物のため比較対象から除外する。
+    ``node_modules`` は npm 依存のローカル成果物、``package-lock.json`` は
+    npm install が実行時に生成するロックファイルのため比較対象から除外する
+    (除外しないと再展開ループになる)。
     """
-    return _dircmp_equal(src, dst, _excluded_subdirs={"node_modules"})
+    return _dircmp_equal(
+        src,
+        dst,
+        _excluded_subdirs={"node_modules"},
+        _excluded_files={"package-lock.json"},
+    )
 
 
-def _dircmp_equal(left: Path, right: Path, *, _excluded_subdirs: set[str]) -> bool:
+def _dircmp_equal(
+    left: Path,
+    right: Path,
+    *,
+    _excluded_subdirs: set[str],
+    _excluded_files: set[str],
+) -> bool:
     """2 ディレクトリを再帰的にバイト比較する."""
     comparison = filecmp.dircmp(left, right)
-    left_only = [f for f in comparison.left_only if f not in _excluded_subdirs]
-    right_only = [f for f in comparison.right_only if f not in _excluded_subdirs]
-    if left_only or right_only or comparison.diff_files:
+    left_only = [
+        f
+        for f in comparison.left_only
+        if f not in _excluded_subdirs and f not in _excluded_files
+    ]
+    right_only = [
+        f
+        for f in comparison.right_only
+        if f not in _excluded_subdirs and f not in _excluded_files
+    ]
+    diff_files = [f for f in comparison.diff_files if f not in _excluded_files]
+    if left_only or right_only or diff_files:
         return False
     return all(
         _dircmp_equal(
             Path(sub.left),
             Path(sub.right),
             _excluded_subdirs=_excluded_subdirs,
+            _excluded_files=_excluded_files,
         )
         for name, sub in comparison.subdirs.items()
         if name not in _excluded_subdirs
