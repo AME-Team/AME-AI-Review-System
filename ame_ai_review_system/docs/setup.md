@@ -138,9 +138,31 @@ bash scripts/install-hooks.sh
 
 別のリポジトリに本システムを導入する手順は以下の通りです。
 
-### Step 1: ファイルのコピー
+### Step 1: コアの導入（方式 A / B から選択）
 
-本リポジトリの以下のディレクトリを、導入先のリポジトリのルートに丸ごとコピーします。
+#### 方式 A: wheel インストール（推奨）
+
+最新 Release の wheel を `pip install` する。
+
+```bash
+pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
+```
+
+使用する LLM エンジンに応じて extras を指定する。
+
+```bash
+pip install "ame-ai-review-system[claude]"       # Claude Python SDK
+pip install "ame-ai-review-system[antigravity]"  # Antigravity (Gemini)
+pip install "ame-ai-review-system[all]"          # 両方
+```
+
+> [!NOTE] Phase
+> 1 時点の wheel は Python コアのみ。CI ワークフロー（`.github/workflows/`）と pre-commit 設定は方式 B のディレクトリコピー、または後続 Phase（再利用可能ワークフロー Phase
+> 3 / `ame-ai-reviewer init` Phase 4）で導入する。
+
+#### 方式 B: ディレクトリコピー（オフライン・細かなカスタマイズ向け）
+
+本リポジトリの以下のディレクトリを、導入先のリポジトリのルートに丸ごとコピーする。
 
 - `.github/`
 - `ame_ai_review_system/`

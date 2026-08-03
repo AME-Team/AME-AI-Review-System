@@ -53,21 +53,10 @@ jobs:
           python -m build
 
       - name: Verify wheel contains package data
+        # 必須アセット検証は scripts/check_wheel_assets.sh で ci.yml と共通利用。
         run: |
           WHL=$(ls dist/ame_ai_review_system-*.whl)
-          echo "Inspecting $WHL..."
-          for asset in \
-            "ame_ai_review_system/.semgrep/rules.yml" \
-            "ame_ai_review_system/config.json" \
-            "ame_ai_review_system/review_prompt.txt" \
-            "ame_ai_review_system/engines/ts/package.json" \
-            "ame_ai_review_system/templates/precommit/python.yaml"; do
-            unzip -l "$WHL" | grep -q "$asset" || {
-              echo "::error::Missing in wheel: $asset"
-              exit 1
-            }
-            echo "  OK: $asset"
-          done
+          scripts/check_wheel_assets.sh "$WHL"
 
       - name: Upload distributions to Release
         uses: softprops/action-gh-release@v2

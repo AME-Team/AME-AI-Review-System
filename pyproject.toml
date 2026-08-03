@@ -40,6 +40,18 @@ classifiers = [
 ]
 dependencies = []
 
+# LLM エンジン SDK は使用エンジンに応じて optional extras で導入する。
+# 既定は依存ゼロ（標準ライブラリのみ）で軽量配布を維持する。
+#   pip install ame-ai-review-system[claude]       # Claude Python SDK
+#   pip install ame-ai-review-system[antigravity]  # Antigravity (Gemini)
+#   pip install ame-ai-review-system[all]          # 両方
+# OpenCode / Claude-TS は TypeScript SDK を使うため npm 別途導入が必要
+# (engines/ts/ の package.json。Phase 2 で初回 npm install を自動化予定)。
+[project.optional-dependencies]
+claude = ["claude-agent-sdk"]
+antigravity = ["google-antigravity"]
+all = ["claude-agent-sdk", "google-antigravity"]
+
 [project.urls]
 Homepage = "https://github.com/tarminjapan/AME-AI-Review-System"
 Repository = "https://github.com/tarminjapan/AME-AI-Review-System"

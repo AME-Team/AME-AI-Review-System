@@ -236,23 +236,14 @@ jobs:
       - name: Run pyright (type check)
         run: pyright --warnings
 
-      - name: Verify package build (wheel + package-data)
-        # 配布用 wheel がビルド可能で、必須アセット (Semgrep ルール / 設定 /
-        # プロンプト / TS サイドカー / テンプレート) が同梱されているかを PR 段階で担保する。
-        # リリース時の詳細検証は release.yml でも実施される。
+      - name: Verify package build (wheel + sdist + package-data)
+        # 配布用 wheel/sdist がビルド可能で、必須アセット (Semgrep ルール /
+        # 設定 / プロンプト / TS サイドカー / テンプレート) が wheel に同梱
+        # されているかを PR 段階で担保する。アセット検証は
+        # scripts/check_wheel_assets.sh で release.yml と共通利用する。
         run: |
           uv pip install --python "$GITHUB_WORKSPACE/.venv/bin/python" build hatchling
-          .venv/bin/python -m build --wheel
+          .venv/bin/python -m build
           WHL=$(ls dist/ame_ai_review_system-*.whl)
           echo "Built: $WHL"
-          for asset in \
-            "ame_ai_review_system/.semgrep/rules.yml" \
-            "ame_ai_review_system/config.json" \
-            "ame_ai_review_system/review_prompt.txt" \
-            "ame_ai_review_system/engines/ts/package.json" \
-            "ame_ai_review_system/templates/precommit/python.yaml"; do
-            unzip -l "$WHL" | grep -q "$asset" || {
-              echo "::error::Missing in wheel: $asset"; exit 1
-            }
-            echo "  OK: $asset"
-          done
+          scripts/check_wheel_assets.sh "$WHL"
