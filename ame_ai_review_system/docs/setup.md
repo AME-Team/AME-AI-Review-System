@@ -156,6 +156,15 @@ pip install "ame-ai-review-system[antigravity]"  # Antigravity (Gemini)
 pip install "ame-ai-review-system[all]"          # 両方
 ```
 
+OpenCode / Claude-TS エンジンを使う場合は、TypeScript
+SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。Phase
+2 でこの手順を自動化する予定。
+
+```bash
+cd "$(python -c 'from ame_ai_review_system import paths; print(paths.package_dir() / "engines" / "ts")')"
+npm install
+```
+
 > [!NOTE] Phase
 > 1 時点の wheel は Python コアのみ。CI ワークフロー（`.github/workflows/`）と pre-commit 設定は方式 B のディレクトリコピー、または後続 Phase（再利用可能ワークフロー Phase
 > 3 / `ame-ai-reviewer init` Phase 4）で導入する。

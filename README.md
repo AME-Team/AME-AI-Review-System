@@ -178,6 +178,15 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    更新時は URL のバージョン番号（`v0.1.0`）を書き換えるだけ。LLM エンジン SDK は extras で追加（`[claude]`
    / `[antigravity]` / `[all]`）。
 
+   OpenCode / Claude-TS エンジンを使う場合は、TypeScript
+   SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。Phase
+   2 でこの手順を自動化する予定。
+
+   ```bash
+   cd "$(python -c 'from ame_ai_review_system import paths; print(paths.package_dir() / "engines" / "ts")')"
+   npm install
+   ```
+
    **方式 B: ディレクトリコピー**（オフライン環境・細かなカスタマイズ向け）
 
    ```bash
