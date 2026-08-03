@@ -29,7 +29,6 @@ jobs:
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
       command: ${{ github.event.comment.body }}
-      comment_user: ${{ github.event.comment.user.login }}
       system_ref: __REF__
       review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}

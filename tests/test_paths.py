@@ -240,6 +240,21 @@ def test_ensure_engines_ts_redeploys_when_source_changed(
     assert calls == [["npm", "install"], ["npm", "install"]]
 
 
+def test_ensure_engines_ts_redeploys_when_new_file_added(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_engines_ts(tmp_path, monkeypatch)
+    dst = paths.ensure_engines_ts()
+    (dst / "node_modules").mkdir()
+    # ソースに新規ファイルが追加されても再帰比較で差分検知して再展開する。
+    pkg = tmp_path / "pkg"
+    (pkg / "engines" / "ts" / "new-file.mjs").write_text("NEW", encoding="utf-8")
+    paths.ensure_engines_ts()
+    assert (dst / "new-file.mjs").read_text(encoding="utf-8") == "NEW"
+    assert calls == [["npm", "install"], ["npm", "install"]]
+
+
 def test_ensure_engines_ts_reuses_existing_dest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

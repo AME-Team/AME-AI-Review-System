@@ -769,8 +769,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_init.add_argument(
         "--ref",
-        default="main",
-        help="GitHub ref for reusable workflows (tag or branch)",
+        default=None,
+        help="GitHub ref for reusable workflows (required unless --no-workflow)",
     )
     p_init.add_argument(
         "--no-workflow",

@@ -144,13 +144,26 @@ def ensure_engines_ts() -> Path:
 def _engines_ts_up_to_date(dst: Path, src: Path) -> bool:
     """展開先がパッケージ同梱のサイドカーと一致するか判定する.
 
-    ソース (package.json / .mjs) のバイト列が一致する場合のみ True。バージョン更新で
-    古い ``.ame-review/engines-ts`` が残り、新エンジンと乖離するのを防ぐ。
+    ファイル群を再帰比較し、1 つでも差分があれば False。バージョン更新で古い
+    ``.ame-review/engines-ts`` が残り、新エンジンと乖離するのを防ぐ。
+    ``node_modules`` は npm 依存のローカル成果物のため比較対象から除外する。
     """
-    for name in ("package.json", "claude.mjs", "opencode.mjs"):
-        try:
-            if not filecmp.cmp(src / name, dst / name, shallow=False):
-                return False
-        except OSError:
-            return False
-    return True
+    return _dircmp_equal(src, dst, _excluded_subdirs={"node_modules"})
+
+
+def _dircmp_equal(left: Path, right: Path, *, _excluded_subdirs: set[str]) -> bool:
+    """2 ディレクトリを再帰的にバイト比較する."""
+    comparison = filecmp.dircmp(left, right)
+    left_only = [f for f in comparison.left_only if f not in _excluded_subdirs]
+    right_only = [f for f in comparison.right_only if f not in _excluded_subdirs]
+    if left_only or right_only or comparison.diff_files:
+        return False
+    return all(
+        _dircmp_equal(
+            Path(sub.left),
+            Path(sub.right),
+            _excluded_subdirs=_excluded_subdirs,
+        )
+        for name, sub in comparison.subdirs.items()
+        if name not in _excluded_subdirs
+    )

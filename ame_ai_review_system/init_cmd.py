@@ -91,6 +91,13 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # CI ラッパワークフローを生成 (reusable workflow 呼び出し)。
     if not args.no_workflow:
+        if not args.ref:
+            print(
+                "ERROR: --ref is required unless --no-workflow "
+                "(use a release tag, e.g. --ref v1.0.0)",
+                file=sys.stderr,
+            )
+            return 1
         workflows_dir = root / ".github" / "workflows"
         for tmpl_name, out_name in _WORKFLOW_FILES:
             src = _templates_dir() / "workflow" / tmpl_name

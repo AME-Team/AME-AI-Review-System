@@ -71,3 +71,10 @@ def test_init_no_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     root = _init_in(tmp_path, monkeypatch)
     assert init_cmd.cmd_init(_make_args(no_workflow=True)) == 0
     assert not (root / ".github").exists()
+
+
+def test_init_requires_ref_unless_no_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(ref=None)) == 1

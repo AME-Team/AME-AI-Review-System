@@ -139,10 +139,6 @@ jobs:
       - name: Install OpenCode CLI
         run: npm install -g opencode-ai
 
-      - name: Install TS engine deps
-        run:
-          npm --prefix "${{ steps.syspath.outputs.path }}/ame_ai_review_system/engines/ts" install
-
       - name: Get GitHub App installation token
         id: app_token
         uses: actions/create-github-app-token@v2
