@@ -2,6 +2,7 @@
 # インライン返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
 # 実処理は再利用可能ワークフロー review-reply.yml に委譲する (ローカル参照)。
 # 1 投稿に対して LGTM は「そのスレッドだけ」に投稿する (Issue #39)。
+# secrets 登録のエンジン情報 (Issue #40) も引き継ぐ。
 
 name: AI Review Reply
 
@@ -21,7 +22,7 @@ jobs:
       comment_id: ${{ github.event.comment.id }}
       comment_body: ${{ github.event.comment.body }}
       comment_user: ${{ github.event.comment.user.login }}
-      review_engine: ${{ vars.REVIEW_ENGINE || 'opencode' }}
+      review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}
       review_thinking: ${{ vars.REVIEW_THINKING || '' }}
@@ -31,3 +32,7 @@ jobs:
       opencode-auth-b64: ${{ secrets.OPENCODE_AUTH_B64 }}
       antigravity-oauth-b64: ${{ secrets.ANTIGRAVITY_OAUTH_B64 }}
       gemini-oauth-b64: ${{ secrets.GEMINI_OAUTH_B64 }}
+      review-engine: ${{ secrets.REVIEW_ENGINE }}
+      review-model: ${{ secrets.REVIEW_MODEL }}
+      reply-model: ${{ secrets.REPLY_MODEL }}
+      review-thinking: ${{ secrets.REVIEW_THINKING }}

@@ -1,6 +1,7 @@
 ---
 # AME AI Review System — インライン返信に対する LGTM/追加指摘判断のラッパ (配布先用)。
 # `ame-ai-reviewer init` で生成される。__REF__ はリリースタグ (例: v1.0.0) に置換される。
+# secrets 登録のエンジン情報 (Issue #40) も引き継ぐ。
 
 name: AI Review Reply
 
@@ -21,7 +22,7 @@ jobs:
       comment_body: ${{ github.event.comment.body }}
       comment_user: ${{ github.event.comment.user.login }}
       system_ref: __REF__
-      review_engine: ${{ vars.REVIEW_ENGINE || 'opencode' }}
+      review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}
       review_thinking: ${{ vars.REVIEW_THINKING || '' }}
@@ -31,3 +32,7 @@ jobs:
       opencode-auth-b64: ${{ secrets.OPENCODE_AUTH_B64 }}
       antigravity-oauth-b64: ${{ secrets.ANTIGRAVITY_OAUTH_B64 }}
       gemini-oauth-b64: ${{ secrets.GEMINI_OAUTH_B64 }}
+      review-engine: ${{ secrets.REVIEW_ENGINE }}
+      review-model: ${{ secrets.REVIEW_MODEL }}
+      reply-model: ${{ secrets.REPLY_MODEL }}
+      review-thinking: ${{ secrets.REVIEW_THINKING }}

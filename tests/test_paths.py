@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -137,26 +139,54 @@ def test_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert paths.state_dir() == (root / ".ame-review" / "state").resolve()
 
 
+class _FakeShutil:
+    """paths モジュール内の ``shutil`` を差し替えるための stub."""
+
+    def __init__(self, which_result: str | None) -> None:
+        self._which_result = which_result
+
+    def which(self, _cmd: str) -> str | None:
+        return self._which_result
+
+    @staticmethod
+    def copytree(src: Path, dst: Path) -> None:
+        shutil.copytree(src, dst)
+
+    @staticmethod
+    def rmtree(dst: Path) -> None:
+        shutil.rmtree(dst)
+
+
+class _FakeSubprocess:
+    """paths モジュール内の ``subprocess.run`` を記録用に差し替えるための stub."""
+
+    def __init__(self, calls: list[list[str]]) -> None:
+        self._calls = calls
+
+    def run(
+        self,
+        args: list[str],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        self._calls.append(list(args))
+        return subprocess.CompletedProcess(args=args, returncode=0)
+
+
 def _stub_engines_ts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[list[str]]:
     """package_dir / ame_review_dir を差し替え、npm install を記録する stub を仕込む."""
-    import subprocess
-
     pkg = tmp_path / "pkg"
     (pkg / "engines" / "ts").mkdir(parents=True)
     (pkg / "engines" / "ts" / "package.json").write_text("{}", encoding="utf-8")
+    (pkg / "engines" / "ts" / "claude.mjs").write_text("module", encoding="utf-8")
+    (pkg / "engines" / "ts" / "opencode.mjs").write_text("module", encoding="utf-8")
     monkeypatch.setattr(paths, "package_dir", lambda: pkg)
     monkeypatch.setattr(paths, "ame_review_dir", lambda: tmp_path / ".ame-review")
-    monkeypatch.setattr(paths.shutil, "which", lambda _cmd: "/usr/bin/npm")
+    monkeypatch.setattr(paths, "shutil", _FakeShutil("/usr/bin/npm"))
     calls: list[list[str]] = []
-
-    def _fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(list(args))
-        return subprocess.CompletedProcess(args=args, returncode=0)
-
-    monkeypatch.setattr(paths.subprocess, "run", _fake_run)
+    monkeypatch.setattr(paths, "subprocess", _FakeSubprocess(calls))
     return calls
 
 
@@ -190,9 +220,24 @@ def test_ensure_engines_ts_raises_without_npm(
     (pkg / "engines" / "ts" / "package.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(paths, "package_dir", lambda: pkg)
     monkeypatch.setattr(paths, "ame_review_dir", lambda: tmp_path / ".ame-review")
-    monkeypatch.setattr(paths.shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr(paths, "shutil", _FakeShutil(None))
     with pytest.raises(SystemExit):
         paths.ensure_engines_ts()
+
+
+def test_ensure_engines_ts_redeploys_when_source_changed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_engines_ts(tmp_path, monkeypatch)
+    dst = paths.ensure_engines_ts()
+    (dst / "node_modules").mkdir()
+    # ソースが更新されると再展開され、node_modules が失われるため npm install も再実行。
+    pkg = tmp_path / "pkg"
+    (pkg / "engines" / "ts" / "opencode.mjs").write_text("UPDATED", encoding="utf-8")
+    paths.ensure_engines_ts()
+    assert (dst / "opencode.mjs").read_text(encoding="utf-8") == "UPDATED"
+    assert calls == [["npm", "install"], ["npm", "install"]]
 
 
 def test_ensure_engines_ts_reuses_existing_dest(

@@ -59,6 +59,14 @@ name: AI Review Reply (Reusable)
         required: true
       gemini-oauth-b64:
         required: true
+      review-engine:
+        required: false
+      review-model:
+        required: false
+      reply-model:
+        required: false
+      review-thinking:
+        required: false
 
 permissions:
   contents: read
@@ -117,7 +125,7 @@ jobs:
 
       - name: Install Python engine SDKs
         env:
-          REVIEW_ENGINE: ${{ inputs.review_engine }}
+          REVIEW_ENGINE: ${{ inputs.review_engine || secrets.review-engine || 'opencode' }}
         run: |
           if [ "$REVIEW_ENGINE" = "opencode" ]; then
             echo "Engine is opencode; Python SDKs not required."
@@ -172,10 +180,10 @@ jobs:
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ inputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          REVIEW_ENGINE: ${{ inputs.review_engine }}
-          REVIEW_MODEL: ${{ inputs.review_model }}
-          REPLY_MODEL: ${{ inputs.reply_model }}
-          REVIEW_THINKING: ${{ inputs.review_thinking }}
+          REVIEW_ENGINE: ${{ inputs.review_engine || secrets.review-engine || 'opencode' }}
+          REVIEW_MODEL: ${{ inputs.review_model || secrets.review-model }}
+          REPLY_MODEL: ${{ inputs.reply_model || secrets.reply-model }}
+          REVIEW_THINKING: ${{ inputs.review_thinking || secrets.review-thinking }}
           OPENCODE_URL: ${{ env.OPENCODE_URL }}
           TRIGGER_COMMENT_ID: ${{ inputs.comment_id }}
           SYSTEM_PATH: ${{ steps.syspath.outputs.path }}

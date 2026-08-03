@@ -12,6 +12,7 @@ vendored 運用 (ame_ai_review_system/ をリポジトリへコピー) でリポ
 
 from __future__ import annotations
 
+import filecmp
 import os
 import shutil
 import subprocess
@@ -118,6 +119,11 @@ def ensure_engines_ts() -> Path:
             raise SystemExit(msg)
         dst_dir.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, dst)
+    elif not _engines_ts_up_to_date(dst, src):
+        # パッケージ更新で engines/ts が新しくなった場合は再展開する。
+        # 古い .ame-review/engines-ts が残ると新エンジンと乖離するため。
+        shutil.rmtree(dst)
+        shutil.copytree(src, dst)
 
     if not (dst / "node_modules").is_dir():
         if shutil.which("npm") is None:
@@ -133,3 +139,18 @@ def ensure_engines_ts() -> Path:
             raise SystemExit(msg) from exc
 
     return dst
+
+
+def _engines_ts_up_to_date(dst: Path, src: Path) -> bool:
+    """展開先がパッケージ同梱のサイドカーと一致するか判定する.
+
+    ソース (package.json / .mjs) のバイト列が一致する場合のみ True。バージョン更新で
+    古い ``.ame-review/engines-ts`` が残り、新エンジンと乖離するのを防ぐ。
+    """
+    for name in ("package.json", "claude.mjs", "opencode.mjs"):
+        try:
+            if not filecmp.cmp(src / name, dst / name, shallow=False):
+                return False
+        except OSError:
+            return False
+    return True

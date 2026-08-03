@@ -2,6 +2,7 @@
 # AME AI Review System — PR レビュー呼び出しラッパ (配布先用)。
 # `ame-ai-reviewer init` で生成される。__REF__ はリリースタグ (例: v1.0.0) に置換される。
 # 更新は __REF__ の差し替えのみ。本体は reusable workflow 側を参照する。
+# Issue コメントでは発火しない。secrets 登録のエンジン情報 (Issue #40) も引き継ぐ。
 
 name: AI Code Review (Command)
 
@@ -20,13 +21,17 @@ permissions:
 
 jobs:
   review:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
+       github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
+       startsWith(github.event.comment.body, '/'))
     uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-command.yml@__REF__
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
       command: ${{ github.event.comment.body }}
       comment_user: ${{ github.event.comment.user.login }}
       system_ref: __REF__
-      review_engine: ${{ vars.REVIEW_ENGINE || 'opencode' }}
+      review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}
       review_thinking: ${{ vars.REVIEW_THINKING || '' }}
@@ -36,3 +41,7 @@ jobs:
       opencode-auth-b64: ${{ secrets.OPENCODE_AUTH_B64 }}
       antigravity-oauth-b64: ${{ secrets.ANTIGRAVITY_OAUTH_B64 }}
       gemini-oauth-b64: ${{ secrets.GEMINI_OAUTH_B64 }}
+      review-engine: ${{ secrets.REVIEW_ENGINE }}
+      review-model: ${{ secrets.REVIEW_MODEL }}
+      reply-model: ${{ secrets.REPLY_MODEL }}
+      review-thinking: ${{ secrets.REVIEW_THINKING }}

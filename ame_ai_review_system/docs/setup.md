@@ -162,9 +162,10 @@ ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
 - `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
 - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
 
-生成物は以下の通りです。
+生成物は以下のとおり。
 
 - `.ame-review/config.json`
+- `.ame-review/review_prompt.txt`
 - `.pre-commit-config.yaml`
 - `.github/workflows/review_command.yml`
 - `.github/workflows/review_reply.yml`
