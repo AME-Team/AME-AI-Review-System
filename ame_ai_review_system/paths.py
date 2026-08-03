@@ -13,6 +13,8 @@ vendored 運用 (ame_ai_review_system/ をリポジトリへコピー) でリポ
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 _AME_REVIEW_DIR_NAME = ".ame-review"
@@ -96,3 +98,38 @@ def semgrep_rules_path() -> Path:
 
 def state_dir() -> Path:
     return ame_review_dir() / "state"
+
+
+def ensure_engines_ts() -> Path:
+    """TypeScript SDK サイドカーをプロジェクトローカルへ展開し npm install する.
+
+    pip install (site-packages 配下) では書き込み権限や更新の永続性が保証されないため、
+    初回実行時に ``.ame-review/engines-ts/`` へコピーし、そこで依存を npm install する。
+    ts_runner は ``.ame-review/engines-ts/`` を優先解決するため、既存の vendored 運用とも
+    共存する (ts_runner._sidecar_path 参照)。
+    """
+    src = package_dir() / "engines" / "ts"
+    dst_dir = ame_review_dir()
+    dst = dst_dir / "engines-ts"
+
+    if not dst.is_dir():
+        if not src.is_dir():
+            msg = f"TS sidecar source not found: {src}"
+            raise SystemExit(msg)
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dst)
+
+    if not (dst / "node_modules").is_dir():
+        if shutil.which("npm") is None:
+            msg = (
+                "npm not found on PATH. TS SDK engines (opencode / claude-ts) "
+                "require Node.js. Install Node.js first."
+            )
+            raise SystemExit(msg)
+        try:
+            subprocess.run(["npm", "install"], cwd=dst, check=True)
+        except subprocess.CalledProcessError as exc:
+            msg = f"npm install failed for TS sidecar: {exc}"
+            raise SystemExit(msg) from exc
+
+    return dst

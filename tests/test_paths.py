@@ -135,3 +135,73 @@ def test_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (root / ".ame-review").mkdir(parents=True)
     monkeypatch.setenv("AME_REVIEW_PROJECT_ROOT", str(root))
     assert paths.state_dir() == (root / ".ame-review" / "state").resolve()
+
+
+def _stub_engines_ts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[list[str]]:
+    """package_dir / ame_review_dir を差し替え、npm install を記録する stub を仕込む."""
+    import subprocess
+
+    pkg = tmp_path / "pkg"
+    (pkg / "engines" / "ts").mkdir(parents=True)
+    (pkg / "engines" / "ts" / "package.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "ame_review_dir", lambda: tmp_path / ".ame-review")
+    monkeypatch.setattr(paths.shutil, "which", lambda _cmd: "/usr/bin/npm")
+    calls: list[list[str]] = []
+
+    def _fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        return subprocess.CompletedProcess(args=args, returncode=0)
+
+    monkeypatch.setattr(paths.subprocess, "run", _fake_run)
+    return calls
+
+
+def test_ensure_engines_ts_copies_and_installs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_engines_ts(tmp_path, monkeypatch)
+    dst = paths.ensure_engines_ts()
+    assert (dst / "package.json").exists()
+    assert calls == [["npm", "install"]]
+
+
+def test_ensure_engines_ts_skips_install_when_node_modules_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_engines_ts(tmp_path, monkeypatch)
+    dst = paths.ensure_engines_ts()
+    (dst / "node_modules").mkdir()
+    paths.ensure_engines_ts()
+    assert calls == [["npm", "install"]]
+
+
+def test_ensure_engines_ts_raises_without_npm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pkg = tmp_path / "pkg"
+    (pkg / "engines" / "ts").mkdir(parents=True)
+    (pkg / "engines" / "ts" / "package.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(paths, "package_dir", lambda: pkg)
+    monkeypatch.setattr(paths, "ame_review_dir", lambda: tmp_path / ".ame-review")
+    monkeypatch.setattr(paths.shutil, "which", lambda _cmd: None)
+    with pytest.raises(SystemExit):
+        paths.ensure_engines_ts()
+
+
+def test_ensure_engines_ts_reuses_existing_dest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_engines_ts(tmp_path, monkeypatch)
+    # 初回展開後に node_modules を置くと、再実行で npm install が走らない。
+    dst = paths.ensure_engines_ts()
+    (dst / "node_modules").mkdir()
+    assert paths.ensure_engines_ts() == dst
+    assert calls == [["npm", "install"]]

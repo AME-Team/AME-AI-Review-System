@@ -1,0 +1,191 @@
+---
+# 再利用可能ワークフロー: インライン返信に対する LGTM/追加指摘の判断本体。
+# 配布先は薄いラッパ (templates/workflow/review-reply-wrapper.yml) から
+#   uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-reply.yml@<ref>
+# で呼び出す。
+# 本リポジトリ自身は review_reply.yml (ラッパ) からローカル参照で呼ぶ。
+#
+# 1 返信につき 1 スレッドのみ LGTM を投稿する (Issue #39)。並走実行の重複対策は
+# reply.py の投稿前保留再チェックで行う。BASE_REF は checkout ステップが
+# $GITHUB_ENV へ書き込む値を自然に使う。
+
+name: AI Review Reply (Reusable)
+
+"on":
+  workflow_call:
+    inputs:
+      pr_number:
+        type: number
+        required: true
+      comment_id:
+        type: number
+        required: true
+      comment_body:
+        type: string
+        required: false
+        default: ""
+      comment_user:
+        type: string
+        required: false
+        default: ""
+      system_ref:
+        type: string
+        required: false
+        default: ""
+      review_engine:
+        type: string
+        required: false
+        default: "opencode"
+      review_model:
+        type: string
+        required: false
+        default: ""
+      reply_model:
+        type: string
+        required: false
+        default: ""
+      review_thinking:
+        type: string
+        required: false
+        default: ""
+    secrets:
+      app-id:
+        required: true
+      private-key:
+        required: true
+      opencode-auth-b64:
+        required: true
+      antigravity-oauth-b64:
+        required: true
+      gemini-oauth-b64:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  reply:
+    name: General Review Reply (ame-ai-reviewer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      inputs.comment_user != 'ame-ai-reviewer[bot]' && !startsWith(inputs.comment_body, '/') &&
+      contains(inputs.comment_body, '@ame-ai-reviewer')
+    steps:
+      - name: Checkout PR repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout AME-AI-Review-System (external)
+        if: inputs.system_ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: tarminjapan/AME-AI-Review-System
+          ref: ${{ inputs.system_ref }}
+          path: ame-review-system
+          fetch-depth: 1
+
+      - name: Resolve system path
+        id: syspath
+        run: |
+          if [ -n "${{ inputs.system_ref }}" ]; then
+            echo "path=${{ github.workspace }}/ame-review-system" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=${{ github.workspace }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore engine credentials
+        run: |
+          mkdir -p ~/.local/share/opencode ~/.gemini/antigravity-cli
+          echo "${{ secrets.opencode-auth-b64 }}" | base64 -d > ~/.local/share/opencode/auth.json
+          AGY_TOKEN=~/.gemini/antigravity-cli/antigravity-oauth-token
+          echo "${{ secrets.antigravity-oauth-b64 }}" | base64 -d > "$AGY_TOKEN"
+          echo "${{ secrets.gemini-oauth-b64 }}" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.local/share/opencode/auth.json "$AGY_TOKEN" ~/.gemini/oauth_creds.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python engine SDKs
+        env:
+          REVIEW_ENGINE: ${{ inputs.review_engine }}
+        run: |
+          if [ "$REVIEW_ENGINE" = "opencode" ]; then
+            echo "Engine is opencode; Python SDKs not required."
+            exit 0
+          fi
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install --system --python "$(command -v python3)" \
+            claude-agent-sdk google-antigravity
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Install TS engine deps
+        run:
+          npm --prefix "${{ steps.syspath.outputs.path }}/ame_ai_review_system/engines/ts" install
+
+      - name: Get GitHub App installation token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.private-key }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
+
+      - name: Switch to PR branch
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GITHUB_PAT_TOKEN: ${{ steps.app_token.outputs.token }}
+          SYSTEM_PATH: ${{ steps.syspath.outputs.path }}
+        run: |
+          PYTHONPATH="$SYSTEM_PATH" python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
+
+      - name: Start OpenCode server
+        run: |
+          opencode serve --port 4096 > /tmp/opencode-server.log 2>&1 &
+          echo $! > /tmp/opencode.pid
+          for _ in $(seq 1 30); do
+            if grep -q "opencode server listening" /tmp/opencode-server.log 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"
+
+      - name: Run reply handler
+        env:
+          REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
+          REVIEWER_NAME: ame-ai-reviewer
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_ENGINE: ${{ inputs.review_engine }}
+          REVIEW_MODEL: ${{ inputs.review_model }}
+          REPLY_MODEL: ${{ inputs.reply_model }}
+          REVIEW_THINKING: ${{ inputs.review_thinking }}
+          OPENCODE_URL: ${{ env.OPENCODE_URL }}
+          TRIGGER_COMMENT_ID: ${{ inputs.comment_id }}
+          SYSTEM_PATH: ${{ steps.syspath.outputs.path }}
+        run: |
+          PYTHONPATH="$SYSTEM_PATH" python3 -m ame_ai_review_system.reply run "$PR_NUMBER"
+
+      - name: Stop OpenCode server
+        if: always()
+        run: |
+          if [ -f /tmp/opencode.pid ]; then
+            pid=$(cat /tmp/opencode.pid)
+            echo "$pid" | xargs -r kill -15
+          fi

@@ -50,6 +50,9 @@ def run_sidecar(
     timeout: float,
 ) -> str:
     node = _node_binary()
+    # pip install (site-packages) では npm install が権限エラーになるため、
+    # プロジェクトローカル (.ame-review/engines-ts/) へ展開してから解決する。
+    paths.ensure_engines_ts()
     script_path = _sidecar_path(script)
     if not script_path.exists():
         msg = f"[engine] TypeScript sidecar not found: {script_path}"

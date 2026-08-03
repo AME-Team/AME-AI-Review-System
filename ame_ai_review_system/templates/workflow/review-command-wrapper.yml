@@ -1,8 +1,7 @@
 ---
-# PR コメントで ``/request-review`` (エイリアス ``/review``) を投稿するとレビューを開始する。
-# 実処理は再利用可能ワークフロー review-command.yml に委譲する (同一リポジトリ内は
-# ローカル参照 ``./.github/workflows/review-command.yml`` を使う、GitHub 制約対応)。
-# エンジン情報は vars 由来、認証情報は Actions secrets を reusable 側の inputs/secrets へ渡す。
+# AME AI Review System — PR レビュー呼び出しラッパ (配布先用)。
+# `ame-ai-reviewer init` で生成される。__REF__ はリリースタグ (例: v1.0.0) に置換される。
+# 更新は __REF__ の差し替えのみ。本体は reusable workflow 側を参照する。
 
 name: AI Code Review (Command)
 
@@ -21,11 +20,12 @@ permissions:
 
 jobs:
   review:
-    uses: ./.github/workflows/review-command.yml
+    uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-command.yml@__REF__
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
       command: ${{ github.event.comment.body }}
       comment_user: ${{ github.event.comment.user.login }}
+      system_ref: __REF__
       review_engine: ${{ vars.REVIEW_ENGINE || 'opencode' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}

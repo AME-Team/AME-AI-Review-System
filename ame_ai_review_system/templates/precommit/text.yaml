@@ -1,0 +1,52 @@
+---
+# AME AI Review System — pre-commit profile: text
+# ドキュメント/文章の静的解析 (codespell / markdownlint / textlint) + AI レビューフック。
+# textlint は Node.js 依存のため、各フックの実行には対応ツールのインストールが必要。
+minimum_pre_commit_version: "4.0.0"
+fail_fast: true
+
+repos:
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint-cli2
+
+  - repo: https://github.com/textlint/textlint
+    rev: v14.6.0
+    hooks:
+      - id: textlint
+        args: [--fix]
+
+  # =========================================================================
+  # AME AI Review System — Gate 1 AI review hooks
+  # =========================================================================
+  - repo: local
+    hooks:
+      - id: ai-skip-guard
+        name: "AI review skip guard (Issue #26)"
+        entry: python -m ame_ai_review_system.skip_guard
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ai-precommit-review
+        name: "AI Code Review (pre-commit)"
+        entry: python -m ame_ai_review_system.precommit_review
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ai-review-state-reset
+        name: "AI review state reset (post-commit)"
+        entry: python -m ame_ai_review_system.post_commit_reset
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]
