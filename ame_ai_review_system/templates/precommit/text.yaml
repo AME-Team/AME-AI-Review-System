@@ -4,6 +4,12 @@
 # markdownlint-cli2 / textlint は Node.js ツールのため、依存リポジトリが提供する
 # pre-commit マニフェストに依存せず language: system のローカルフックで ./node_modules/.bin/*
 # を直接起動する。実行にはプロジェクト側で npm install しておくこと。
+#
+# 検証済みバージョン（package.json の devDependencies 例）:
+#   "markdownlint-cli2": "^0.23.1"
+#   "textlint": "^14.0.0"
+#   "textlint-rule-preset-ja-technical-writing": "^12.0.0"
+# consumer 側で上記以上のバージョンを導入すれば動作する（major 行き来は非保証）。
 minimum_pre_commit_version: "4.0.0"
 fail_fast: true
 

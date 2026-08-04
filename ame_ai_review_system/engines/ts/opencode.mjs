@@ -148,16 +148,12 @@ async function main() {
 }
 
 main().catch((err) => {
-  // 接続エラーと業務エラーの両方を受け止める。err.message が業務エラー詳細、
-  // それ以外は接続エラーとみなして接続先情報を併記する。
-  if (err && err.message) {
-    console.error("[opencode.mjs]", err.message);
-  } else {
-    console.error(
-      "[opencode.mjs] failed to connect to OpenCode server at",
-      process.env.OPENCODE_URL || "http://127.0.0.1:4096"
-    );
-  }
+  // 業務エラー・接続エラー両方の可能性があるため、接続先 URL を常時出力して
+  // サーバ未起動 / 認証不一致等の切り分けを容易にする。
+  console.error(
+    "[opencode.mjs] failed at OpenCode server",
+    process.env.OPENCODE_URL || "http://127.0.0.1:4096"
+  );
   if (err) console.error(err);
   process.exit(1);
 });
