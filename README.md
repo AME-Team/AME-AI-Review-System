@@ -83,8 +83,8 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
   より優先される。
 - **簡単移植**: 2 つの導入方式を提供。
   - **wheel インストール（推奨）**: GitHub Release の wheel を `pip install`
-    するだけでコアを導入。更新は URL のバージョン番号を書き換えるだけ。LLM エンジン SDK は
-    `[claude]` / `[antigravity]` / `[all]` extras で追加。
+    し、`ame-ai-reviewer init` で設定・ワークフローを生成する。CI は reusable
+    workflow を呼ぶ薄いラッパで、更新は参照タグの差し替えのみ。
   - **ディレクトリコピー**: `.github/` と `ame_ai_review_system/`
     を他リポジトリにコピーする方式（オフライン環境や細かなカスタマイズ時に）。
 - **対話型の修正サイクル**: 開発者が `@<レビュアー名>`
@@ -178,20 +178,32 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
    ページの最新バージョンに置き換えること。
 
-   使用する LLM エンジンの SDK を追加（オプション）。PyPI 非公開のため、extras ではなく個別パッケージとして導入する。
+   `ame-ai-reviewer init` で設定・ワークフローを生成する。TS エンジン (opencode /
+   claude-ts) を使う場合は `--with-engines`
+   を付ける。npm 依存のインストールも自動化される (`.ame-review/engines-ts/` に展開)。
+
+   ```bash
+   ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
+   ```
+
+   - `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
+   - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
+
+   生成物は以下のとおり。
+
+   - `.ame-review/config.json`
+   - `.ame-review/review_prompt.txt`
+   - `.pre-commit-config.yaml`
+   - `.github/workflows/review_command.yml`
+   - `.github/workflows/review_reply.yml`
+
+   CI は reusable workflow を呼ぶ薄いラッパ。更新は `--ref` の差し替えのみ。
+
+   LLM エンジン SDK は個別に導入する（オプション）。
 
    ```bash
    pip install claude-agent-sdk       # Claude Python SDK
    pip install google-antigravity     # Antigravity (Gemini)
-   ```
-
-   OpenCode / Claude-TS エンジンを使う場合は、TypeScript
-   SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。venv 環境を推奨（システム Python では権限エラーになる場合がある）。Phase
-   2 でこの手順を自動化する予定。
-
-   ```bash
-   cd "$(python -c 'from ame_ai_review_system import paths; print(paths.package_dir() / "engines" / "ts")')"
-   npm install
    ```
 
    **方式 B: ディレクトリコピー**（オフライン環境・細かなカスタマイズ向け）
@@ -201,9 +213,8 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    cp -r ame_ai_review_system/ /path/to/your-repo/
    ```
 
-   > [!NOTE] **CI ワークフロー連携**: Phase
-   > 1 時点の wheel は Python コアのみ。CI ワークフロー（`.github/workflows/`）と pre-commit 設定は方式 B のコピー、または後続 Phase の再利用可能ワークフロー（Phase
-   > 3）・ `ame-ai-reviewer init` （Phase 4）で導入する。
+   > [!NOTE] **CI ワークフロー連携**: 方式 A は `ame-ai-reviewer init` が reusable
+   > workflow の薄いラッパを生成する。方式 B は `.github/` をコピーする（従来方式）。
 
 2. **GitHub App の登録と Secret 設定**: レビュー用の GitHub
    App を作成し、対象リポジトリにインストールする。App の Credentials として以下を Secrets に登録する。

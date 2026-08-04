@@ -1,7 +1,6 @@
 ---
-# インライン返信をトリガーに、各レビュアー (Claude) が diff を読んで LGTM/追加指摘を判断する。
-# 実処理は再利用可能ワークフロー review-reply.yml に委譲する (ローカル参照)。
-# 1 投稿に対して LGTM は「そのスレッドだけ」に投稿する (Issue #39)。
+# AME AI Review System — インライン返信に対する LGTM/追加指摘判断のラッパ (配布先用)。
+# `ame-ai-reviewer init` で生成される。__REF__ はリリースタグ (例: v1.0.0) に置換される。
 # secrets 登録のエンジン情報 (Issue #40) も引き継ぐ。
 
 name: AI Review Reply
@@ -16,12 +15,13 @@ permissions:
 
 jobs:
   reply:
-    uses: ./.github/workflows/review-reply.yml
+    uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-reply.yml@__REF__
     with:
       pr_number: ${{ github.event.pull_request.number }}
       comment_id: ${{ github.event.comment.id }}
       comment_body: ${{ github.event.comment.body }}
       comment_user: ${{ github.event.comment.user.login }}
+      system_ref: __REF__
       review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}

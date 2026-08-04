@@ -6,6 +6,7 @@ Subcommands:
   review       Run AI review on PR (replaces pr_review.sh)
   checkout     Checkout PR branch (replaces checkout_pr.sh)
   setup        Install dependencies (replaces setup.sh)
+  init         Bootstrap AME AI Review System in current repository
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from . import github_client, paths, pr_streak, review_config
+from . import github_client, init_cmd, paths, pr_streak, review_config
 from . import payload as payload_module
 from .engine import apply_engine_info_env, resolve_settings
 
@@ -755,6 +756,38 @@ def main(argv: list[str] | None = None) -> int:
     # setup
     subparsers.add_parser("setup", help="Install dependencies and configure hooks")
 
+    # init
+    p_init = subparsers.add_parser(
+        "init",
+        help="Bootstrap AME AI Review System in current repository",
+    )
+    p_init.add_argument(
+        "--preset",
+        choices=["full", "minimal", "python", "text"],
+        default="full",
+        help="pre-commit static analysis preset (default: full)",
+    )
+    p_init.add_argument(
+        "--ref",
+        default=None,
+        help="GitHub ref for reusable workflows (required unless --no-workflow)",
+    )
+    p_init.add_argument(
+        "--no-workflow",
+        action="store_true",
+        help="Skip generating CI wrapper workflows",
+    )
+    p_init.add_argument(
+        "--with-engines",
+        action="store_true",
+        help="Install TS engine sidecar (.ame-review/engines-ts)",
+    )
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing files",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "checkout":
@@ -763,6 +796,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_review(args)
     if args.command == "setup":
         return cmd_setup(args)
+    if args.command == "init":
+        return init_cmd.cmd_init(args)
     parser.print_help()
     return 2
 

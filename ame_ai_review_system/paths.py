@@ -12,7 +12,10 @@ vendored 運用 (ame_ai_review_system/ をリポジトリへコピー) でリポ
 
 from __future__ import annotations
 
+import filecmp
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 _AME_REVIEW_DIR_NAME = ".ame-review"
@@ -96,3 +99,94 @@ def semgrep_rules_path() -> Path:
 
 def state_dir() -> Path:
     return ame_review_dir() / "state"
+
+
+def ensure_engines_ts() -> Path:
+    """TypeScript SDK サイドカーをプロジェクトローカルへ展開し npm install する.
+
+    pip install (site-packages 配下) では書き込み権限や更新の永続性が保証されないため、
+    初回実行時に ``.ame-review/engines-ts/`` へコピーし、そこで依存を npm install する。
+    ts_runner は ``.ame-review/engines-ts/`` を優先解決するため、既存の vendored 運用とも
+    共存する (ts_runner._sidecar_path 参照)。
+    """
+    src = package_dir() / "engines" / "ts"
+    dst_dir = ame_review_dir()
+    dst = dst_dir / "engines-ts"
+
+    if not dst.is_dir():
+        if not src.is_dir():
+            msg = f"TS sidecar source not found: {src}"
+            raise SystemExit(msg)
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dst)
+    elif not _engines_ts_up_to_date(dst, src):
+        # パッケージ更新で engines/ts が新しくなった場合は再展開する。
+        # 古い .ame-review/engines-ts が残ると新エンジンと乖離するため。
+        shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+
+    if not (dst / "node_modules").is_dir():
+        if shutil.which("npm") is None:
+            msg = (
+                "npm not found on PATH. TS SDK engines (opencode / claude-ts) "
+                "require Node.js. Install Node.js first."
+            )
+            raise SystemExit(msg)
+        try:
+            subprocess.run(["npm", "install"], cwd=dst, check=True)
+        except subprocess.CalledProcessError as exc:
+            msg = f"npm install failed for TS sidecar: {exc}"
+            raise SystemExit(msg) from exc
+
+    return dst
+
+
+def _engines_ts_up_to_date(dst: Path, src: Path) -> bool:
+    """展開先がパッケージ同梱のサイドカーと一致するか判定する.
+
+    ファイル群を再帰比較し、1 つでも差分があれば False。バージョン更新で古い
+    ``.ame-review/engines-ts`` が残り、新エンジンと乖離するのを防ぐ。
+    ``node_modules`` は npm 依存のローカル成果物、``package-lock.json`` は
+    npm install が実行時に生成するロックファイルのため比較対象から除外する
+    (除外しないと再展開ループになる)。
+    """
+    return _dircmp_equal(
+        src,
+        dst,
+        _excluded_subdirs={"node_modules"},
+        _excluded_files={"package-lock.json"},
+    )
+
+
+def _dircmp_equal(
+    left: Path,
+    right: Path,
+    *,
+    _excluded_subdirs: set[str],
+    _excluded_files: set[str],
+) -> bool:
+    """2 ディレクトリを再帰的にバイト比較する."""
+    comparison = filecmp.dircmp(left, right)
+    left_only = [
+        f
+        for f in comparison.left_only
+        if f not in _excluded_subdirs and f not in _excluded_files
+    ]
+    right_only = [
+        f
+        for f in comparison.right_only
+        if f not in _excluded_subdirs and f not in _excluded_files
+    ]
+    diff_files = [f for f in comparison.diff_files if f not in _excluded_files]
+    if left_only or right_only or diff_files:
+        return False
+    return all(
+        _dircmp_equal(
+            Path(sub.left),
+            Path(sub.right),
+            _excluded_subdirs=_excluded_subdirs,
+            _excluded_files=_excluded_files,
+        )
+        for name, sub in comparison.subdirs.items()
+        if name not in _excluded_subdirs
+    )

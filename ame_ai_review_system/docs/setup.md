@@ -151,6 +151,27 @@ pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/downloa
 URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
 ページの最新バージョンに置き換えること。
 
+`ame-ai-reviewer init` で設定・ワークフローを生成する。TS エンジン (opencode /
+claude-ts) を使う場合は `--with-engines`
+を付ける。npm 依存のインストールも自動化される (`.ame-review/engines-ts/` に展開)。
+
+```bash
+ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
+```
+
+- `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
+- `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
+
+生成物は以下のとおり。
+
+- `.ame-review/config.json`
+- `.ame-review/review_prompt.txt`
+- `.pre-commit-config.yaml`
+- `.github/workflows/review_command.yml`
+- `.github/workflows/review_reply.yml`
+
+CI は reusable workflow を呼ぶ薄いラッパ。更新は `--ref` の差し替えのみ。
+
 使用する LLM エンジンの SDK を追加（オプション）。PyPI 非公開のため、extras ではなく個別パッケージとして導入する。
 
 ```bash
@@ -158,18 +179,8 @@ pip install claude-agent-sdk       # Claude Python SDK
 pip install google-antigravity     # Antigravity (Gemini)
 ```
 
-OpenCode / Claude-TS エンジンを使う場合は、TypeScript
-SDK サイドカー（`engines/ts/`）の npm 依存を別途インストールする。venv 環境を推奨（システム Python では権限エラーになる場合がある）。Phase
-2 でこの手順を自動化する予定。
-
-```bash
-cd "$(python -c 'from ame_ai_review_system import paths; print(paths.package_dir() / "engines" / "ts")')"
-npm install
-```
-
-> [!NOTE] Phase
-> 1 時点の wheel は Python コアのみ。CI ワークフロー（`.github/workflows/`）と pre-commit 設定は方式 B のディレクトリコピー、または後続 Phase（再利用可能ワークフロー Phase
-> 3 / `ame-ai-reviewer init` Phase 4）で導入する。
+> [!NOTE] **CI ワークフロー連携**: 方式 A は `ame-ai-reviewer init` が reusable
+> workflow の薄いラッパを生成する。方式 B は `.github/` をコピーする（従来方式）。
 
 #### 方式 B: ディレクトリコピー（オフライン・細かなカスタマイズ向け）
 
