@@ -81,8 +81,8 @@ async function main() {
     // 契約があり得るため、prompt 側と同様に両方へ対応する。
     sessionId = session?.data?.id || session?.id;
     if (!sessionId) {
-      console.error("[opencode.mjs] failed to obtain session id from create response");
-      process.exit(1);
+      // sessionId 不明のため finally でも削除不可。throw して外面の catch へ。
+      throw new Error("failed to obtain session id from create response");
     }
     const model = splitModel(opts.model);
     // レビューは diff がプロンプトに埋め込まれているためツールは不要。
@@ -120,9 +120,9 @@ async function main() {
       },
     });
 
+    // process.exit は finally を迂回してセッション削除をスキップするため throw で抜ける。
     if (result && result.error) {
-      console.error("[opencode.mjs] server error:", JSON.stringify(result.error));
-      process.exit(1);
+      throw new Error(`server error: ${JSON.stringify(result.error)}`);
     }
 
     // SDK は responseStyle により { data } ラップと生値の両方の契約があり得るため、
@@ -131,17 +131,16 @@ async function main() {
     const text = extractText(payload);
     if (!text.trim()) {
       const dump = JSON.stringify(payload ?? null).slice(0, 500);
-      console.error("[opencode.mjs] could not extract text from response:", dump);
-      process.exit(1);
+      throw new Error(`could not extract text from response: ${dump}`);
     }
     process.stdout.write(text);
   } finally {
     // pre-commit / PR レビューで繰り返し実行されるため、セッションを削除して蓄積を防ぐ。
+    // finally 内の削除失敗はレビュー結果へ影響させないよう警告のみで握り潰す。
     if (sessionId) {
       try {
         await client.session.delete({ path: { id: sessionId } });
       } catch (err) {
-        // セッション削除失敗はレビュー結果に影響しないため警告のみ。
         console.error("[opencode.mjs] failed to delete session:", err);
       }
     }
@@ -149,10 +148,16 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(
-    "[opencode.mjs] failed to connect to OpenCode server at",
-    process.env.OPENCODE_URL || "http://127.0.0.1:4096"
-  );
-  console.error(err);
+  // 接続エラーと業務エラーの両方を受け止める。err.message が業務エラー詳細、
+  // それ以外は接続エラーとみなして接続先情報を併記する。
+  if (err && err.message) {
+    console.error("[opencode.mjs]", err.message);
+  } else {
+    console.error(
+      "[opencode.mjs] failed to connect to OpenCode server at",
+      process.env.OPENCODE_URL || "http://127.0.0.1:4096"
+    );
+  }
+  if (err) console.error(err);
   process.exit(1);
 });
