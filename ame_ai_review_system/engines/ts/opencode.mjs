@@ -69,8 +69,7 @@ async function main() {
 
   const url = process.env.OPENCODE_URL || "http://127.0.0.1:4096";
   // OPENCODE_SERVER_* を OPENCODE_* より優先（opencode serve 側と同名・対称）。
-  const password =
-    process.env.OPENCODE_SERVER_PASSWORD || process.env.OPENCODE_PASSWORD;
+  const password = process.env.OPENCODE_SERVER_PASSWORD || process.env.OPENCODE_PASSWORD;
   const username =
     process.env.OPENCODE_SERVER_USERNAME || process.env.OPENCODE_USERNAME || "opencode";
   const headers = {};
