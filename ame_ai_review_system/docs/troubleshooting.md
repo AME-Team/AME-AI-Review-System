@@ -61,6 +61,18 @@ SDK は `pip install 'ame-ai-review-system[claude]'` / `[antigravity]`
 でサーバを起動すること。エンジンは `config.json` の `engine` または環境変数 `REVIEW_ENGINE`
 で選択します。
 
+#### OpenCode サーバを Basic 認証付きで起動している場合
+
+`opencode serve` を `OPENCODE_SERVER_PASSWORD` で Basic 認証起動している環境では、`opencode.mjs`
+が環境変数から認証情報を読みます。`failed to obtain session id from create response` または
+`401 Unauthorized` が出る場合は以下を設定してください。
+
+- `OPENCODE_SERVER_USERNAME` または `OPENCODE_USERNAME`: Basic 認証ユーザー名（既定 `opencode`。
+  `opencode serve` 側の `OPENCODE_SERVER_USERNAME` と一致させること）
+- `OPENCODE_SERVER_PASSWORD` または `OPENCODE_PASSWORD`: Basic 認証パスワード
+
+認証なしの `opencode serve` で運用する場合は上記環境変数の設定は不要です。
+
 ---
 
 ## 3. レビューが実行されない（スキップされる）
@@ -230,3 +242,28 @@ GitHub Actions の該当ワークフローログ（`general-review-command`
 
 初回導入コミット（パッケージ本体を一括追加）では、`.ame-review/config.json` で
 `review_include_package_dir: true` にしてください。本体もレビュー対象にできます。
+
+---
+
+## 10. `.ame-review/engines-ts/` の手修正が消える / `ai-precommit-review` が "files were modified" でブロックする
+
+### 症状: opencode.mjs 等の手修正が勝手に元に戻る、またはコミットが毎回ブロックされる
+
+`.ame-review/engines-ts/opencode.mjs`
+を手動で修正して運用していると、次回のレビュー実行時に警告と共にディレクトリが再展開され、修正が消えます。再展開の警告メッセージは
+`[engines-ts] package sidecar updated — redeploying ...` です。また `ai-precommit-review`
+フックが "files were modified by this hook" でコミットをブロックします。
+
+### 原因: パッケージ更新時の強制再展開
+
+`paths.ensure_engines_ts()` は pip パッケージ同梱の `engines/ts/` とプロジェクトローカルの
+`.ame-review/engines-ts/`
+を比較します。1 ファイルでも差分があればパッケージ側へ上書きします。古いサイドカーが残ると新エンジンと乖離するためです。
+
+### 対策
+
+- **手修正を避ける**: 認証・モデル・プロンプト等のカスタマイズは環境変数か
+  `.ame-review/config.user.json` で行うこと。環境変数は `OPENCODE_SERVER_USERNAME` /
+  `OPENCODE_SERVER_PASSWORD` / `OPENCODE_URL` / `OPENCODE_SYSTEM` 等。
+- **パッケージ側を直す**: バグ修正・機能追加はパッケージ本体 (`ame_ai_review_system/engines/ts/*.mjs`) に対して行い、リリースで配布すること。
+- **再展開を一時的に止めたい**: パッケージ側へ同一修正を入れ、両者が一致する状態にする。これで比較が一致し再展開は走らなくなる。バージョン管理上はパッケージ側を正とすること。

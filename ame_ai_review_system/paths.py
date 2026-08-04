@@ -16,6 +16,7 @@ import filecmp
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 _AME_REVIEW_DIR_NAME = ".ame-review"
@@ -122,6 +123,12 @@ def ensure_engines_ts() -> Path:
     elif not _engines_ts_up_to_date(dst, src):
         # パッケージ更新で engines/ts が新しくなった場合は再展開する。
         # 古い .ame-review/engines-ts が残ると新エンジンと乖離するため。
+        # WHY 警告を出す: ユーザーが opencode.mjs 等を手修正している場合、再展開で消える。
+        print(
+            "[engines-ts] package sidecar updated — redeploying "
+            f"{dst}. Local edits (e.g. opencode.mjs tweaks) will be overwritten.",
+            file=sys.stderr,
+        )
         shutil.rmtree(dst)
         shutil.copytree(src, dst)
 

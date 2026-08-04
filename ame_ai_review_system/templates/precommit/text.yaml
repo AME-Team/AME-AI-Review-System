@@ -1,7 +1,15 @@
 ---
 # AME AI Review System — pre-commit profile: text
 # ドキュメント/文章の静的解析 (codespell / markdownlint / textlint) + AI レビューフック。
-# textlint は Node.js 依存のため、各フックの実行には対応ツールのインストールが必要。
+# markdownlint-cli2 / textlint は Node.js ツールのため、依存リポジトリが提供する
+# pre-commit マニフェストに依存せず language: system のローカルフックで ./node_modules/.bin/*
+# を直接起動する。実行にはプロジェクト側で npm install しておくこと。
+#
+# 検証済みバージョン（package.json の devDependencies 例）:
+#   "markdownlint-cli2": "^0.23.1"
+#   "textlint": "^14.0.0"
+#   "textlint-rule-preset-ja-technical-writing": "^12.0.0"
+# consumer 側で上記以上のバージョンを導入すれば動作する（major 行き来は非保証）。
 minimum_pre_commit_version: "4.0.0"
 fail_fast: true
 
@@ -11,16 +19,25 @@ repos:
     hooks:
       - id: codespell
 
-  - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.44.0
+  - repo: local
     hooks:
+      # igorshubovych/markdownlint-cli には markdownlint-cli2 id が存在せず、
+      # textlint/textlint には .pre-commit-hooks.yaml 自体が無いためローカルフック化。
+      # types: [markdown] を指定しないと pass_filenames デフォルト挙動でも
+      # pre-commit run --all-files 時に走査対象が不明で silently skip する (Issue #52 #7)。
       - id: markdownlint-cli2
+        name: markdownlint-cli2 (Markdown)
+        entry: ./node_modules/.bin/markdownlint-cli2 --fix
+        language: system
+        types: [markdown]
+        pass_filenames: true
 
-  - repo: https://github.com/textlint/textlint
-    rev: v14.6.0
-    hooks:
       - id: textlint
-        args: [--fix]
+        name: textlint (Japanese prose)
+        entry: ./node_modules/.bin/textlint --fix
+        language: system
+        types: [markdown]
+        pass_filenames: true
 
   # =========================================================================
   # AME AI Review System — Gate 1 AI review hooks
