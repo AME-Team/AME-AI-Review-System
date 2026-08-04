@@ -4,12 +4,22 @@
 //   OPENCODE_URL : 接続先 (既定 http://127.0.0.1:4096)。`opencode serve` 等で起動済みであること。
 //   OPENCODE_SERVER_USERNAME / OPENCODE_USERNAME : Basic 認証ユーザー名 (既定 "opencode")。
 //   OPENCODE_SERVER_PASSWORD / OPENCODE_PASSWORD : Basic 認証パスワード (serve 無認証時は不要)。
+//   ※ OPENCODE_SERVER_* を OPENCODE_* より優先（opencode serve 側の環境変数と同名・対称）。
 // このファイルと package.json は ame_ai_review_system/engines/ts/ に同梱されており
 // npm install で @opencode-ai/sdk を導入する (ESM 解決のため隣接 node_modules が必要)。
 // モデルは provider/model 形式 (例: anthropic/claude-sonnet-4) を指定すること。
 // レビュー完了後は作成したセッションを削除し、サーバ側へのセッション蓄積を防ぐ。
 
 import { createOpencodeClient } from "@opencode-ai/sdk";
+
+// 業務エラー（プロンプト/レスポンス契約違反等）を接続エラーと区別するためのフラグ。
+// catch 側で接続先 URL を出すかどうかの判定に使う（業務エラー時は URL 出力が誤誘導するため）。
+class EngineError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "EngineError";
+  }
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -58,7 +68,9 @@ async function main() {
   const opts = parseArgs();
 
   const url = process.env.OPENCODE_URL || "http://127.0.0.1:4096";
-  const password = process.env.OPENCODE_PASSWORD || process.env.OPENCODE_SERVER_PASSWORD;
+  // OPENCODE_SERVER_* を OPENCODE_* より優先（opencode serve 側と同名・対称）。
+  const password =
+    process.env.OPENCODE_SERVER_PASSWORD || process.env.OPENCODE_PASSWORD;
   const username =
     process.env.OPENCODE_SERVER_USERNAME || process.env.OPENCODE_USERNAME || "opencode";
   const headers = {};
@@ -82,7 +94,7 @@ async function main() {
     sessionId = session?.data?.id || session?.id;
     if (!sessionId) {
       // sessionId 不明のため finally でも削除不可。throw して外面の catch へ。
-      throw new Error("failed to obtain session id from create response");
+      throw new EngineError("failed to obtain session id from create response");
     }
     const model = splitModel(opts.model);
     // レビューは diff がプロンプトに埋め込まれているためツールは不要。
@@ -122,7 +134,7 @@ async function main() {
 
     // process.exit は finally を迂回してセッション削除をスキップするため throw で抜ける。
     if (result && result.error) {
-      throw new Error(`server error: ${JSON.stringify(result.error)}`);
+      throw new EngineError(`server error: ${JSON.stringify(result.error)}`);
     }
 
     // SDK は responseStyle により { data } ラップと生値の両方の契約があり得るため、
@@ -131,7 +143,7 @@ async function main() {
     const text = extractText(payload);
     if (!text.trim()) {
       const dump = JSON.stringify(payload ?? null).slice(0, 500);
-      throw new Error(`could not extract text from response: ${dump}`);
+      throw new EngineError(`could not extract text from response: ${dump}`);
     }
     process.stdout.write(text);
   } finally {
@@ -148,12 +160,16 @@ async function main() {
 }
 
 main().catch((err) => {
-  // 業務エラー・接続エラー両方の可能性があるため、接続先 URL を常時出力して
-  // サーバ未起動 / 認証不一致等の切り分けを容易にする。
-  console.error(
-    "[opencode.mjs] failed at OpenCode server",
-    process.env.OPENCODE_URL || "http://127.0.0.1:4096"
-  );
-  if (err) console.error(err);
+  // 業務エラー（EngineError）は既にメッセージが組まれているので URL を伏せる。
+  // 接続・SDK 由来のエラーは接続先 URL を併記して triage を容易にする。
+  if (err && err.name === "EngineError") {
+    console.error("[opencode.mjs]", err.message);
+  } else {
+    console.error(
+      "[opencode.mjs] failed to connect to OpenCode server at",
+      process.env.OPENCODE_URL || "http://127.0.0.1:4096"
+    );
+    if (err) console.error(err);
+  }
   process.exit(1);
 });
