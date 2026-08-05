@@ -245,9 +245,9 @@ env:
 | キー                              | デフォルト | 説明                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `precommit_review_enabled`        | `true`     | `true` にすると `git commit` 時にローカルで AI レビューが走り、指摘があればコミットをブロックする。                                                                                                                                                                                                                                                                     |
-| `precommit_require_static_checks` | `true`     | `true` の場合、AI レビュー実行前に ruff / mypy を staged ファイルに対して実行し、全て pass した場合のみ AI レビューを実行する。                                                                                                                                                                                                                                         |
+| `precommit_require_static_checks` | `true`     | `true` の場合、AI レビュー実行前にプロジェクトの pre-commit フックで staged ファイルを検査し、全て pass した場合のみ AI レビューを実行する。pre-commit フレームワーク経由で実行される際は実フックが既に強制済みのため再実行しない（Issue #55 I2）。                                                                                                                     |
 | `precommit_engine`                | `"auto"`   | pre-commit レビューのエンジン。`"auto"` で実装に使っているツールを自動検出。`"claude"` / `"opencode"` / `"antigravity"` で明示指定も可。                                                                                                                                                                                                                                |
-| `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値 (opencode なら実装で使っているモデル)。                                                                                                                                                                                                                                                                   |
+| `precommit_model`                 | (なし)     | pre-commit レビューのモデルを明示指定。省略時はエンジン既定値。`opencode` はサーバー既定モデルが使われる（実装で使っているモデルを自動解決する機能はない。Issue #55 B3）。                                                                                                                                                                                              |
 | `precommit_thinking`              | (なし)     | pre-commit レビューの思考量。省略時は PR の `thinking` を継承。                                                                                                                                                                                                                                                                                                         |
 | `precommit_review_budget_usd`     | (なし)     | pre-commit レビュー専用の予算 (Claude のみ効果)。省略時は PR の `review_budget_usd` を継承。                                                                                                                                                                                                                                                                            |
 | `sdk_lang`                        | `"python"` | SDK 言語。Claude エンジンのみ有効で `"python"` / `"typescript"` を切替え（環境変数 `REVIEW_SDK_LANG` / 後方互換 `CLAUDE_SDK_LANG` でも指定可）。`opencode` は TypeScript、`antigravity` は Python で固定。                                                                                                                                                              |
@@ -259,8 +259,11 @@ env:
 > [!NOTE] **pre-commit AI レビューのエンジン自動検出** `precommit_engine: "auto"`
 > (既定) の場合、pre-commit フックが自身のプロセスツリーを親方向へたどり、`opencode` / `claude` /
 > `agy` (Antigravity) のいずれかを検出します。例えば OpenCode セッション内で `git commit`
-> すると、自動的に OpenCode とその既定モデル (= 実装に使っているモデル) でレビューが走ります。PR レビューとは独立して環境変数
-> `PRECOMMIT_REVIEW_ENGINE` / `PRECOMMIT_REVIEW_MODEL` でも上書き可能です。
+> すると、自動的に OpenCode でレビューが走ります。モデルは `precommit_model` /
+> `PRECOMMIT_REVIEW_MODEL`
+> が未指定の場合は OpenCode のサーバー既定モデルが使われます (実装で使っているモデルは自動解決されません。Issue
+> #55 B3)。PR レビューとは独立して環境変数 `PRECOMMIT_REVIEW_ENGINE` / `PRECOMMIT_REVIEW_MODEL`
+> でも上書き可能です。
 >
 > **無限ループ回避**:
 > LOW レベルの指摘のみが 2 回連続で続いた場合は、コミットを通す仕様。コミット成功時に streak カウンタは 0 にリセットされる（post-commit フック）。エンジン失敗時は fail-closed でコミットをブロックする。

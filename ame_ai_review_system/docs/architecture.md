@@ -140,13 +140,16 @@ sequenceDiagram
   未設定時（手動実行等）は AI 宛てメンションで AI が未返信のスレッドを走査して全件へ返信する。返信判定プロンプトは会話履歴と最新の Git
   diff から生成し、`engine.py` 経由で LGTM か追加指摘かを判断する。
 - **`precommit_review.py`** pre-commit フック本体。 `git commit`
-  実行時にステージ済み差分 + ブランチ差分 (`origin/<base>...HEAD`) を `review_prompt.txt` と結合して
-  `engine.py`
-  に渡す。PR レビューと同じプロンプトを再用。出力をパースし、指摘 0 件なら PASS、LOW/INFO 以外の severity（CRITICAL/HIGH/MIDDLE 等）を含めば FAIL、LOW/INFO のみの場合は streak カウンタを進めて 2 回連続で PASS とする（無限ループ回避）。エンジン失敗時は fail-closed でブロック。streak はブランチ単位で
+  実行時にステージ済み差分 + ブランチ差分（分岐元を `diff_base.py` で自動解決。Issue #55 I1）を
+  `review_prompt.txt` と結合して `engine.py`
+  に渡す。PR レビューと同じプロンプトを再用。出力をパースし、指摘 0 件なら PASS、LOW/INFO 以外の severity（CRITICAL/HIGH/MIDDLE 等）を含めば FAIL、LOW/INFO のみの場合は streak カウンタを進めて 2 回連続で PASS とする（無限ループ回避）。同一指摘の繰り返しは Jaccard
+  stale-loop 検出で LOW に降格して escape を機能させる（Issue #55
+  B2）。エンジン失敗時は fail-closed でブロック。streak はブランチ単位で
   `~/.config/ame-ai-review-system/precommit_state_<hash>.json` に保存される。
 - **`precommit_engine.py`**
-  pre-commit レビュー専用のエンジン解決モジュール。PR レビューと異なり、開発端末で動く pre-commit では「現在実装に使っている AI ツール」を親プロセスから自動検出する (`precommit_engine="auto"`)。例えば OpenCode で実装しているなら、使用したモデルに応じて同じ組合せでレビューする。解決順: 環境変数
-  `PRECOMMIT_REVIEW_*` > `config.user.json` / `config.json` の `precommit_*` > 自動検出 > PR 設定。
+  pre-commit レビュー専用のエンジン解決モジュール。PR レビューと異なり、開発端末で動く pre-commit では「現在実装に使っている AI ツール」を親プロセスから自動検出する (`precommit_engine="auto"`)。モデルは自動解決されず、`precommit_model`
+  未指定時はエンジンのサーバー既定が使われる (Issue #55 B3)。解決順: 環境変数 `PRECOMMIT_REVIEW_*` >
+  `config.user.json` / `config.json` の `precommit_*` > 自動検出 > PR 設定。
 - **`post_commit_reset.py`** post-commit フック。コミット成功時に `precommit_review.py`
   が管理する streak カウンタを 0 にリセットする。
 - **`precommit_state.py`** pre-commit レビューの状態管理モジュール。 `precommit_review.py` /

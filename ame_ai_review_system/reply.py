@@ -26,17 +26,13 @@ import tempfile
 from typing import Any, cast
 
 from . import engine, github_client, review_config
+from .stale_detect import is_stale_loop
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
 
 _HTTP_STATUS_OK = 200
 
 _REVIEWS_PAGE_SIZE = 50
-
-_STALE_JACCARD_THRESHOLD = 0.80
-_STALE_MIN_NGRAMS = 4
-_TRIGRAM_SIZE = 3
-_MIN_COMMENTS_FOR_STALE = 2
 
 _REQUIRED_ARGS_BUILD = 4
 _REQUIRED_ARGS_PARSE = 3
@@ -178,41 +174,6 @@ def _get_pr_diff(
             + f"\n... (truncated, {len(all_lines)} lines total)"
         )
     return result
-
-
-# ============================================================================
-# Stale loop detection
-# ============================================================================
-
-
-def _trigrams(text: str) -> set[str]:
-    text = text.lower().strip()
-    if len(text) < _TRIGRAM_SIZE:
-        return {text} if text else set()
-    return {text[i : i + _TRIGRAM_SIZE] for i in range(len(text) - (_TRIGRAM_SIZE - 1))}
-
-
-def is_stale_loop(comment_bodies: list[str]) -> bool:
-    """Detect stale-loop: reviewer repeating the same feedback with slight variations.
-
-    直近2件のコメントの文字トリグラム Jaccard 類似度が閾値以上の場合に True を返す。
-    日本語テキストに対応するため単語分割ではなくトリグラムを使用する。
-    トリグラム数が 4 未満の短いコメントは完全一致で判定する。
-    """
-    if len(comment_bodies) < _MIN_COMMENTS_FOR_STALE:
-        return False
-
-    g1 = _trigrams(comment_bodies[-2])
-    g2 = _trigrams(comment_bodies[-1])
-
-    if not g1 or not g2:
-        return False
-
-    if len(g1) < _STALE_MIN_NGRAMS or len(g2) < _STALE_MIN_NGRAMS:
-        return g1 == g2
-
-    jaccard = len(g1 & g2) / len(g1 | g2)
-    return jaccard >= _STALE_JACCARD_THRESHOLD
 
 
 # ============================================================================

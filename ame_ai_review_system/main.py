@@ -48,6 +48,26 @@ def _get_env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
+def _reviewer_author_login(api_url: str, token: str, reviewer_name: str) -> str:
+    """既レビュー判定に使う実際の投稿者 login を解決する.
+
+    GitHub App 運用時はレビューが ``slug[bot]`` 名で投稿されるが、通常ユーザーの
+    PAT で投稿すると PAT の持ち主の login になる (Issue #55 B5)。判定を
+    ``bot_login(reviewer_name)`` 前提にすると PAT 運用で再レビューが毎回走るため、
+    ``GET /user`` で実投稿者を解決する。失敗時は App 運用の後方互換として
+    ``bot_login`` にフォールバックする。
+    """
+    try:
+        user = github_client.http_request("GET", f"{api_url}/user", token)
+    except RuntimeError:
+        return github_client.bot_login(reviewer_name)
+    if isinstance(user, dict):
+        login = cast("dict[str, Any]", user).get("login")
+        if isinstance(login, str):
+            return login
+    return github_client.bot_login(reviewer_name)
+
+
 def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
     try:
         result = subprocess.run(
@@ -458,9 +478,14 @@ def cmd_review(args: argparse.Namespace) -> int:
     if not isinstance(reviews_data, list):
         reviews_data = []
 
+    # Issue #55 B5: App bot 前提の bot_login 照合では PAT 運用で重複レビューが
+    # 発生するため、実投稿者 login を解決して判定する。混在運用 (bot と PAT の両方で
+    # 投稿) でも過去の reviewed-sha を拾えるよう、bot login との和集合で照合する。
+    reviewer_login = _reviewer_author_login(api_url, token, reviewer_name)
+    accepted_logins = {reviewer_login, github_client.bot_login(reviewer_name)}
     reviewed_shas: set[str] = set()
     for r in cast("list[dict[str, Any]]", reviews_data):
-        if r.get("user", {}).get("login") == github_client.bot_login(reviewer_name):
+        if r.get("user", {}).get("login") in accepted_logins:
             body = cast("str", r.get("body", ""))
             m = re.search(r"<!--\s*reviewed-sha:\s*([0-9a-f]{40,64})\s*-->", body)
             if m:
@@ -477,6 +502,9 @@ def cmd_review(args: argparse.Namespace) -> int:
         return 0
 
     # Get diff and changed files
+    # Issue #55 I1: diff の狭域化 (diff_base) はローカル pre-commit 用途に限定する。
+    # PR レビューは GitHub review API の line 検証が PR 実ベースの diff 位置で行われる
+    # ため、従来どおり origin/{base}...HEAD を維持する。
     diff = _run_git(["diff", f"origin/{base_ref}...HEAD"])
     if not diff:
         diff = _run_git(["diff", "HEAD~1"])

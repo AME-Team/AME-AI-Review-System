@@ -34,6 +34,7 @@ from ame_ai_review_system.precommit_review import (
 from ame_ai_review_system.precommit_review import (
     _truncate_diff as truncate_diff,
 )
+from ame_ai_review_system.stale_detect import comment_text as stale_comment_text
 
 # ---------------------------
 # decide / is_blocking / truncate_diff (pure functions)
@@ -109,6 +110,105 @@ def test_is_blocking_case_insensitive() -> None:
 
 def test_is_blocking_whitespace_tolerant() -> None:
     assert is_blocking({"severity": "  HIGH  "})
+
+
+# ---------------------------
+# _demote_stale_comments (Issue #55 B2)
+# ---------------------------
+
+
+def _issue(severity: str, title: str) -> dict[str, Any]:
+    return {"severity": severity, "title": title, "body": f"{title} の詳細"}
+
+
+def test_demote_stale_no_history_unchanged() -> None:
+    comments = [_issue("HIGH", "バグが残っています")]
+    out, stale = precommit_review._demote_stale_comments(comments, [])
+    assert stale is False
+    assert out == comments
+
+
+def test_demote_stale_identical_issue_demotes_blocking() -> None:
+    # 前回レビューと同一のコメントが繰り返されたらそのコメントだけ LOW へ降格する。
+    # severity は比較対象から除外されるため HIGH/MIDDLE の揺れでも検出できる。
+    prev = stale_comment_text(_issue("HIGH", "バグが残っています"))
+    current = [_issue("MIDDLE", "バグが残っています")]
+    out, stale = precommit_review._demote_stale_comments(current, [prev])
+    assert stale is True
+    assert all(c["severity"] == "LOW" for c in out)
+
+
+def test_demote_stale_different_issue_keeps_severity() -> None:
+    prev = stale_comment_text(_issue("HIGH", "セキュリティホール"))
+    current = [_issue("HIGH", "別のバグ")]
+    out, stale = precommit_review._demote_stale_comments(current, [prev])
+    assert stale is False
+    assert out[0]["severity"] == "HIGH"
+
+
+def test_demote_stale_mixed_keeps_new_blocking() -> None:
+    # 繰り返し指摘の中に新規の HIGH が混ざっても、新規分は降格しない (コメント単位)。
+    prev = stale_comment_text(_issue("MIDDLE", "バグが残っています"))
+    current = [
+        _issue("MIDDLE", "バグが残っています"),
+        _issue("HIGH", "新規のセキュリティ問題"),
+    ]
+    out, stale = precommit_review._demote_stale_comments(current, [prev])
+    assert stale is True
+    assert out[0]["severity"] == "LOW"
+    assert out[1]["severity"] == "HIGH"
+
+
+def test_demote_stale_empty_current_unchanged() -> None:
+    out, stale = precommit_review._demote_stale_comments([], ["prev text"])
+    assert stale is False
+    assert out == []
+
+
+# ---------------------------
+# _is_test_file / _test_target_candidates (Issue #55 B1)
+# ---------------------------
+
+
+def test_is_test_file_variants() -> None:
+    assert precommit_review._is_test_file("tests/test_main.py")
+    assert precommit_review._is_test_file("tests/foo/test_bar.py")
+    assert precommit_review._is_test_file("test_foo.py")
+    assert precommit_review._is_test_file("foo_test.py")
+    assert not precommit_review._is_test_file("src/app.py")
+    assert not precommit_review._is_test_file("tests/fixtures/data.json")
+
+
+def test_test_target_candidates_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 候補生成はパッケージディレクトリに依存するため、テストでは None に固定する。
+    monkeypatch.setattr(review_config, "package_dir_rel", lambda: None)
+    assert precommit_review._test_target_candidates("tests/test_main.py") == [
+        "main.py",
+        "src/main.py",
+    ]
+    assert precommit_review._test_target_candidates("tests/foo/test_bar.py") == [
+        "foo/bar.py",
+        "src/foo/bar.py",
+    ]
+    assert precommit_review._test_target_candidates("src/app.py") == []
+
+
+def test_test_target_candidates_includes_vendored_package_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # vendored パッケージ配下に実体がある場合は <pkg>/<rel> も候補に加える。
+    monkeypatch.setattr(
+        review_config,
+        "package_dir_rel",
+        lambda: "ame_ai_review_system",
+    )
+    assert precommit_review._test_target_candidates("tests/test_engine.py") == [
+        "engine.py",
+        "src/engine.py",
+        "ame_ai_review_system/engine.py",
+    ]
 
 
 def test_truncate_diff_short_unchanged() -> None:
@@ -279,8 +379,10 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
         "_run_static_checks",
         lambda _f: (True, ""),
     )
-    monkeypatch.setattr(precommit_review, "_build_diff", lambda _: "FAKE DIFF")
+    monkeypatch.setattr(precommit_review, "_build_diff", lambda *_a: "FAKE DIFF")
     monkeypatch.setattr(precommit_review, "_truncate_diff", lambda d: d)
+    # Issue #55 B4: テスト中は実際の git fetch を走らせない。
+    monkeypatch.setattr(precommit_review, "_fetch_base_ref", lambda _b: None)
 
     fake_proj = tmp_path / "proj"
     ame_dir = fake_proj / "ame-ai-review-system"
@@ -324,133 +426,196 @@ def test_main_skips_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------
 
 
-def test_run_static_checks_no_python_files(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_static_checks_empty_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    passed, detail = run_static_checks([])
+    assert passed is True
+    assert not detail
+
+
+def test_run_static_checks_precommit_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(shutil, "which", lambda _: None)
-    passed, detail = run_static_checks(["README.md", "config.yaml"])
+    passed, detail = run_static_checks(["foo.py"])
     assert passed is True
     assert not detail
 
 
-def _fake_subprocess_ok(
-    _cmd: list[str],
-    **_kw: Any,
-) -> SimpleNamespace:
-    return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-
-def test_run_static_checks_all_pass(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
-    monkeypatch.setattr(subprocess, "run", _fake_subprocess_ok)
-    passed, detail = run_static_checks(["foo.py", "bar.py"])
+def test_run_static_checks_skipped_under_precommit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pre-commit フレームワーク実行中は実フックが既に強制済みのため二重実行しない。
+    monkeypatch.setenv("PRE_COMMIT", "1")
+    passed, detail = run_static_checks(["foo.py"])
     assert passed is True
     assert not detail
 
 
-def test_run_static_checks_ruff_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def _setup_precommit_project(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> Path:
+    # pytest が pre-commit (pre-push 等) 配下で動くと PRE_COMMIT が設定されるため、
+    # 静的チェックの実体が走るようテスト中は除去する。
+    monkeypatch.delenv("PRE_COMMIT", raising=False)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".pre-commit-config.yaml").write_text(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: ruff-check\n"
+        "        name: ruff check\n"
+        "        entry: ruff check\n"
+        "        language: system\n"
+        "        types_or: [python]\n"
+        "      - id: ai-precommit-review\n"
+        "        name: AI review\n"
+        "        entry: python3 -m ame_ai_review_system.precommit_review\n"
+        "        language: system\n"
+        "        always_run: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/pre-commit")
+    monkeypatch.setattr(precommit_state, "run_git", lambda _: f"{proj}\n")
+    return proj
+
+
+def test_run_static_checks_all_pass(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _setup_precommit_project(monkeypatch, tmp_path)
+    captured: dict[str, Any] = {}
+
     def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
-        if cmd[0] == "ruff" and cmd[1] == "check":
-            return SimpleNamespace(returncode=1, stdout="E501 line too long", stderr="")
+        captured["cmd"] = cmd
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    passed, detail = run_static_checks(["foo.py"])
+    assert passed is True
+    assert not detail
+    # 実 pre-commit フックを --config + --files で呼んでいること。
+    assert captured["cmd"][0] == "/usr/bin/pre-commit"
+    assert captured["cmd"][1] == "run"
+    assert "--config" in captured["cmd"]
+    assert "foo.py" in captured["cmd"]
+
+
+def test_run_static_checks_fails_on_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _setup_precommit_project(monkeypatch, tmp_path)
+
+    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            returncode=1,
+            stdout="E501 line too long",
+            stderr="",
+        )
+
     monkeypatch.setattr(subprocess, "run", fake_run)
     passed, detail = run_static_checks(["foo.py"])
     assert passed is False
-    assert "ruff check" in detail
+    assert "pre-commit:" in detail
     assert "E501" in detail
 
 
-def test_run_static_checks_mypy_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
-        if cmd[0] == "mypy":
-            return SimpleNamespace(returncode=1, stdout="error: bad type", stderr="")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    passed, detail = run_static_checks(["foo.py"])
-    assert passed is False
-    assert "mypy" in detail
-
-
-def test_run_static_checks_skips_missing_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
-        if cmd[0] == "ruff":
-            msg = "ruff not found"
-            raise FileNotFoundError(msg)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    passed, detail = run_static_checks(["foo.py"])
-    assert passed is True
-    assert not detail
-
-
-def test_run_static_checks_ts_all_pass(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
-    monkeypatch.setattr(subprocess, "run", _fake_subprocess_ok)
-    monkeypatch.setattr(
-        review_config, "load_config", lambda: {"tsconfig_path": "tsconfig.json"}
-    )
-    passed, detail = run_static_checks(["app.ts", "component.tsx"])
-    assert passed is True
-    assert not detail
-
-
-def test_run_static_checks_tsc_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
-        if "tsc" in cmd[0] or (len(cmd) > 1 and "tsc" in cmd[1]):
-            return SimpleNamespace(
-                returncode=2,
-                stdout="Type error: parameter has any type",
-                stderr="",
-            )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        review_config, "load_config", lambda: {"tsconfig_path": "tsconfig.json"}
-    )
-    passed, detail = run_static_checks(["app.ts"])
-    assert passed is False
-    assert "tsc" in detail
-    assert "Type error" in detail
-
-
-def test_run_static_checks_tsc_skipped_without_tsconfig(
+def test_run_static_checks_env_failure_skips(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
-        if "tsc" in cmd[0]:
-            return SimpleNamespace(returncode=2, stdout="should not run", stderr="")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    # Issue #55 I2: フック環境のクローン/インストール失敗はコード品質失敗ではなく
+    # スキップする (毎コミットの誤ブロック回避)。
+    _setup_precommit_project(monkeypatch, tmp_path)
 
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
+    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="An error has occurred: Failed to clone "
+            "https://github.com/pre-commit/pre-commit-hooks",
+        )
+
     monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setattr(review_config, "load_config", dict)
-    passed, detail = run_static_checks(["app.ts"])
+    passed, detail = run_static_checks(["foo.py"])
     assert passed is True
     assert not detail
 
 
-def test_run_static_checks_eslint_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
-        if "eslint" in cmd[0] or (len(cmd) > 1 and "eslint" in cmd[1]):
-            return SimpleNamespace(
-                returncode=1,
-                stdout="eslint error: unexpected var",
-                stderr="",
-            )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+def test_looks_like_env_failure() -> None:
+    assert precommit_review._looks_like_env_failure(
+        "An error has occurred\nFailed to clone repo"
+    )
+    assert precommit_review._looks_like_env_failure("could not resolve host github.com")
+    assert not precommit_review._looks_like_env_failure("E501 line too long")
+    assert not precommit_review._looks_like_env_failure("")
 
-    monkeypatch.setattr(precommit_state, "run_git", lambda _: "/proj\n")
+
+def test_run_static_checks_timeout_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _setup_precommit_project(monkeypatch, tmp_path)
+
+    def fake_run(cmd: list[str], **_kw: Any) -> Any:
+        raise subprocess.TimeoutExpired(cmd, 120)
+
     monkeypatch.setattr(subprocess, "run", fake_run)
-    passed, detail = run_static_checks(["app.ts"])
-    assert passed is False
-    assert "eslint" in detail
-    assert "eslint error" in detail
+    passed, detail = run_static_checks(["foo.py"])
+    assert passed is True
+    assert not detail
+
+
+def test_run_static_checks_no_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/pre-commit")
+    monkeypatch.setattr(precommit_state, "run_git", lambda _: f"{proj}\n")
+    passed, detail = run_static_checks(["foo.py"])
+    assert passed is True
+    assert not detail
+
+
+def test_run_static_checks_unparseable_config_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".pre-commit-config.yaml").write_text(
+        "{not valid yaml",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/pre-commit")
+    monkeypatch.setattr(precommit_state, "run_git", lambda _: f"{proj}\n")
+    passed, detail = run_static_checks(["foo.py"])
+    assert passed is True
+    assert not detail
+
+
+def test_filtered_precommit_config_removes_ai_hooks() -> None:
+    raw: dict[str, Any] = {
+        "repos": [
+            {
+                "repo": "local",
+                "hooks": [
+                    {"id": "ruff-check", "entry": "ruff check"},
+                    {"id": "ai-skip-guard", "entry": "python3 skip_guard"},
+                    {"id": "ai-precommit-review", "entry": "python3 precommit_review"},
+                    {"id": "ai-review-state-reset", "entry": "python3 reset"},
+                ],
+            }
+        ]
+    }
+    filtered = precommit_review._filtered_precommit_config(raw)
+    ids = [h["id"] for h in filtered["repos"][0]["hooks"]]
+    assert ids == ["ruff-check"]
 
 
 # ---------------------------
@@ -723,6 +888,40 @@ def test_main_low_only_at_threshold_passes(
     assert rc == 0
     state = precommit_state.read_state(env["state_path"])
     assert state["branches"]["feature"]["low_only_streak"] == 2
+
+
+def test_main_stale_review_demotes_and_builds_streak(
+    monkeypatch: pytest.MonkeyPatch,
+    env: dict[str, Any],
+) -> None:
+    # Issue #55 B2: 同一指摘の繰り返しは severity が HIGH/MIDDLE に振れても LOW へ
+    # 降格され、streak が進む (escape 条件自体は変更しない)。
+    payload_dict: dict[str, Any] = {
+        "summary": "same issue",
+        "comments": [
+            {
+                "path": "f",
+                "line": 1,
+                "severity": "MIDDLE",
+                "title": "バグが残っています",
+                "body": "バグが残っています の詳細",
+            },
+        ],
+    }
+    _engine_returning(monkeypatch, payload_dict)
+    rc = precommit_review.main([])
+    assert rc == 1
+    state = precommit_state.read_state(env["state_path"])
+    assert state["branches"]["feature"]["low_only_streak"] == 0
+    assert len(state["branches"]["feature"]["recent_review_texts"]) == 1
+
+    payload_dict["comments"][0]["severity"] = "HIGH"
+    _engine_returning(monkeypatch, payload_dict)
+    rc = precommit_review.main([])
+    assert rc == 1
+    state = precommit_state.read_state(env["state_path"])
+    # stale 検出で LOW 扱いになり streak が 1 進む。
+    assert state["branches"]["feature"]["low_only_streak"] == 1
 
 
 def test_main_dry_run_does_not_write_state(

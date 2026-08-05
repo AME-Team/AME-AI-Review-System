@@ -4,11 +4,56 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from ame_ai_review_system import main
+from ame_ai_review_system import github_client, main
 from ame_ai_review_system.main import SKIP_NOTICE_MARKER, skip_notice_already_posted
 
 _MARKER = f"{SKIP_NOTICE_MARKER}-pr38"
 _ISSUE_URL = "https://api.github.com/repos/tarminjapan/AME-AI-Review-System/issues/38"
+
+
+# --- _reviewer_author_login (Issue #55 B5) -----------------------------------
+
+
+def test_reviewer_author_login_resolves_via_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        github_client,
+        "http_request",
+        lambda _method, _url, _token: {"login": "developer"},
+    )
+    assert (
+        main._reviewer_author_login("https://api.github.com", "tok", "ame-ai-reviewer")
+        == "developer"
+    )
+
+
+def test_reviewer_author_login_falls_back_to_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise(*_a: Any, **_kw: Any) -> Any:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(github_client, "http_request", _raise)
+    assert (
+        main._reviewer_author_login("https://api.github.com", "tok", "ame-ai-reviewer")
+        == "ame-ai-reviewer[bot]"
+    )
+
+
+def test_reviewer_author_login_non_dict_falls_back_to_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        github_client,
+        "http_request",
+        lambda _method, _url, _token: ["not", "a", "dict"],
+    )
+    assert (
+        main._reviewer_author_login("https://api.github.com", "tok", "ame-ai-reviewer")
+        == "ame-ai-reviewer[bot]"
+    )
 
 
 def test_skip_notice_already_posted_false_when_absent() -> None:

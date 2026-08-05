@@ -95,7 +95,15 @@ def _resolve_engine(config: dict[str, Any]) -> str:
     return engine
 
 
-def _resolve_model(role: str, engine: str, config: dict[str, Any]) -> str:
+def _resolve_model(role: str, engine: str, config: dict[str, Any]) -> str | None:
+    """レビュー/返信で使うモデルを解決する.
+
+    優先順位は環境変数 → 明示的な config 上書き → claude 既定 ``sonnet``。
+    非 claude エンジンは model 未指定を許容し ``None`` を返す (サーバー既定へ委ねる)。
+    ただし antigravity は SDK の API 上 model が必須のため、未指定なら終了する。
+    opencode は claude 系の既定名 (sonnet/haiku 等) が渡っても provider/model 形式で
+    なければ ``None`` に正規化し、サーバー既定を使う (Issue #55 B3)。
+    """
     model_env_key = _ROLE_MODEL_ENV[role]
     model_config_key = _ROLE_MODEL_KEY[role]
     model = _first_nonempty(os.environ.get(model_env_key))
@@ -104,18 +112,34 @@ def _resolve_model(role: str, engine: str, config: dict[str, Any]) -> str:
             os.environ.get("CLAUDE_MODEL"),
             review_config.user_overrides().get(model_config_key),
             config.get("model"),
+            "sonnet",
         )
-        if not model:
-            sys.exit("[engine] model is not configured for the claude engine.")
     if model is None and engine in {"opencode", "antigravity"}:
         model = _first_nonempty(
             review_config.user_overrides().get(model_config_key),
             config.get("model"),
         )
+    if model is None and engine == "opencode":
+        # opencode は --model 未指定でサーバー既定へ委ねる (Issue #55 B3)。
+        return None
     if model is None:
-        sys.exit(f"[engine] model is not configured for the {engine} engine.")
+        if engine == "antigravity":
+            sys.exit(
+                "[engine] model is not configured for the antigravity engine. "
+                "Set REVIEW_MODEL or review_model in config.json."
+            )
+        sys.exit("[engine] model is not configured for the claude engine.")
     if not _MODEL_RE.match(model):
         sys.exit(f"[engine] Invalid {model_env_key} value: {model!r}")
+    if engine == "opencode" and "/" not in model:
+        # opencode.mjs は provider/model 形式以外を無視する。claude 系の既定名
+        # (sonnet/haiku 等) が誤って渡らないよう、サーバー既定へ委ねる (Issue #55 B3)。
+        print(
+            f"[engine] WARNING: opencode model {model!r} has no provider/model form; "
+            "the opencode server default model will be used instead.",
+            file=sys.stderr,
+        )
+        return None
     return model
 
 

@@ -281,7 +281,7 @@ def test_cmd_evaluate_zero_issues_passes(
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
     monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
-    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_: 0)
+    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_a, **_kw: 0)
     review_path = _write_review(tmp_path, {"summary": "ok", "comments": []})
     rc = pr_streak.cmd_evaluate(1, review_path)
     assert rc == 0
@@ -298,7 +298,7 @@ def test_cmd_evaluate_blocking_resets_streak(
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
     monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
-    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_: 0)
+    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_a, **_kw: 0)
     review_path = _write_review(
         tmp_path,
         {
@@ -325,7 +325,7 @@ def test_cmd_evaluate_low_only_increments_streak(
         "_read_pr_comments",
         lambda *_: [{"id": 1, "body": "<!-- ai-review-streak -->\nstreak: 0"}],
     )
-    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_: 0)
+    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_a, **_kw: 0)
     review_path = _write_review(
         tmp_path,
         {
@@ -352,7 +352,7 @@ def test_cmd_evaluate_low_only_at_threshold_passes(
         "_read_pr_comments",
         lambda *_: [{"id": 1, "body": "<!-- ai-review-streak -->\nstreak: 1"}],
     )
-    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_: 0)
+    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_a, **_kw: 0)
     review_path = _write_review(
         tmp_path,
         {
@@ -445,6 +445,96 @@ def test_cmd_set_updates_existing_comment(monkeypatch: pytest.MonkeyPatch) -> No
 def test_cmd_set_no_token_returns_1(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr_streak, "_token", lambda: "")
     assert pr_streak.cmd_set(1, 0) == 1
+
+
+def test_cmd_set_includes_review_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_request(
+        method: str,
+        url: str,
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        captured["body"] = body
+        return {}
+
+    monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
+    monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
+    monkeypatch.setattr(pr_streak, "_current_head_sha", lambda: "")
+    monkeypatch.setattr(github_client, "http_request", fake_request)
+    rc = pr_streak.cmd_set(1, 2, comment_texts=["バグが残っています\n詳細"])
+    assert rc == 0
+    assert captured["body"] is not None
+    assert "review: " in captured["body"]["body"]
+
+
+def test_find_streak_comment_roundtrips_review_texts() -> None:
+    encoded = pr_streak._encode_review_texts(["バグが残っています\n詳細"])
+    comments = [
+        {
+            "id": 5,
+            "body": f"<!-- ai-review-streak -->\nstreak: 1\nreview: {encoded}",
+        },
+    ]
+    result = find_streak_comment(comments)
+    assert result is not None
+    assert result[3] == ["バグが残っています\n詳細"]
+
+
+def test_find_streak_comment_empty_review_when_missing() -> None:
+    comments = [
+        {"id": 5, "body": "<!-- ai-review-streak -->\nstreak: 1"},
+    ]
+    result = find_streak_comment(comments)
+    assert result is not None
+    assert not result[3]
+
+
+def test_cmd_evaluate_stale_blocking_demoted_to_low(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #55 B2: 前回レビューと同一のコメントは MIDDLE でも LOW に降格して
+    # streak を進める (escape 条件は変更しない)。
+    prev_text = "バグが残っています\nバグが残っています の詳細"
+    encoded = pr_streak._encode_review_texts([prev_text])
+    monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
+    monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
+    monkeypatch.setattr(
+        pr_streak,
+        "_read_pr_comments",
+        lambda *_: [
+            {
+                "id": 1,
+                "body": f"<!-- ai-review-streak -->\nstreak: 0\nreview: {encoded}",
+            },
+        ],
+    )
+    monkeypatch.setattr(pr_streak, "cmd_set", lambda *_a, **_kw: 0)
+    review_path = _write_review(
+        tmp_path,
+        {
+            "summary": "same issue",
+            "comments": [
+                {
+                    "severity": "MIDDLE",
+                    "path": "a",
+                    "line": 1,
+                    "title": "バグが残っています",
+                    "body": "バグが残っています の詳細",
+                },
+            ],
+        },
+    )
+    rc = pr_streak.cmd_evaluate(1, review_path)
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["streak"] == 1
+    assert out["allow"] is False
 
 
 # ---------------------------

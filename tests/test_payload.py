@@ -2,9 +2,18 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
-from ame_ai_review_system.payload import parse_review_json, parse_review_json_with_flag
+from ame_ai_review_system import payload as payload_module
+from ame_ai_review_system.payload import (
+    _primary_diff_text,
+    build_valid_lines_map,
+    parse_review_json,
+    parse_review_json_with_flag,
+)
 
 
 def test_parse_review_json_plain(tmp_path: Path) -> None:
@@ -163,3 +172,65 @@ def test_build_repair_prompt_sanitizes_fence() -> None:
     assert "```json" not in prompt
     assert "\u00b7\u00b7\u00b7json" in prompt
     assert prompt.count("```") == 2
+
+
+# ---------------------------
+# build_valid_lines_map / _primary_diff_text (Issue #55)
+# ---------------------------
+
+
+def test_primary_diff_text_uses_base_range(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_check_output(cmd: list[str], **kw: Any) -> str:
+        captured["cmd"] = cmd
+        return "diff content"
+
+    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+    assert _primary_diff_text("main") == "diff content"
+    assert captured["cmd"] == ["git", "diff", "origin/main...HEAD"]
+
+
+def test_primary_diff_text_falls_back_to_head_prev(monkeypatch: Any) -> None:
+    # リモート追跡 ref が無い環境では HEAD~1 にフォールバックし、
+    # build_valid_lines_map が {} にならずインラインスレッドを作れるようにする。
+    calls: list[list[str]] = []
+
+    def fake_check_output(cmd: list[str], **kw: Any) -> str:
+        calls.append(cmd)
+        if cmd[2].startswith("origin/"):
+            raise subprocess.CalledProcessError(128, cmd)
+        return "fallback diff"
+
+    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+    assert _primary_diff_text("main") == "fallback diff"
+    assert calls[-1] == ["git", "diff", "HEAD~1"]
+
+
+def test_primary_diff_text_empty_when_all_fail(monkeypatch: Any) -> None:
+    def fake_check_output(cmd: list[str], **kw: Any) -> str:
+        raise subprocess.CalledProcessError(128, cmd)
+
+    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+    assert not _primary_diff_text("main")
+
+
+def test_build_valid_lines_map_parses_added_lines(monkeypatch: Any) -> None:
+    diff = (
+        "diff --git a/src/app.py b/src/app.py\n"
+        "index 000..111 100644\n"
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -10,3 +10,4 @@ def main():\n"
+        "     existing\n"
+        "+added_line\n"
+        "     kept\n"
+    )
+    monkeypatch.setattr(payload_module, "_primary_diff_text", lambda _base: diff)
+    # ハンク内の追加行 + コンテキスト行はインラインコメントの有効位置。
+    assert build_valid_lines_map("main") == {"src/app.py": {10, 11, 12}}
+
+
+def test_build_valid_lines_map_empty_on_no_diff(monkeypatch: Any) -> None:
+    monkeypatch.setattr(payload_module, "_primary_diff_text", lambda _base: "")
+    assert build_valid_lines_map("main") == {}
