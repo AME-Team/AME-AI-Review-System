@@ -179,6 +179,33 @@ def parse_review_json(path: str) -> dict[str, Any]:
     return review
 
 
+def _primary_diff_text(base_ref: str) -> str:
+    """PR 実ベースの diff テキストを取得する.
+
+    cmd_review のプロンプト diff と同じフォールバック列を維持する。リモート追跡 ref
+    (origin/{base}) が取得できない環境 (shallow チェックアウト等) で ``git diff`` が
+    失敗すると、``build_valid_lines_map`` が ``{}`` を返して**全指摘が body-only の
+    一般レビューになりスレッド (LGTM 確認) が作れなくなる**ため、``HEAD~1`` へ
+    フォールバックする (Issue #55)。
+    """
+    try:
+        return subprocess.check_output(
+            ["git", "diff", f"origin/{base_ref}...HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        pass
+    try:
+        return subprocess.check_output(
+            ["git", "diff", "HEAD~1"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        return ""
+
+
 def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
     """Diff に含まれる実ファイル行番号を集計する（GitHub review API の line 検証用）.
 
@@ -186,13 +213,8 @@ def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
     行われるため、狭域化 (diff_base) は使わず従来どおり origin/{base}...HEAD を維持する
     (Issue #55 I1)。
     """
-    try:
-        diff_text = subprocess.check_output(
-            ["git", "diff", f"origin/{base_ref}...HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except subprocess.CalledProcessError:
+    diff_text = _primary_diff_text(base_ref)
+    if not diff_text:
         return {}
 
     result: dict[str, set[int]] = {}
