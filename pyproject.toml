@@ -84,6 +84,12 @@ exclude = ["ame_ai_review_system/engines/ts/node_modules"]
 # .py 以外も（.semgrep/rules.yml, config.json, review_prompt.txt, docs/, engines/ts/,
 # templates/ 等）含まれるため、force-include は不要。
 
+[tool.hatch.build.targets.sdist]
+# CI は uv / npm のキャッシュをワークスペース直下 .cache/ に置く。
+# .gitignore で除外しているが、ignore-vcs 等で防御が失われても
+# 数 GB のキャッシュが sdist に混入しないよう明示的に除外する。
+exclude = [".cache"]
+
 # ---------------------------------------------------------------------------
 # Ruff: lint + format（超厳格）
 # ---------------------------------------------------------------------------
