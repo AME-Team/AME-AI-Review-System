@@ -18,6 +18,10 @@ ENV/
 .python-version
 
 # --- ツール／キャッシュ ---
+# CI は uv / npm のキャッシュをワークスペース直下 .cache/ に置く。
+# hatchling の sdist は gitignore の除外パターンを参照するため、
+# 未除外だと毎回数 GB のキャッシュが sdist に混入してビルドが遅くなる。
+.cache/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
