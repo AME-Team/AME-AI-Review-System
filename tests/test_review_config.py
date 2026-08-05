@@ -51,7 +51,9 @@ def test_load_config_default_disabled() -> None:
     cfg = load_config()
     assert "push_review_enabled" not in cfg
     assert cfg["engine"] == "claude"
-    assert cfg["model"] == "sonnet"
+    # Issue #55 I3: model 既定は None (claude は engine.py 側で sonnet にフォールバック)。
+    assert cfg["model"] is None
+    assert cfg["review_model"] is None
     assert cfg["thinking"] == "high"
     assert cfg["review_budget_usd"] == pytest.approx(2.0)
     assert cfg["reply_budget_usd"] == pytest.approx(0.2)

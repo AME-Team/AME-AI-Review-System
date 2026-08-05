@@ -176,6 +176,40 @@ def test_resolve_settings_opencode_ignores_claude_model(
     assert settings["model"] == "zai/glm"
 
 
+def test_resolve_settings_opencode_without_model_defers_to_server_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #55 B3/I3: opencode は model 未指定なら None (サーバー既定へ委ねる)。
+    _write_config(monkeypatch, tmp_path, {"engine": "opencode"})
+    settings = resolve_settings("review")
+    assert settings["engine"] == "opencode"
+    assert settings["model"] is None
+
+
+def test_resolve_settings_antigravity_requires_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # antigravity は SDK の API 上 model が必須のため、未指定なら終了する。
+    _write_config(monkeypatch, tmp_path, {"engine": "antigravity"})
+    with pytest.raises(SystemExit):
+        resolve_settings("review")
+
+
+def test_resolve_settings_opencode_bare_model_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #55 B3(c): opencode に provider/model 形式でないモデルを渡すと
+    # サーバー既定が使われる旨を警告する。
+    _write_config(monkeypatch, tmp_path, {"engine": "opencode", "model": "sonnet"})
+    settings = resolve_settings("review")
+    assert settings["model"] == "sonnet"
+    assert "server default" in capsys.readouterr().err
+
+
 def test_resolve_settings_env_model_for_opencode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

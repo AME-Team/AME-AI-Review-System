@@ -312,7 +312,8 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 - **`precommit_engine`**: デフォルトは `"auto"` であり、動作中の AI ツール（Claude Code, OpenCode,
   Antigravity）を自動検出する。明示的に `"claude"`, `"opencode"`, `"antigravity"`
   を指定して固定できる。
-- **`precommit_model`**: pre-commit レビューで使うモデルを指定。省略時はエンジン既定値。
+- **`precommit_model`**: pre-commit レビューで使うモデルを指定。省略時はエンジン既定値（`opencode`
+  はサーバー既定モデル。実装で使っているモデルは自動解決されない。Issue #55 B3）。
 - **`precommit_thinking`**: 思考量（`high` / `medium` / `low`）。省略時は PR の `thinking` を継承。
 - **`show_engine_info_gate1`**:
   `true`（デフォルト）の場合、pre-commit レビュー実行時に使用するエンジン・モデル・思考量をログへ表示する。`false`

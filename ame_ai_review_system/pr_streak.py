@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pathlib
@@ -9,11 +10,13 @@ import sys
 from typing import Any, cast
 
 from . import github_client, payload
+from .stale_detect import is_stale_loop
 
 _STREAK_THRESHOLD = 2
 _COMMENT_MARKER = "<!-- ai-review-streak -->"
 _STREAK_RE = re.compile(r"streak:\s*(\d+)")
 _HEAD_RE = re.compile(r"head:\s*([0-9a-fA-F]+)")
+_REVIEW_RE = re.compile(r"review:\s*(\S+)")
 _MIN_ARGS_GET = 3
 _MIN_ARGS_SET = 4
 _MIN_ARGS_EVALUATE = 4
@@ -65,8 +68,8 @@ def _github_env() -> tuple[str, str]:
 
 def _find_streak_comment(
     comments: list[dict[str, Any]],
-) -> tuple[int, int, str] | None:
-    """Return (comment_id, streak, head_sha) for the latest streak marker, or None."""
+) -> tuple[int, int, str, str] | None:
+    """Return (comment_id, streak, head_sha, prev_review_text) for the latest streak marker, or None."""
     for comment in reversed(comments):
         body = str(comment.get("body", ""))
         if _COMMENT_MARKER in body:
@@ -74,11 +77,31 @@ def _find_streak_comment(
             streak = int(m.group(1)) if m else 0
             h = _HEAD_RE.search(body)
             head = h.group(1) if h else ""
+            r = _REVIEW_RE.search(body)
+            review_b64 = r.group(1) if r else ""
+            review_text = _decode_review(review_b64)
             cid = comment.get("id")
             if cid is None:
                 continue
-            return int(cid), streak, head
+            return int(cid), streak, head, review_text
     return None
+
+
+def _encode_review(text: str) -> str:
+    """stale-loop 判定用に前回レビュー本文を base64 でエンコードする."""
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def _decode_review(review_b64: str) -> str:
+    if not review_b64:
+        return ""
+    try:
+        return base64.b64decode(review_b64, validate=True).decode(
+            "utf-8",
+            errors="replace",
+        )
+    except (ValueError, UnicodeDecodeError):
+        return ""
 
 
 def _read_pr_comments(
@@ -108,10 +131,11 @@ def cmd_get(pr_number: int) -> int:
     return 0
 
 
-def cmd_set(pr_number: int, streak: int) -> int:
+def cmd_set(pr_number: int, streak: int, review_text: str = "") -> int:
     """Set or update streak. Updates existing marker comment if one exists, else posts new.
 
     This avoids accumulating multiple streak comments on the PR over time.
+    ``review_text`` は次回の stale-loop 判定用に base64 でマーカーへ同梱する。
     """
     token = _token()
     if not token:
@@ -121,6 +145,8 @@ def cmd_set(pr_number: int, streak: int) -> int:
     body = f"{_COMMENT_MARKER}\nstreak: {streak}"
     if head:
         body += f"\nhead: {head}"
+    if review_text.strip():
+        body += f"\nreview: {_encode_review(review_text.strip())}"
     body_data = {"body": body}
 
     # Find existing streak comment to update rather than creating a new one.
@@ -159,6 +185,34 @@ def cmd_check(pr_number: int) -> int:
     return 1
 
 
+def _review_text(comments: list[dict[str, Any]]) -> str:
+    """コメント一覧から stale-loop 判定用の本文を合成する.
+
+    severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
+    (Issue #55 B2)。
+    """
+    return "\n".join(f"{c.get('title', '')}\n{c.get('body', '')}" for c in comments)
+
+
+def _demote_stale(
+    comments: list[dict[str, Any]], prev_text: str
+) -> list[dict[str, Any]]:
+    """前回レビューと同一指摘の繰り返しなら blocking コメントを LOW へ降格する.
+
+    LLM が同じ指摘を MIDDLE → LOW → MIDDLE と severity を揺らすと LOW-only streak が
+    進まないため、Jaccard stale-loop 検出で LOW 扱いに落として escape を機能させる
+    (Issue #55 B2)。escape 条件自体は変更しない。
+    """
+    if not prev_text:
+        return comments
+    current = _review_text(comments)
+    if not current.strip():
+        return comments
+    if not is_stale_loop([prev_text, current]):
+        return comments
+    return [{**c, "severity": "LOW"} if _is_blocking(c) else c for c in comments]
+
+
 def cmd_evaluate(pr_number: int, review_path: str) -> int:
     """Parse review JSON, compute new streak, update, and print result JSON."""
     review, is_fallback = payload.parse_review_json_with_flag(review_path)
@@ -179,10 +233,8 @@ def cmd_evaluate(pr_number: int, review_path: str) -> int:
     comments: list[Any] = cast("list[Any]", raw)
     clean: list[dict[str, Any]] = [c for c in comments if isinstance(c, dict)]
 
-    blocking = [c for c in clean if _is_blocking(c)]
-    total = len(clean)
-
     current = 0
+    prev_review_text = ""
     api_url, repo = _github_env()
     token = _token()
     if token:
@@ -190,6 +242,13 @@ def cmd_evaluate(pr_number: int, review_path: str) -> int:
         found = _find_streak_comment(pr_comments)
         if found:
             current = found[1]
+            prev_review_text = found[3]
+
+    clean = _demote_stale(clean, prev_review_text)
+    current_text = _review_text(clean)
+
+    blocking = [c for c in clean if _is_blocking(c)]
+    total = len(clean)
 
     if total == 0:
         new = 0
@@ -209,7 +268,7 @@ def cmd_evaluate(pr_number: int, review_path: str) -> int:
         reason = f"blocking 指摘 {len(blocking)} 件のため継続"
 
     if token:
-        set_result = cmd_set(pr_number, new)
+        set_result = cmd_set(pr_number, new, review_text=current_text)
         if set_result != 0:
             print(
                 f"[pr_streak] warning: streak persistence failed (exit={set_result})",

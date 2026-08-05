@@ -5,7 +5,8 @@ from typing import Any
 
 import pytest
 from ame_ai_review_system import github_client, reply
-from ame_ai_review_system.reply import _extract_json, _group_by_thread, is_stale_loop
+from ame_ai_review_system.reply import _extract_json, _group_by_thread
+from ame_ai_review_system.stale_detect import is_stale_loop
 
 
 def test_extract_json_plain() -> None:

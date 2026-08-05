@@ -36,6 +36,9 @@ _DEFAULTS: dict[str, Any] = {
     "ai_review_enforce_no_skip": True,
     # Issue #37: 移植先で vendored した ame_ai_review_system 配下は既定でレビュー対象外。
     "review_include_package_dir": False,
+    # Issue #55 B1: テストのみのステージ時にテスト対象モジュールの実装コンテキストを
+    # diff へ追加する (既定 false。プロンプトのガードレールが主対策)。
+    "include_test_target_diff": False,
     "precommit_engine": "auto",
     "precommit_model": None,
     "precommit_thinking": None,
@@ -46,8 +49,10 @@ _DEFAULTS: dict[str, Any] = {
     # Issue #37: 壊れたレビュー JSON を修復する際に使うモデル (省略時は本体と同じ)。
     "review_repair_model": None,
     "engine": "claude",
-    "model": "sonnet",
-    "review_model": "sonnet",
+    # Issue #55 B3/I3: model 既定を None 化し、非 claude エンジンはサーバー既定へ委ねる。
+    # claude のみ engine.py 側で sonnet 既定を維持する (後方互換)。
+    "model": None,
+    "review_model": None,
     "reply_model": "haiku",
     "thinking": "high",
     "review_thinking": "high",

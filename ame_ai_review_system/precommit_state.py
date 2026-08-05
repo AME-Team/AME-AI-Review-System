@@ -125,7 +125,57 @@ def set_streak(
     state["branches"] = branches
 
 
+# Issue #55 B2: stale-loop 検出用に直近 2 回分のレビュー本文を保持する。
+_RECENT_REVIEWS_KEY = "recent_review_texts"
+_RECENT_REVIEWS_MAX = 2
+
+
+def get_recent_reviews(state: dict[str, Any], branch: str) -> list[str]:
+    """直近 2 回分のレビュー本文 (stale-loop 判定用) を返す."""
+    branches = cast("dict[str, Any] | None", state.get("branches"))
+    if not isinstance(branches, dict):
+        return []
+    entry = cast("dict[str, Any] | None", branches.get(branch))
+    if not isinstance(entry, dict):
+        return []
+    raw = entry.get(_RECENT_REVIEWS_KEY)
+    if not isinstance(raw, list):
+        return []
+    items = cast("list[Any]", raw)
+    return [item for item in items if isinstance(item, str)]
+
+
+def set_recent_reviews(
+    state: dict[str, Any],
+    branch: str,
+    texts: list[str],
+) -> None:
+    """直近 2 回分のレビュー本文を state へ保存する."""
+    raw = cast("dict[str, Any] | None", state.get("branches"))
+    branches: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    entry = cast("dict[str, Any] | None", branches.get(branch))
+    if not isinstance(entry, dict):
+        entry = {}
+    entry[_RECENT_REVIEWS_KEY] = list(texts)[-_RECENT_REVIEWS_MAX:]
+    branches[branch] = entry
+    state["branches"] = branches
+
+
+# Issue #55 B4: fetch 実行の重複を避けるため、最後に fetch した HEAD を保持する。
+_LAST_FETCHED_HEAD_KEY = "last_fetched_head"
+
+
+def get_last_fetched_head(state: dict[str, Any]) -> str:
+    raw = state.get(_LAST_FETCHED_HEAD_KEY)
+    return str(raw) if isinstance(raw, str) else ""
+
+
+def set_last_fetched_head(state: dict[str, Any], head: str) -> None:
+    state[_LAST_FETCHED_HEAD_KEY] = head
+
+
 def reset_all_streaks(state: dict[str, Any], branch: str) -> None:
     # post-commit ですべての streak 種別をリセットするためのヘルパ。
     for key in ("low_only_streak", "engine_failure_streak"):
         set_streak(state, branch, 0, key=key)
+    set_recent_reviews(state, branch, [])

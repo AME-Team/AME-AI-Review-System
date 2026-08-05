@@ -17,4 +17,5 @@ pytest
 ruff
 semgrep
 sqlfluff
+types-PyYAML
 yamllint

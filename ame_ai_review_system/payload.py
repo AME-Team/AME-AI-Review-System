@@ -10,6 +10,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING, Any, cast
 
+from . import diff_base
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -183,7 +185,7 @@ def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
     """Diff に含まれる実ファイル行番号を集計する（GitHub review API の line 検証用）."""
     try:
         diff_text = subprocess.check_output(
-            ["git", "diff", f"origin/{base_ref}...HEAD"],
+            ["git", "diff", diff_base.diff_range(base_ref)],
             text=True,
             stderr=subprocess.DEVNULL,
         )

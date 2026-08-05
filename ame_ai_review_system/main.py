@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from . import github_client, init_cmd, paths, pr_streak, review_config
+from . import diff_base, github_client, init_cmd, paths, pr_streak, review_config
 from . import payload as payload_module
 from .engine import apply_engine_info_env, resolve_settings
 
@@ -46,6 +46,26 @@ SKIP_NOTICE_MAX_PAGES = 10
 
 def _get_env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
+
+
+def _reviewer_author_login(api_url: str, token: str, reviewer_name: str) -> str:
+    """既レビュー判定に使う実際の投稿者 login を解決する.
+
+    GitHub App 運用時はレビューが ``slug[bot]`` 名で投稿されるが、通常ユーザーの
+    PAT で投稿すると PAT の持ち主の login になる (Issue #55 B5)。判定を
+    ``bot_login(reviewer_name)`` 前提にすると PAT 運用で再レビューが毎回走るため、
+    ``GET /user`` で実投稿者を解決する。失敗時は App 運用の後方互換として
+    ``bot_login`` にフォールバックする。
+    """
+    try:
+        user = github_client.http_request("GET", f"{api_url}/user", token)
+    except RuntimeError:
+        return github_client.bot_login(reviewer_name)
+    if isinstance(user, dict):
+        login = cast("dict[str, Any]", user).get("login")
+        if isinstance(login, str):
+            return login
+    return github_client.bot_login(reviewer_name)
 
 
 def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
@@ -458,9 +478,12 @@ def cmd_review(args: argparse.Namespace) -> int:
     if not isinstance(reviews_data, list):
         reviews_data = []
 
+    # Issue #55 B5: App bot 前提の bot_login 照合では PAT 運用で重複レビューが
+    # 発生するため、実際の投稿者 login で判定する。
+    reviewer_login = _reviewer_author_login(api_url, token, reviewer_name)
     reviewed_shas: set[str] = set()
     for r in cast("list[dict[str, Any]]", reviews_data):
-        if r.get("user", {}).get("login") == github_client.bot_login(reviewer_name):
+        if r.get("user", {}).get("login") == reviewer_login:
             body = cast("str", r.get("body", ""))
             m = re.search(r"<!--\s*reviewed-sha:\s*([0-9a-f]{40,64})\s*-->", body)
             if m:
@@ -477,7 +500,10 @@ def cmd_review(args: argparse.Namespace) -> int:
         return 0
 
     # Get diff and changed files
-    diff = _run_git(["diff", f"origin/{base_ref}...HEAD"])
+    # Issue #55 I1: スタックブランチでは origin/{base} との累積差分が過大になるため、
+    # 分岐元 (upstream / fork-point) を自動解決する。
+    diff_range = diff_base.diff_range(base_ref)
+    diff = _run_git(["diff", diff_range])
     if not diff:
         diff = _run_git(["diff", "HEAD~1"])
     if not diff:
@@ -508,7 +534,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             + f"\n... (truncated, {diff_lines} lines total)"
         )
 
-    changed_files = _run_git(["diff", "--name-only", f"origin/{base_ref}...HEAD"])
+    changed_files = _run_git(["diff", "--name-only", diff_range])
     if not changed_files:
         changed_files = _run_git(["diff", "--name-only", "HEAD~1"])
     # Issue #37: 除外対象ディレクトリ配下を除去 (変更ファイルは最大50件まで)
@@ -518,7 +544,7 @@ def cmd_review(args: argparse.Namespace) -> int:
         )[:50],
     )
 
-    commit_log = _run_git(["log", f"origin/{base_ref}..HEAD", "--oneline"])
+    commit_log = _run_git(["log", diff_base.commit_range(base_ref), "--oneline"])
     if not commit_log:
         commit_log = _run_git(["log", "HEAD~20..HEAD", "--oneline"])
 

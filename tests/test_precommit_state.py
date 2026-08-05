@@ -94,6 +94,53 @@ def test_reset_all_streaks() -> None:
     assert entry["engine_failure_streak"] == 0
 
 
+def test_recent_reviews_roundtrip() -> None:
+    state: dict[str, Any] = {}
+    precommit_state.set_recent_reviews(state, "feature", ["a", "b", "c"])
+    assert precommit_state.get_recent_reviews(state, "feature") == ["b", "c"]
+
+
+def test_recent_reviews_empty_state() -> None:
+    assert precommit_state.get_recent_reviews({}, "feature") == []
+    assert precommit_state.get_recent_reviews({"branches": {}}, "feature") == []
+    assert (
+        precommit_state.get_recent_reviews(
+            {"branches": {"other": {"recent_review_texts": ["x"]}}},
+            "feature",
+        )
+        == []
+    )
+
+
+def test_recent_reviews_ignores_non_string() -> None:
+    state = {"branches": {"feature": {"recent_review_texts": ["a", 1, None]}}}
+    assert precommit_state.get_recent_reviews(state, "feature") == ["a"]
+
+
+def test_reset_all_streaks_clears_recent_reviews() -> None:
+    state: dict[str, Any] = {
+        "branches": {
+            "feature": {
+                "low_only_streak": 2,
+                "recent_review_texts": ["previous review"],
+            },
+        },
+    }
+    precommit_state.reset_all_streaks(state, "feature")
+    entry = state["branches"]["feature"]
+    assert entry["low_only_streak"] == 0
+    assert entry["recent_review_texts"] == []
+
+
+def test_last_fetched_head_roundtrip() -> None:
+    state: dict[str, Any] = {}
+    assert not precommit_state.get_last_fetched_head(state)
+    precommit_state.set_last_fetched_head(state, "abc123")
+    assert precommit_state.get_last_fetched_head(state) == "abc123"
+    state = {"last_fetched_head": 123}
+    assert not precommit_state.get_last_fetched_head(state)
+
+
 def test_set_streak_overwrites_same_branch() -> None:
     state: dict[str, object] = {"branches": {"feature": {"low_only_streak": 5}}}
     precommit_state.set_streak(state, "feature", 0)
