@@ -29,7 +29,7 @@ AI レビューおよび静的解析が有効なプロジェクトで作業す�
                                            │                                          │
                                        (エラー)                                    (指摘あり)
                                            ▼                                          ▼
-                                       ブロック                                   ブロック (※LOWのみ2回連続時はエスケープ可)
+                                       ブロック                                   ブロック (※LOW/INFOのみ2回連続時はエスケープ可)
 
 【 Gate 2: Pull Request 反映時 (GitHub Actions) 】
  [PR 作成/プッシュ] ──► コメント `/request-review` ──► [静的解析 (ruff/mypy/semgrep)]

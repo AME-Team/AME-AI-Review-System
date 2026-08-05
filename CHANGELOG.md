@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+- ランディングページと同梱ドキュメントをソースコードと突き合わせて修正。
+  - バージョンバッジを v0.2.1 に更新（`__version__` と整合）。
+  - Semgrep カスタムルール数を 7 → 8 に修正（`.semgrep/rules.yml` と整合）。
+  - デモの既定モデル表記を sonnet に修正。
+  - `static_precheck.py` のサーキットブレーカー説明を実装に合わせて修正。
+  - README から削除済みの `VERSION` ファイル参照を除去。
+  - LOW エスケープ条件の表記を「LOW/INFO のみが 2 回連続」に統一。
+
 ## [0.2.1] - 2026-08-05
 
 ### Fixed
@@ -24,8 +32,8 @@
 
 ### Added
 
-- エンジン SDK アダプタ層を追加。Claude / Antigravity は Python SDK 直駆動、OpenCode は TypeScript
-  SDK サイドカー経由で `opencode serve` サーバへ接続。
+- エンジン SDK アダプタ層を追加。Claude /
+  Antigravity は SDK 直駆動、OpenCode は CLI サブプロセス経由（SDK はサーバ起動型で CI 都度起動が煩雑なため）。
 - プロジェクトローカル設定 `.ame-review/` による repo 非依存パス解決。
 - 移植先で vendored した `ame_ai_review_system/` 配下を既定でレビュー対象外にする設定を追加 (Issue
   #37)。`review_include_package_dir` で切替可能。
@@ -42,8 +50,9 @@
 
 ### Removed
 
-- 配布方式としてソースコードコピー（`.github/` と `ame_ai_review_system/` のコピー）を追加 (Issue
-  #45)。wheel 配布（GitHub Release の `pip install`）は引き続き推奨方式として維持し、未参照となった
-  `docs/distribution.md` を削除。
+- PyPI 公開・pip インストール経路を廃止。配布はソースコードコピー方式（`.github/` と
+  `ame_ai_review_system/` のコピー）に一本化 (Issue #45)。これに伴い `ame-review init`
+  サブコマンド、`.github/workflows/release.yml`、`pyproject.toml` の `[project.scripts]` /
+  `[project.optional-dependencies]` / hatchling ビルド設定、 `docs/distribution.md` を削除。
 - LLM CLI バイナリ (`claude`/`opencode`/`agy`) のサブプロセス呼び出し。
 - 未参照の `ame_ai_review_system/VERSION` ファイル。

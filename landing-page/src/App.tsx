@@ -1089,20 +1089,21 @@ export default tseslint.config(
 );`;
         case "circuit":
           return `# static_precheck.py (サーキットブレーカー)
-# 変更ファイルに対して pre-commit フック一式を実行し、
-# 静的解析エラーが 1 件でもあれば異常終了して AI レビューをスキップする。
+# PR 差分の変更ファイルに対して静的解析 (ruff/mypy/semgrep 等) を実行し、
+# エラーが 1 件でもあれば異常終了して AI レビューをスキップする。
 import subprocess
 import sys
 
 def run(files):
-    result = subprocess.run(
-        ["pre-commit", "run", "--files", *files],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        sys.exit(1)  # 解析エラー検出時は異常終了し、AIレビューをスキップ`;
+    checks = [
+        ("ruff", ["ruff", "check", *files]),
+        ("mypy", ["mypy", *files]),
+        ("semgrep", ["semgrep", "--config", "ame_ai_review_system/.semgrep/rules.yml", "--error"]),
+    ]
+    for name, cmd in checks:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            sys.exit(1)  # エラー検出時は異常終了し、AIレビューをスキップ`;
       }
     } else {
       switch (activeTab) {
@@ -1144,20 +1145,21 @@ export default tseslint.config(
 );`;
         case "circuit":
           return `# static_precheck.py (Circuit Breaker)
-# Runs the project's pre-commit hooks on the changed files and exits
-# non-zero on any static analysis error to skip the AI review.
+# Runs static analysis (ruff/mypy/semgrep, etc.) on the changed files and exits
+# non-zero on any error to skip the AI review.
 import subprocess
 import sys
 
 def run(files):
-    result = subprocess.run(
-        ["pre-commit", "run", "--files", *files],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        sys.exit(1)  # Fails early if static checks fail, skipping AI review`;
+    checks = [
+        ("ruff", ["ruff", "check", *files]),
+        ("mypy", ["mypy", *files]),
+        ("semgrep", ["semgrep", "--config", "ame_ai_review_system/.semgrep/rules.yml", "--error"]),
+    ]
+    for name, cmd in checks:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            sys.exit(1)  # Fails early if static checks fail, skipping AI review`;
       }
     }
   };
