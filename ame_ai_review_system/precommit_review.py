@@ -16,8 +16,8 @@ from . import (
     precommit_engine,
     precommit_state,
     review_config,
+    stale_detect,
 )
-from .stale_detect import is_stale_loop
 
 # pr_review.sh と同じ diff 行数上限。これを超えると前から切詰める。
 _MAX_DIFF_LINES = 4000
@@ -313,45 +313,24 @@ def _format_issue(comment: dict[str, Any]) -> str:
     return f"[{severity}] {path}:{line} {title}\n    {body}"
 
 
-def _comment_text(comment: dict[str, Any]) -> str:
-    """コメント 1 件の stale-loop 判定用本文を合成する.
-
-    severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
-    (Issue #55 B2)。
-    """
-    return f"{comment.get('title', '')}\n{comment.get('body', '')}"
-
-
 def _demote_stale_comments(
     comments: list[dict[str, Any]],
     prev_comment_texts: list[str],
 ) -> tuple[list[dict[str, Any]], bool]:
     """前回レビューと同一のコメントのみを LOW へ降格する.
 
-    LLM が同じ指摘を MIDDLE → LOW → MIDDLE と severity を揺らすと LOW-only streak が
-    進まない。前回レビューに存在した指摘 (コメント単位の Jaccard stale-loop 検出) だけを
-    LOW 扱いにして escape を機能させる (Issue #55 B2)。
-
-    レビュー全体ではなくコメント単位で突き合わせることで、繰り返し指摘の中に紛れた
-    新規の CRITICAL/HIGH 指摘を誤って降格しない。escape 条件自体は変更しない。
+    stale_detect.demote_stale (コメント単位の Jaccard stale-loop 検出) で繰り返し指摘
+    だけを LOW 扱いにし、新規の CRITICAL/HIGH 指摘は降格しない (Issue #55 B2)。
+    escape 条件自体は変更しない。降格が発生したかを返す。
     """
     if not prev_comment_texts:
         return comments, False
-    prev_texts = [p for p in prev_comment_texts if p.strip()]
-    if not prev_texts:
-        return comments, False
-    demoted = False
-    result: list[dict[str, Any]] = []
-    for comment in comments:
-        current = _comment_text(comment)
-        if not current.strip() or not any(
-            is_stale_loop([prev, current]) for prev in prev_texts
-        ):
-            result.append(comment)
-            continue
-        result.append({**comment, "severity": "LOW"})
-        demoted = True
-    return result, demoted
+    result = stale_detect.demote_stale(comments, prev_comment_texts)
+    stale_detected = any(
+        a.get("severity") != b.get("severity")
+        for a, b in zip(comments, result, strict=True)
+    )
+    return result, stale_detected
 
 
 def _run_engine(
@@ -824,7 +803,7 @@ def main(argv: list[str] | None = None) -> int:
 
     precommit_state.set_streak(state, branch, new_streak)
     # 次回の stale-loop 判定用に今回のレビューをコメント単位で保持する。
-    current_texts = [_comment_text(c) for c in filtered_comments]
+    current_texts = [stale_detect.comment_text(c) for c in filtered_comments]
     if current_texts:
         precommit_state.set_recent_reviews(state, branch, current_texts)
     precommit_state.write_state(state_path, state)

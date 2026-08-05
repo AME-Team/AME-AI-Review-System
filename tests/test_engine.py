@@ -197,16 +197,16 @@ def test_resolve_settings_antigravity_requires_model(
         resolve_settings("review")
 
 
-def test_resolve_settings_opencode_bare_model_warns(
+def test_resolve_settings_opencode_bare_model_normalized_to_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # Issue #55 B3(c): opencode に provider/model 形式でないモデルを渡すと
-    # サーバー既定が使われる旨を警告する。
+    # Issue #55 B3: opencode に provider/model 形式でないモデル (claude 系既定名等) を
+    # 渡してもサーバー既定へ正規化し、claude 専用名が漏れないようにする。
     _write_config(monkeypatch, tmp_path, {"engine": "opencode", "model": "sonnet"})
     settings = resolve_settings("review")
-    assert settings["model"] == "sonnet"
+    assert settings["model"] is None
     assert "server default" in capsys.readouterr().err
 
 

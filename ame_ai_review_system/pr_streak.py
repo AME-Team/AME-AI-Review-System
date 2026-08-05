@@ -9,8 +9,7 @@ import subprocess
 import sys
 from typing import Any, cast
 
-from . import github_client, payload
-from .stale_detect import is_stale_loop
+from . import github_client, payload, stale_detect
 
 _STREAK_THRESHOLD = 2
 _COMMENT_MARKER = "<!-- ai-review-streak -->"
@@ -191,41 +190,17 @@ def cmd_check(pr_number: int) -> int:
     return 1
 
 
-def _comment_text(comment: dict[str, Any]) -> str:
-    """コメント 1 件の stale-loop 判定用本文を合成する.
-
-    severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
-    (Issue #55 B2)。
-    """
-    return f"{comment.get('title', '')}\n{comment.get('body', '')}"
-
-
 def _demote_stale(
     comments: list[dict[str, Any]],
     prev_comment_texts: list[str],
 ) -> list[dict[str, Any]]:
     """前回レビューと同一のコメントのみを LOW へ降格する.
 
-    LLM が同じ指摘を MIDDLE → LOW → MIDDLE と severity を揺らすと LOW-only streak が
-    進まないため、コメント単位の Jaccard stale-loop 検出で繰り返し指摘だけを LOW 扱いに
-    落として escape を機能させる (Issue #55 B2)。新規指摘は降格しない。
+    stale_detect.demote_stale (コメント単位の Jaccard stale-loop 検出) で繰り返し指摘
+    だけを LOW 扱いにし、新規指摘は降格しない (Issue #55 B2)。
     escape 条件自体は変更しない。
     """
-    if not prev_comment_texts:
-        return comments
-    prev_texts = [p for p in prev_comment_texts if p.strip()]
-    if not prev_texts:
-        return comments
-    result: list[dict[str, Any]] = []
-    for comment in comments:
-        current = _comment_text(comment)
-        if not current.strip() or not any(
-            is_stale_loop([prev, current]) for prev in prev_texts
-        ):
-            result.append(comment)
-            continue
-        result.append({**comment, "severity": "LOW"})
-    return result
+    return stale_detect.demote_stale(comments, prev_comment_texts)
 
 
 def cmd_evaluate(pr_number: int, review_path: str) -> int:
@@ -260,7 +235,7 @@ def cmd_evaluate(pr_number: int, review_path: str) -> int:
             prev_comment_texts = found[3]
 
     clean = _demote_stale(clean, prev_comment_texts)
-    current_texts = [_comment_text(c) for c in clean]
+    current_texts = [stale_detect.comment_text(c) for c in clean]
 
     blocking = [c for c in clean if _is_blocking(c)]
     total = len(clean)

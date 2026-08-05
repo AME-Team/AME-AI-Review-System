@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 _TRIGRAM_SIZE = 3
 _STALE_JACCARD_THRESHOLD = 0.80
 _STALE_MIN_NGRAMS = 4
@@ -40,3 +42,42 @@ def is_stale_loop(comment_bodies: list[str]) -> bool:
 
     jaccard = len(g1 & g2) / len(g1 | g2)
     return jaccard >= _STALE_JACCARD_THRESHOLD
+
+
+def comment_text(comment: dict[str, Any]) -> str:
+    """コメント 1 件の stale-loop 判定用本文を合成する.
+
+    severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
+    (Issue #55 B2)。
+    """
+    return f"{comment.get('title', '')}\n{comment.get('body', '')}"
+
+
+def demote_stale(
+    comments: list[dict[str, Any]],
+    prev_comment_texts: list[str],
+) -> list[dict[str, Any]]:
+    """前回レビューと同一のコメントのみを LOW へ降格する.
+
+    LLM が同じ指摘を MIDDLE → LOW → MIDDLE と severity を揺らすと LOW-only streak が
+    進まないため、コメント単位の Jaccard stale-loop 検出で繰り返し指摘だけを LOW 扱いに
+    落として escape を機能させる (Issue #55 B2)。
+
+    レビュー全体ではなくコメント単位で突き合わせることで、繰り返し指摘の中に紛れた
+    新規の CRITICAL/HIGH 指摘を誤って降格しない。escape 条件自体は変更しない。
+    """
+    if not prev_comment_texts:
+        return comments
+    prev_texts = [p for p in prev_comment_texts if p.strip()]
+    if not prev_texts:
+        return comments
+    result: list[dict[str, Any]] = []
+    for comment in comments:
+        current = comment_text(comment)
+        if not current.strip() or not any(
+            is_stale_loop([prev, current]) for prev in prev_texts
+        ):
+            result.append(comment)
+            continue
+        result.append({**comment, "severity": "LOW"})
+    return result

@@ -34,6 +34,7 @@ from ame_ai_review_system.precommit_review import (
 from ame_ai_review_system.precommit_review import (
     _truncate_diff as truncate_diff,
 )
+from ame_ai_review_system.stale_detect import comment_text as stale_comment_text
 
 # ---------------------------
 # decide / is_blocking / truncate_diff (pure functions)
@@ -130,7 +131,7 @@ def test_demote_stale_no_history_unchanged() -> None:
 def test_demote_stale_identical_issue_demotes_blocking() -> None:
     # 前回レビューと同一のコメントが繰り返されたらそのコメントだけ LOW へ降格する。
     # severity は比較対象から除外されるため HIGH/MIDDLE の揺れでも検出できる。
-    prev = precommit_review._comment_text(_issue("HIGH", "バグが残っています"))
+    prev = stale_comment_text(_issue("HIGH", "バグが残っています"))
     current = [_issue("MIDDLE", "バグが残っています")]
     out, stale = precommit_review._demote_stale_comments(current, [prev])
     assert stale is True
@@ -138,7 +139,7 @@ def test_demote_stale_identical_issue_demotes_blocking() -> None:
 
 
 def test_demote_stale_different_issue_keeps_severity() -> None:
-    prev = precommit_review._comment_text(_issue("HIGH", "セキュリティホール"))
+    prev = stale_comment_text(_issue("HIGH", "セキュリティホール"))
     current = [_issue("HIGH", "別のバグ")]
     out, stale = precommit_review._demote_stale_comments(current, [prev])
     assert stale is False
@@ -147,7 +148,7 @@ def test_demote_stale_different_issue_keeps_severity() -> None:
 
 def test_demote_stale_mixed_keeps_new_blocking() -> None:
     # 繰り返し指摘の中に新規の HIGH が混ざっても、新規分は降格しない (コメント単位)。
-    prev = precommit_review._comment_text(_issue("MIDDLE", "バグが残っています"))
+    prev = stale_comment_text(_issue("MIDDLE", "バグが残っています"))
     current = [
         _issue("MIDDLE", "バグが残っています"),
         _issue("HIGH", "新規のセキュリティ問題"),

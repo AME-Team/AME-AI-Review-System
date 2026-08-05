@@ -101,6 +101,8 @@ def _resolve_model(role: str, engine: str, config: dict[str, Any]) -> str | None
     優先順位は環境変数 → 明示的な config 上書き → claude 既定 ``sonnet``。
     非 claude エンジンは model 未指定を許容し ``None`` を返す (サーバー既定へ委ねる)。
     ただし antigravity は SDK の API 上 model が必須のため、未指定なら終了する。
+    opencode は claude 系の既定名 (sonnet/haiku 等) が渡っても provider/model 形式で
+    なければ ``None`` に正規化し、サーバー既定を使う (Issue #55 B3)。
     """
     model_env_key = _ROLE_MODEL_ENV[role]
     model_config_key = _ROLE_MODEL_KEY[role]
@@ -130,13 +132,14 @@ def _resolve_model(role: str, engine: str, config: dict[str, Any]) -> str | None
     if not _MODEL_RE.match(model):
         sys.exit(f"[engine] Invalid {model_env_key} value: {model!r}")
     if engine == "opencode" and "/" not in model:
-        # opencode.mjs は provider/model 形式以外を無視するため、実際には
-        # サーバー既定が使われる旨を明示して誤認を防ぐ (Issue #55 B3/B4)。
+        # opencode.mjs は provider/model 形式以外を無視する。claude 系の既定名
+        # (sonnet/haiku 等) が誤って渡らないよう、サーバー既定へ委ねる (Issue #55 B3)。
         print(
             f"[engine] WARNING: opencode model {model!r} has no provider/model form; "
             "the opencode server default model will be used instead.",
             file=sys.stderr,
         )
+        return None
     return model
 
 
