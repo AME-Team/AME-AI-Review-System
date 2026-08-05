@@ -1096,11 +1096,11 @@ import sys
 
 def run(files):
     checks = [
-        ("ruff", ["ruff", "check", *files]),
-        ("mypy", ["mypy", *files]),
-        ("semgrep", ["semgrep", "--config", "ame_ai_review_system/.semgrep/rules.yml", "--error"]),
+        ["ruff", "check", *files],
+        ["mypy", *files],
+        ["semgrep", "--config", "ame_ai_review_system/.semgrep/rules.yml", "--error", *files],
     ]
-    for name, cmd in checks:
+    for cmd in checks:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             sys.exit(1)  # エラー検出時は異常終了し、AIレビューをスキップ`;
@@ -1152,11 +1152,11 @@ import sys
 
 def run(files):
     checks = [
-        ("ruff", ["ruff", "check", *files]),
-        ("mypy", ["mypy", *files]),
-        ("semgrep", ["semgrep", "--config", "ame_ai_review_system/.semgrep/rules.yml", "--error"]),
+        ["ruff", "check", *files],
+        ["mypy", *files],
+        ["semgrep", "--config", "ame_ai_review_system/.semgrep/rules.yml", "--error", *files],
     ]
-    for name, cmd in checks:
+    for cmd in checks:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             sys.exit(1)  # Fails early if static checks fail, skipping AI review`;
