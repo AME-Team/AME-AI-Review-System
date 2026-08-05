@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-05
+
+### Fixed
+
+- pre-commit の AI レビューで false positive が連続しても無限ループしないよう、直近 2 回の
+  返信の類似度による stale 検出（強制 LGTM）、最大ラウンド制限、コメント単位の stale 降格を導入
+  (Issue #55)。
+- opencode エンジンで claude 系モデル既定名の解決漏れを防止し、stale 降格を全エンジンで共通化
+  (Issue #55)。
+- PR 差分が空の場合に pre-commit 全体をスキップし、base 側で検証済みの内容を再スキャンしないようにした
+  (Issue #49 / #55)。
+- CI のパッケージビルド検証で、uv / npm キャッシュ（`.cache/`）が sdist に混入して毎回約 15 分
+  かかっていた問題を修正。`.gitignore` と hatchling の sdist `exclude` の両方で除外 (Issue #57)。
+
+## [0.2.0] - 2026-08-04
+
 ### Added
 
 - エンジン SDK アダプタ層を追加。Claude /
