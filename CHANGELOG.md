@@ -9,22 +9,23 @@
 
 ### Fixed
 
-- pre-commit の AI レビューで false positive が連続しても無限ループしないよう、直近 2 回の
-  返信の類似度による stale 検出（強制 LGTM）、最大ラウンド制限、コメント単位の stale 降格を導入
-  (Issue #55)。
-- opencode エンジンで claude 系モデル既定名の解決漏れを防止し、stale 降格を全エンジンで共通化
-  (Issue #55)。
-- PR 差分が空の場合に pre-commit 全体をスキップし、base 側で検証済みの内容を再スキャンしないようにした
-  (Issue #49 / #55)。
-- CI のパッケージビルド検証で、uv / npm キャッシュ（`.cache/`）が sdist に混入して毎回約 15 分
-  かかっていた問題を修正。`.gitignore` と hatchling の sdist `exclude` の両方で除外 (Issue #57)。
+- pre-commit の AI レビューで false
+  positive が連続しても無限ループしないよう、直近 2 回の返信の類似度による stale 検出（強制 LGTM）を導入。
+- 最大ラウンド制限とコメント単位の stale 降格も追加 (Issue #55)。
+- opencode エンジンで claude 系モデル既定名の解決漏れを防止し、stale 降格を全エンジンで共通化 (Issue
+  #55)。
+- PR 差分が空の場合に pre-commit 全体をスキップし、base 側で検証済みの内容を再スキャンしないようにした (Issue
+  #49 / #55)。
+- CI のパッケージビルド検証で、uv /
+  npm キャッシュ（`.cache/`）が sdist に混入して毎回約 15 分かかっていた問題を修正。`.gitignore`
+  と hatchling の sdist `exclude` の両方で除外 (Issue #57)。
 
 ## [0.2.0] - 2026-08-04
 
 ### Added
 
-- エンジン SDK アダプタ層を追加。Claude /
-  Antigravity は SDK 直駆動、OpenCode は CLI サブプロセス経由（SDK はサーバ起動型で CI 都度起動が煩雑なため）。
+- エンジン SDK アダプタ層を追加。Claude / Antigravity は Python SDK 直駆動、OpenCode は TypeScript
+  SDK サイドカー経由で `opencode serve` サーバへ接続。
 - プロジェクトローカル設定 `.ame-review/` による repo 非依存パス解決。
 - 移植先で vendored した `ame_ai_review_system/` 配下を既定でレビュー対象外にする設定を追加 (Issue
   #37)。`review_include_package_dir` で切替可能。
@@ -41,9 +42,8 @@
 
 ### Removed
 
-- PyPI 公開・pip インストール経路を廃止。配布はソースコードコピー方式（`.github/` と
-  `ame_ai_review_system/` のコピー）に一本化 (Issue #45)。これに伴い `ame-review init`
-  サブコマンド、`.github/workflows/release.yml`、`pyproject.toml` の `[project.scripts]` /
-  `[project.optional-dependencies]` / hatchling ビルド設定、 `docs/distribution.md` を削除。
+- 配布方式としてソースコードコピー（`.github/` と `ame_ai_review_system/` のコピー）を追加 (Issue
+  #45)。wheel 配布（GitHub Release の `pip install`）は引き続き推奨方式として維持し、未参照となった
+  `docs/distribution.md` を削除。
 - LLM CLI バイナリ (`claude`/`opencode`/`agy`) のサブプロセス呼び出し。
 - 未参照の `ame_ai_review_system/VERSION` ファイル。

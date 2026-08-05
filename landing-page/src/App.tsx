@@ -114,7 +114,7 @@ const translations: Record<Locale, TranslationResource> = {
     navWorkflow: "ワークフロー",
     navConfig: "設定構成",
     githubRepo: "GitHub リポジトリ",
-    badgeVersion: "v2.0.0 厳格監視ゲート",
+    badgeVersion: "v0.2.1",
     heroTitle1: "デュアルゲートAIコードレビュー",
     heroTitleAccent: "厳格な静的解析とAIエージェント",
     heroTitle2: "が品質向上をサポート",
@@ -215,7 +215,7 @@ const translations: Record<Locale, TranslationResource> = {
     navWorkflow: "Workflow",
     navConfig: "Configuration",
     githubRepo: "GitHub Repo",
-    badgeVersion: "v2.0.0 Strict Monitoring Gate",
+    badgeVersion: "v0.2.1",
     heroTitle1: "Dual-Gate AI Code Review",
     heroTitleAccent: "Strict Static Checks & AI Agents",
     heroTitle2: "Support Quality Improvement",
@@ -334,7 +334,7 @@ const staticAnalysisCategories: StaticAnalysisCategory[] = [
     abbr: "Sec",
     nameJa: "セキュリティ",
     nameEn: "Security",
-    tools: ["semgrep-custom (7 rules)", "gitleaks", "detect-private-key"],
+    tools: ["semgrep-custom (8 rules)", "gitleaks", "detect-private-key"],
     configFiles: ["ame_ai_review_system/.semgrep/rules.yml", ".gitleaks.toml"],
     colorClasses: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
   },
@@ -966,8 +966,8 @@ export default function App(): React.JSX.Element {
           type: "info",
           text:
             locale === "ja"
-              ? "[precommit-review] AIコードレビューを実行中 (モデル: Claude 3.5)..."
-              : "[precommit-review] Running AI code review (Model: Claude 3.5)...",
+              ? "[precommit-review] AIコードレビューを実行中 (モデル: sonnet)..."
+              : "[precommit-review] Running AI code review (Model: sonnet)...",
         },
       },
     ];
@@ -1089,16 +1089,20 @@ export default tseslint.config(
 );`;
         case "circuit":
           return `# static_precheck.py (サーキットブレーカー)
-ts_files = [f for f in files if f.endswith((".ts", ".tsx", ".js"))]
-if ts_files:
-    ts_checks = [
-        ("tsc", ["./node_modules/.bin/tsc", "--noEmit"]),
-        ("eslint", ["./node_modules/.bin/eslint", "--max-warnings=0", *ts_files])
-    ]
-    for name, cmd in ts_checks:
-        passed, detail = _run_check(name, cmd, cwd)
-        if not passed:
-            sys.exit(1) # 解析エラー検出時はここで異常終了し、AIレビューをスキップ`;
+# 変更ファイルに対して pre-commit フック一式を実行し、
+# 静的解析エラーが 1 件でもあれば異常終了して AI レビューをスキップする。
+import subprocess
+import sys
+
+def run(files):
+    result = subprocess.run(
+        ["pre-commit", "run", "--files", *files],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        sys.exit(1)  # 解析エラー検出時は異常終了し、AIレビューをスキップ`;
       }
     } else {
       switch (activeTab) {
@@ -1140,16 +1144,20 @@ export default tseslint.config(
 );`;
         case "circuit":
           return `# static_precheck.py (Circuit Breaker)
-ts_files = [f for f in files if f.endswith((".ts", ".tsx", ".js"))]
-if ts_files:
-    ts_checks = [
-        ("tsc", ["./node_modules/.bin/tsc", "--noEmit"]),
-        ("eslint", ["./node_modules/.bin/eslint", "--max-warnings=0", *ts_files])
-    ]
-    for name, cmd in ts_checks:
-        passed, detail = _run_check(name, cmd, cwd)
-        if not passed:
-            sys.exit(1) # Fails early if static checks fail, skipping AI review`;
+# Runs the project's pre-commit hooks on the changed files and exits
+# non-zero on any static analysis error to skip the AI review.
+import subprocess
+import sys
+
+def run(files):
+    result = subprocess.run(
+        ["pre-commit", "run", "--files", *files],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        sys.exit(1)  # Fails early if static checks fail, skipping AI review`;
       }
     }
   };
