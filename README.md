@@ -30,7 +30,7 @@ Breaker を備えています。ローカルで早期に検知する Shift-Left 
 | カテゴリ               | 採用ツール・検査内容                                                              | 主な設定ファイル                                            |
 | ---------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | **Python**             | ruff (lint, ALL+preview), ruff-format, mypy (strict), pyright                     | `pyproject.toml`                                            |
-| **セキュリティ**       | semgrep-custom（自作7ルール）, gitleaks, detect-private-key                       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
+| **セキュリティ**       | semgrep-custom（自作8ルール）, gitleaks, detect-private-key                       | `ame_ai_review_system/.semgrep/rules.yml`, `.gitleaks.toml` |
 | **フロントエンド**     | eslint (`--max-warnings=0`), tsc `--noEmit`, stylelint                            | `eslint.config.mjs`, `tsconfig.json`                        |
 | **ドキュメント/文章**  | markdownlint-cli2, textlint, codespell, mermaid-check（自作）                     | `.markdownlint-cli2.jsonc`, `.textlintrc`                   |
 | **設定/データ**        | yamllint (strict), check-yaml / check-toml / check-json, sqlfluff                 | `.yamllint.yaml`, `.sqlfluff`                               |
@@ -146,7 +146,6 @@ ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする�
   config.json            # 動作設定（push/precommit 自動レビューの ON/OFF、エンジン/モデル/思考量 等）
   review_prompt.txt      # レビュアーへのプロンプト（レビュー観点・静的解析移管後の軽量版）
   .semgrep/rules.yml     # Semgrep カスタムルール（CLAUDE.md §8 コーディング規約の機械的強制）
-  VERSION                # バージョン情報
 
   docs/                   # 同梱ドキュメント
     setup.md              # 移植・セットアップ手順

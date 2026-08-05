@@ -22,7 +22,7 @@ describe("App Component", () => {
     render(<App />);
     expect(screen.getByText("静的解析プリセット一覧")).toBeInTheDocument();
     expect(screen.getByText("ruff (lint, ALL+preview)")).toBeInTheDocument();
-    expect(screen.getByText("semgrep-custom (7 rules)")).toBeInTheDocument();
+    expect(screen.getByText("semgrep-custom (8 rules)")).toBeInTheDocument();
   });
 
   it("toggles the simulated bug checkbox", () => {

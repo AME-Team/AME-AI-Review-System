@@ -393,7 +393,7 @@ repos:
       # 20) AI コードレビュー (pre-commit)
       #     PR レビューと同じプロンプトで staged + ブランチ差分をレビューする。
       #     指摘 0 件なら PASS。CRITICAL/HIGH/MIDDLE/WARNING/未知severity を含めば FAIL。
-      #     LOW/INFO のみが 3 回連続した場合は無限ループ回避で PASS する。
+      #     LOW/INFO のみが 2 回連続した場合は無限ループ回避で PASS する。
       #     エンジン失敗時は fail-closed でブロック。config.json の
       #     `precommit_review_enabled` で ON/OFF 可能（デフォルト ON）。
       #     注意: SKIP 環境変数でスキップ可能 (pre-commit 標準動作)。
