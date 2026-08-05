@@ -10,8 +10,6 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING, Any, cast
 
-from . import diff_base
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -182,10 +180,15 @@ def parse_review_json(path: str) -> dict[str, Any]:
 
 
 def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
-    """Diff に含まれる実ファイル行番号を集計する（GitHub review API の line 検証用）."""
+    """Diff に含まれる実ファイル行番号を集計する（GitHub review API の line 検証用）.
+
+    GitHub review API の line 検証は常に PR 実ベース (origin/{base}) に対する diff 位置で
+    行われるため、狭域化 (diff_base) は使わず従来どおり origin/{base}...HEAD を維持する
+    (Issue #55 I1)。
+    """
     try:
         diff_text = subprocess.check_output(
-            ["git", "diff", diff_base.diff_range(base_ref)],
+            ["git", "diff", f"origin/{base_ref}...HEAD"],
             text=True,
             stderr=subprocess.DEVNULL,
         )

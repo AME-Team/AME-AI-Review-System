@@ -84,8 +84,21 @@ def test_resolve_falls_back_without_upstream(monkeypatch: pytest.MonkeyPatch) ->
     assert diff_base.resolve_diff_base("main") == "origin/main"
 
 
-def test_diff_and_commit_ranges() -> None:
-    # レンジ表記は resolve_diff_base に従う。
+def test_diff_and_commit_ranges(monkeypatch: pytest.MonkeyPatch) -> None:
+    # レンジ表記は resolve_diff_base に従う (上流なしの場合は origin/{base} に落ちる)。
+    _fake_run_git(
+        monkeypatch,
+        {
+            (
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{u}",
+            ): "origin/main",
+            ("merge-base", "origin/main", "HEAD"): "aaaa",
+            ("merge-base", "--fork-point", "origin/main", "HEAD"): "aaaa",
+        },
+    )
     assert diff_base.diff_range("main") == "origin/main...HEAD"
     assert diff_base.commit_range("main") == "origin/main..HEAD"
 

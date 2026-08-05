@@ -313,34 +313,45 @@ def _format_issue(comment: dict[str, Any]) -> str:
     return f"[{severity}] {path}:{line} {title}\n    {body}"
 
 
-def _review_text(comments: list[dict[str, Any]]) -> str:
-    """コメント一覧から stale-loop 判定用の本文を合成する.
+def _comment_text(comment: dict[str, Any]) -> str:
+    """コメント 1 件の stale-loop 判定用本文を合成する.
 
     severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
     (Issue #55 B2)。
     """
-    return "\n".join(f"{c.get('title', '')}\n{c.get('body', '')}" for c in comments)
+    return f"{comment.get('title', '')}\n{comment.get('body', '')}"
 
 
 def _demote_stale_comments(
     comments: list[dict[str, Any]],
-    recent_reviews: list[str],
+    prev_comment_texts: list[str],
 ) -> tuple[list[dict[str, Any]], bool]:
-    """直前のレビューと同一指摘の繰り返しなら blocking コメントを LOW へ降格する.
+    """前回レビューと同一のコメントのみを LOW へ降格する.
 
     LLM が同じ指摘を MIDDLE → LOW → MIDDLE と severity を揺らすと LOW-only streak が
-    進まない。同一指摘の繰り返しを Jaccard stale-loop 検出で LOW 扱いに落とし、
-    escape を機能させる (Issue #55 B2)。escape 条件自体は変更しない。
+    進まない。前回レビューに存在した指摘 (コメント単位の Jaccard stale-loop 検出) だけを
+    LOW 扱いにして escape を機能させる (Issue #55 B2)。
+
+    レビュー全体ではなくコメント単位で突き合わせることで、繰り返し指摘の中に紛れた
+    新規の CRITICAL/HIGH 指摘を誤って降格しない。escape 条件自体は変更しない。
     """
-    if not recent_reviews:
+    if not prev_comment_texts:
         return comments, False
-    current = _review_text(comments)
-    if not current.strip():
+    prev_texts = [p for p in prev_comment_texts if p.strip()]
+    if not prev_texts:
         return comments, False
-    if not is_stale_loop([*recent_reviews, current]):
-        return comments, False
-    demoted = [{**c, "severity": "LOW"} if _is_blocking(c) else c for c in comments]
-    return demoted, True
+    demoted = False
+    result: list[dict[str, Any]] = []
+    for comment in comments:
+        current = _comment_text(comment)
+        if not current.strip() or not any(
+            is_stale_loop([prev, current]) for prev in prev_texts
+        ):
+            result.append(comment)
+            continue
+        result.append({**comment, "severity": "LOW"})
+        demoted = True
+    return result, demoted
 
 
 def _run_engine(
@@ -391,6 +402,26 @@ _STATIC_CHECK_EXCLUDED_HOOKS = (
     "ai-precommit-review",
     "ai-review-state-reset",
 )
+
+# pre-commit run の非ゼロ exit のうち、コード品質指摘ではなく環境 (セットアップ) 失敗と
+# 判定するマーカー。初回・オフライン時のフック環境クローン/インストール失敗を
+# コード品質失敗と区別する (Issue #55 I2)。
+_ENV_FAILURE_MARKERS = (
+    "failed to clone",
+    "an error has occurred",
+    "could not resolve host",
+    "getaddrinfo",
+    "network is unreachable",
+    "etimedout",
+    "connection refused",
+    "unable to access",
+)
+
+
+def _looks_like_env_failure(detail: str) -> bool:
+    """pre-commit の出力が環境 (セットアップ) 失敗かを判定する."""
+    lowered = detail.lower()
+    return any(marker in lowered for marker in _ENV_FAILURE_MARKERS)
 
 
 def _filtered_precommit_config(raw: dict[str, Any]) -> dict[str, Any]:
@@ -521,6 +552,17 @@ def _run_static_checks(staged_files: list[str]) -> tuple[bool, str]:
 
     if result.returncode != 0:
         detail = (result.stdout + result.stderr).strip()
+        # Issue #55 I2: 非ゼロ returncode には「フックがコード品質を指摘」以外に
+        # フック環境のクローン/インストール失敗等のセットアップ失敗も含まれる。
+        # 環境失敗は code-quality 失敗と区別し、毎コミットの誤ブロックを避けて
+        # スキップする (circuit breaker としてはコード品質失敗のみ fail-closed)。
+        if _looks_like_env_failure(detail):
+            print(
+                "[precommit-review] static pre-check skipped (pre-commit env failure: "
+                "hook clone/install or network).",
+                file=sys.stderr,
+            )
+            return True, ""
         return False, f"pre-commit:\n{detail}"
     return True, ""
 
@@ -751,9 +793,9 @@ def main(argv: list[str] | None = None) -> int:
     precommit_state.set_streak(state, branch, 0, key="engine_failure_streak")
     streak = precommit_state.get_streak(state, branch)
 
-    # Issue #55 B2: 直前のレビューと同一指摘の繰り返しなら blocking コメントを LOW へ
-    # 降格し、severity の揺れ (MIDDLE → LOW → MIDDLE) で streak escape が進まない問題を
-    # 解消する。escape 条件自体は変更しない。
+    # Issue #55 B2: 前回レビューと同一のコメント (コメント単位の stale-loop 検出) のみを
+    # LOW へ降格し、severity の揺れ (MIDDLE → LOW → MIDDLE) で streak escape が進まない
+    # 問題を解消する。新規指摘は降格しない。escape 条件自体は変更しない。
     recent_reviews = precommit_state.get_recent_reviews(state, branch)
     filtered_comments, stale_detected = _demote_stale_comments(
         filtered_comments,
@@ -761,7 +803,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if stale_detected:
         print(
-            "[precommit-review] stale-loop detected; blocking comments demoted to LOW.",
+            "[precommit-review] stale-loop detected; matching comments demoted to LOW.",
             file=sys.stderr,
         )
 
@@ -781,14 +823,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     precommit_state.set_streak(state, branch, new_streak)
-    # 次回の stale-loop 判定用に今回のレビュー本文を保持する (直近 2 回分)。
-    current_text = _review_text(filtered_comments)
-    if current_text.strip():
-        precommit_state.set_recent_reviews(
-            state,
-            branch,
-            [*recent_reviews, current_text],
-        )
+    # 次回の stale-loop 判定用に今回のレビューをコメント単位で保持する。
+    current_texts = [_comment_text(c) for c in filtered_comments]
+    if current_texts:
+        precommit_state.set_recent_reviews(state, branch, current_texts)
     precommit_state.write_state(state_path, state)
 
     if allow:

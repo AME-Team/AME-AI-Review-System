@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from . import diff_base, github_client, init_cmd, paths, pr_streak, review_config
+from . import github_client, init_cmd, paths, pr_streak, review_config
 from . import payload as payload_module
 from .engine import apply_engine_info_env, resolve_settings
 
@@ -479,11 +479,13 @@ def cmd_review(args: argparse.Namespace) -> int:
         reviews_data = []
 
     # Issue #55 B5: App bot 前提の bot_login 照合では PAT 運用で重複レビューが
-    # 発生するため、実際の投稿者 login で判定する。
+    # 発生するため、実投稿者 login を解決して判定する。混在運用 (bot と PAT の両方で
+    # 投稿) でも過去の reviewed-sha を拾えるよう、bot login との和集合で照合する。
     reviewer_login = _reviewer_author_login(api_url, token, reviewer_name)
+    accepted_logins = {reviewer_login, github_client.bot_login(reviewer_name)}
     reviewed_shas: set[str] = set()
     for r in cast("list[dict[str, Any]]", reviews_data):
-        if r.get("user", {}).get("login") == reviewer_login:
+        if r.get("user", {}).get("login") in accepted_logins:
             body = cast("str", r.get("body", ""))
             m = re.search(r"<!--\s*reviewed-sha:\s*([0-9a-f]{40,64})\s*-->", body)
             if m:
@@ -500,10 +502,10 @@ def cmd_review(args: argparse.Namespace) -> int:
         return 0
 
     # Get diff and changed files
-    # Issue #55 I1: スタックブランチでは origin/{base} との累積差分が過大になるため、
-    # 分岐元 (upstream / fork-point) を自動解決する。
-    diff_range = diff_base.diff_range(base_ref)
-    diff = _run_git(["diff", diff_range])
+    # Issue #55 I1: diff の狭域化 (diff_base) はローカル pre-commit 用途に限定する。
+    # PR レビューは GitHub review API の line 検証が PR 実ベースの diff 位置で行われる
+    # ため、従来どおり origin/{base}...HEAD を維持する。
+    diff = _run_git(["diff", f"origin/{base_ref}...HEAD"])
     if not diff:
         diff = _run_git(["diff", "HEAD~1"])
     if not diff:
@@ -534,7 +536,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             + f"\n... (truncated, {diff_lines} lines total)"
         )
 
-    changed_files = _run_git(["diff", "--name-only", diff_range])
+    changed_files = _run_git(["diff", "--name-only", f"origin/{base_ref}...HEAD"])
     if not changed_files:
         changed_files = _run_git(["diff", "--name-only", "HEAD~1"])
     # Issue #37: 除外対象ディレクトリ配下を除去 (変更ファイルは最大50件まで)
@@ -544,7 +546,7 @@ def cmd_review(args: argparse.Namespace) -> int:
         )[:50],
     )
 
-    commit_log = _run_git(["log", diff_base.commit_range(base_ref), "--oneline"])
+    commit_log = _run_git(["log", f"origin/{base_ref}..HEAD", "--oneline"])
     if not commit_log:
         commit_log = _run_git(["log", "HEAD~20..HEAD", "--oneline"])
 

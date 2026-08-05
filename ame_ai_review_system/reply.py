@@ -25,7 +25,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import diff_base, engine, github_client, review_config
+from . import engine, github_client, review_config
 from .stale_detect import is_stale_loop
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
@@ -151,7 +151,7 @@ def _get_pr_diff(
         return ""
     try:
         result = subprocess.check_output(
-            ["git", "diff", diff_base.diff_range(base_ref)],
+            ["git", "diff", f"origin/{base_ref}...HEAD"],
             text=True,
             stderr=subprocess.DEVNULL,
         )

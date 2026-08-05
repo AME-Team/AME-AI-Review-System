@@ -125,13 +125,14 @@ def set_streak(
     state["branches"] = branches
 
 
-# Issue #55 B2: stale-loop 検出用に直近 2 回分のレビュー本文を保持する。
+# Issue #55 B2: stale-loop 検出用に前回レビューのコメント本文を保持する。
+# 1 レビュー分のコメント (最大 50 件) を覚えておき、コメント単位で突き合わせる。
 _RECENT_REVIEWS_KEY = "recent_review_texts"
-_RECENT_REVIEWS_MAX = 2
+_RECENT_REVIEWS_MAX = 50
 
 
 def get_recent_reviews(state: dict[str, Any], branch: str) -> list[str]:
-    """直近 2 回分のレビュー本文 (stale-loop 判定用) を返す."""
+    """前回レビューのコメント本文一覧 (stale-loop 判定用) を返す."""
     branches = cast("dict[str, Any] | None", state.get("branches"))
     if not isinstance(branches, dict):
         return []
@@ -150,7 +151,7 @@ def set_recent_reviews(
     branch: str,
     texts: list[str],
 ) -> None:
-    """直近 2 回分のレビュー本文を state へ保存する."""
+    """前回レビューのコメント本文一覧を state へ保存する."""
     raw = cast("dict[str, Any] | None", state.get("branches"))
     branches: dict[str, Any] = raw if isinstance(raw, dict) else {}
     entry = cast("dict[str, Any] | None", branches.get(branch))

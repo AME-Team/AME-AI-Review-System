@@ -97,7 +97,7 @@ def test_reset_all_streaks() -> None:
 def test_recent_reviews_roundtrip() -> None:
     state: dict[str, Any] = {}
     precommit_state.set_recent_reviews(state, "feature", ["a", "b", "c"])
-    assert precommit_state.get_recent_reviews(state, "feature") == ["b", "c"]
+    assert precommit_state.get_recent_reviews(state, "feature") == ["a", "b", "c"]
 
 
 def test_recent_reviews_empty_state() -> None:

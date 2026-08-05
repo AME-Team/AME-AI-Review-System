@@ -465,14 +465,14 @@ def test_cmd_set_includes_review_field(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr_streak, "_read_pr_comments", lambda *_: [])
     monkeypatch.setattr(pr_streak, "_current_head_sha", lambda: "")
     monkeypatch.setattr(github_client, "http_request", fake_request)
-    rc = pr_streak.cmd_set(1, 2, review_text="バグが残っています\n詳細")
+    rc = pr_streak.cmd_set(1, 2, comment_texts=["バグが残っています\n詳細"])
     assert rc == 0
     assert captured["body"] is not None
     assert "review: " in captured["body"]["body"]
 
 
-def test_find_streak_comment_roundtrips_review_text() -> None:
-    encoded = pr_streak._encode_review("バグが残っています\n詳細")
+def test_find_streak_comment_roundtrips_review_texts() -> None:
+    encoded = pr_streak._encode_review_texts(["バグが残っています\n詳細"])
     comments = [
         {
             "id": 5,
@@ -481,7 +481,7 @@ def test_find_streak_comment_roundtrips_review_text() -> None:
     ]
     result = find_streak_comment(comments)
     assert result is not None
-    assert result[3] == "バグが残っています\n詳細"
+    assert result[3] == ["バグが残っています\n詳細"]
 
 
 def test_find_streak_comment_empty_review_when_missing() -> None:
@@ -498,10 +498,10 @@ def test_cmd_evaluate_stale_blocking_demoted_to_low(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # Issue #55 B2: 前回レビューと同一指摘の繰り返しは MIDDLE でも LOW に降格して
+    # Issue #55 B2: 前回レビューと同一のコメントは MIDDLE でも LOW に降格して
     # streak を進める (escape 条件は変更しない)。
     prev_text = "バグが残っています\nバグが残っています の詳細"
-    encoded = pr_streak._encode_review(prev_text)
+    encoded = pr_streak._encode_review_texts([prev_text])
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
     monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))
     monkeypatch.setattr(

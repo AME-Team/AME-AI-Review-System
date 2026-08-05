@@ -128,9 +128,9 @@ def test_demote_stale_no_history_unchanged() -> None:
 
 
 def test_demote_stale_identical_issue_demotes_blocking() -> None:
-    # 直前のレビューと同一指摘が繰り返されたら blocking を LOW へ降格する。
+    # 前回レビューと同一のコメントが繰り返されたらそのコメントだけ LOW へ降格する。
     # severity は比較対象から除外されるため HIGH/MIDDLE の揺れでも検出できる。
-    prev = precommit_review._review_text([_issue("HIGH", "バグが残っています")])
+    prev = precommit_review._comment_text(_issue("HIGH", "バグが残っています"))
     current = [_issue("MIDDLE", "バグが残っています")]
     out, stale = precommit_review._demote_stale_comments(current, [prev])
     assert stale is True
@@ -138,11 +138,24 @@ def test_demote_stale_identical_issue_demotes_blocking() -> None:
 
 
 def test_demote_stale_different_issue_keeps_severity() -> None:
-    prev = precommit_review._review_text([_issue("HIGH", "セキュリティホール")])
+    prev = precommit_review._comment_text(_issue("HIGH", "セキュリティホール"))
     current = [_issue("HIGH", "別のバグ")]
     out, stale = precommit_review._demote_stale_comments(current, [prev])
     assert stale is False
     assert out[0]["severity"] == "HIGH"
+
+
+def test_demote_stale_mixed_keeps_new_blocking() -> None:
+    # 繰り返し指摘の中に新規の HIGH が混ざっても、新規分は降格しない (コメント単位)。
+    prev = precommit_review._comment_text(_issue("MIDDLE", "バグが残っています"))
+    current = [
+        _issue("MIDDLE", "バグが残っています"),
+        _issue("HIGH", "新規のセキュリティ問題"),
+    ]
+    out, stale = precommit_review._demote_stale_comments(current, [prev])
+    assert stale is True
+    assert out[0]["severity"] == "LOW"
+    assert out[1]["severity"] == "HIGH"
 
 
 def test_demote_stale_empty_current_unchanged() -> None:
@@ -507,6 +520,37 @@ def test_run_static_checks_fails_on_nonzero(
     assert passed is False
     assert "pre-commit:" in detail
     assert "E501" in detail
+
+
+def test_run_static_checks_env_failure_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #55 I2: フック環境のクローン/インストール失敗はコード品質失敗ではなく
+    # スキップする (毎コミットの誤ブロック回避)。
+    _setup_precommit_project(monkeypatch, tmp_path)
+
+    def fake_run(cmd: list[str], **_kw: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="An error has occurred: Failed to clone "
+            "https://github.com/pre-commit/pre-commit-hooks",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    passed, detail = run_static_checks(["foo.py"])
+    assert passed is True
+    assert not detail
+
+
+def test_looks_like_env_failure() -> None:
+    assert precommit_review._looks_like_env_failure(
+        "An error has occurred\nFailed to clone repo"
+    )
+    assert precommit_review._looks_like_env_failure("could not resolve host github.com")
+    assert not precommit_review._looks_like_env_failure("E501 line too long")
+    assert not precommit_review._looks_like_env_failure("")
 
 
 def test_run_static_checks_timeout_skips(
