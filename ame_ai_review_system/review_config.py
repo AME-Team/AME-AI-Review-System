@@ -59,6 +59,15 @@ _DEFAULTS: dict[str, Any] = {
     "reply_thinking": "low",
     "review_budget_usd": 2.00,
     "reply_budget_usd": 0.20,
+    # Issue #62: 差分切り捨て上限。これを超えると priority/front 戦略で切り詰める。
+    "max_diff_lines": 4000,
+    # Issue #62: 切り詰め戦略。"priority" は優先セクション(ステージ済み差分等)を全行保持し、
+    # 残予算をコンテキスト側(ブランチ差分等)の後方ファイルから確保する。"front" は従来動作。
+    "diff_truncation_strategy": "priority",
+    # Issue #62: priority 戦略でコンテキスト側に最低限残す行数。markers ありの
+    # 優先セクションモードでは優先セクションが大きい際にこの行数をコンテキスト末尾へ
+    # 保証し、markers なしの head+tail モードでは末尾長となる。後方ファイルの不可視化を防ぐ。
+    "diff_truncation_context_lines": 800,
 }
 
 _REVIEW_COMMANDS = ("/request-review", "/review")
@@ -166,6 +175,49 @@ def review_exclusion_rel() -> str | None:
     if load_config().get("review_include_package_dir", False):
         return None
     return package_dir_rel()
+
+
+# ============================================================================
+# Issue #62: 差分切り捨て設定
+# ============================================================================
+
+
+def max_diff_lines(config: Mapping[str, Any] | None = None) -> int:
+    """差分切り捨て上限行数を返す (既定 4000)."""
+    cfg = config if config is not None else load_config()
+    raw = cfg.get("max_diff_lines", _DEFAULTS["max_diff_lines"])
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(_DEFAULTS["max_diff_lines"])
+    return value if value > 0 else int(_DEFAULTS["max_diff_lines"])
+
+
+def diff_truncation_strategy(config: Mapping[str, Any] | None = None) -> str:
+    """切り捨て戦略 (``"priority"`` / ``"front"``) を返す (既定 ``priority``)."""
+    cfg = config if config is not None else load_config()
+    raw = str(
+        cfg.get("diff_truncation_strategy", _DEFAULTS["diff_truncation_strategy"])
+    )
+    normalized = raw.strip().lower()
+    return normalized if normalized in {"priority", "front"} else "priority"
+
+
+def diff_truncation_context_lines(config: Mapping[str, Any] | None = None) -> int:
+    """Priority 戦略でコンテキスト側に最低限残す行数を返す (既定 800).
+
+    markers ありの優先セクションモードでは優先セクションが大きい際にこの行数を
+    コンテキスト末尾へ保証する。markers なしの head+tail モードでは末尾長となる。
+    """
+    cfg = config if config is not None else load_config()
+    raw = cfg.get(
+        "diff_truncation_context_lines", _DEFAULTS["diff_truncation_context_lines"]
+    )
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(_DEFAULTS["diff_truncation_context_lines"])
+    return value if value >= 0 else int(_DEFAULTS["diff_truncation_context_lines"])
 
 
 def apply_repair_model(settings: dict[str, Any]) -> dict[str, Any]:

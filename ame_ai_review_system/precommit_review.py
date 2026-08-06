@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from . import (
     diff_base,
+    diff_truncate,
     paths,
     payload,
     precommit_engine,
@@ -19,8 +20,9 @@ from . import (
     stale_detect,
 )
 
-# pr_review.sh と同じ diff 行数上限。これを超えると前から切詰める。
-_MAX_DIFF_LINES = 4000
+# Issue #62: ステージ済み差分セクションを全行保持するための優先マーカー。
+# _build_diff が出力する "### ステージ済み差分 ..." ヘッダに対応する。
+_PRIORITY_DIFF_MARKER = "ステージ済み差分"
 
 # LOW streak がこの回数に達したら LOW のみの指摘でもコミットを許可する（無限ループ回避）。
 _LOW_STREAK_THRESHOLD = 2
@@ -169,21 +171,13 @@ def _fetch_base_ref(base_ref: str) -> None:
 
 
 def _truncate_diff(diff: str) -> str:
-    lines = diff.splitlines()
-    if len(lines) <= _MAX_DIFF_LINES:
-        return diff
-    truncated_lines = lines[:_MAX_DIFF_LINES]
-    # 行頭 ``` で始まる行のみフェンス状態を反転させる。diff 内のバックティックは無視。
-    open_fence = False
-    for line in truncated_lines:
-        if line.startswith("```"):
-            open_fence = not open_fence
-    truncated = "\n".join(truncated_lines)
-    # フェンスが開いたまま切詰められた場合は閉じタグを補完して LLM プロンプト構造を保つ。
-    if open_fence:
-        truncated += "\n```"
-    return truncated + (
-        f"\n... (truncated from {len(lines)} to {_MAX_DIFF_LINES} lines)"
+    config = review_config.load_config()
+    return diff_truncate.truncate_diff(
+        diff,
+        max_lines=review_config.max_diff_lines(config),
+        strategy=review_config.diff_truncation_strategy(config),
+        priority_markers=[_PRIORITY_DIFF_MARKER],
+        context_floor=review_config.diff_truncation_context_lines(config),
     )
 
 
