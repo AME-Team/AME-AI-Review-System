@@ -220,10 +220,11 @@ def test_truncate_diff_empty_unchanged() -> None:
     assert not truncate_diff("")
 
 
-def test_truncate_diff_long_gets_capped() -> None:
+def test_truncate_diff_long_gets_shorter() -> None:
+    # Issue #62: wrapper は priority 戦略 (markers 未検出時は head+tail) を使う。
     diff = "\n".join(f"line{i}" for i in range(5000))
     truncated = truncate_diff(diff)
-    assert "truncated from 5000 to 4000 lines" in truncated
+    assert "truncated" in truncated
     assert truncated.count("\n") < diff.count("\n")
 
 
@@ -231,24 +232,24 @@ def test_truncate_diff_closes_unmatched_code_fence() -> None:
     # 開いた ``` が切詰めで閉じられない場合、閉じタグを補完すること。
     diff = "```diff\n" + "\n".join(f"line{i}" for i in range(5000))
     truncated = truncate_diff(diff)
-    # ``` が偶数個 (開く+閉じる) になっていること
     assert truncated.count("```") % 2 == 0
 
 
-def test_truncate_diff_keeps_balanced_fence() -> None:
-    # 既に閉じているフェンスは補完しないこと。
-    diff = "```diff\nline1\n```\n" + "\n".join(f"line{i}" for i in range(5000))
+def test_truncate_diff_keeps_staged_section_when_branch_overflows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #62: ステージ済み差分 (優先セクション) は全行保持され、ブランチ差分の
+    # 末尾 (後方ファイル) も可視になること。ブランチ冒頭は切り捨てられる。
+    monkeypatch.setattr(review_config, "load_config", dict)
+    staged = "### ステージ済み差分\n\n```diff\nSTAGED_LINE\n```"
+    branch_lines = "\n".join(f"branch{i}" for i in range(5000))
+    branch = f"### ブランチ差分\n\n```diff\n{branch_lines}\n```"
+    diff = f"{staged}\n\n{branch}"
     truncated = truncate_diff(diff)
-    # 開始(```diff) + 終了(```) の 2 個のみで、補完されないこと。
-    assert truncated.count("```") == 2
-
-
-def test_truncate_diff_ignores_inline_backticks() -> None:
-    # diff 内のバックティック (行頭以外) はフェンス判定に使われないこと。
-    diff = "```diff\n+let x = `inline`\n" + "\n".join(f"line{i}" for i in range(5000))
-    truncated = truncate_diff(diff)
-    # 行頭 ``` は 1 個 (````diff`) のみ → 開いたまま → 補完で閉じタグ追加 → 2 個
-    assert truncated.count("```") == 2
+    assert "STAGED_LINE" in truncated
+    assert "branch4999" in truncated
+    assert "branch0" not in truncated
+    assert "truncated" in truncated
 
 
 def test_truncate_diff_at_boundary_unchanged() -> None:

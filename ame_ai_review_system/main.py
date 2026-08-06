@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from . import github_client, init_cmd, paths, pr_streak, review_config
+from . import diff_truncate, github_client, init_cmd, paths, pr_streak, review_config
 from . import payload as payload_module
 from .engine import apply_engine_info_env, resolve_settings
 
@@ -35,7 +35,6 @@ from .engine import apply_engine_info_env, resolve_settings
 PROJ_ROOT = paths.project_root()
 STALE_ROUND_THRESHOLD = 3
 MAX_REVIEWS = 10
-MAX_DIFF_LINES = 4000
 HTTP_STATUS_OK = 200
 # 除外ディレクトリのみの変更でスキップ通知を投稿する際の重複防止マーカー (PR 番号が付与される)。
 SKIP_NOTICE_MARKER = "ame-review-skip-notice"
@@ -528,12 +527,21 @@ def cmd_review(args: argparse.Namespace) -> int:
             _post_skip_notice(api_url, repo, pr_number, token)
         return 0
 
+    # Issue #62: 共通切り捨てモジュールで戦略的に圧縮。PR レビューは優先サブセットが
+    # 無いため head+tail 保持で後方ファイル (CSS/types/tests) を可視化する。
+    config = review_config.load_config()
     diff_lines = diff.count("\n")
-    if diff_lines > MAX_DIFF_LINES:
-        print(f"[review] Diff truncated from {diff_lines} to 4000 lines.")
-        diff = (
-            "\n".join(diff.splitlines()[:4000])
-            + f"\n... (truncated, {diff_lines} lines total)"
+    if diff_lines > review_config.max_diff_lines(config):
+        print(
+            f"[review] Diff truncated from {diff_lines} to "
+            f"{review_config.max_diff_lines(config)} lines "
+            f"(strategy={review_config.diff_truncation_strategy(config)}).",
+        )
+        diff = diff_truncate.truncate_diff(
+            diff,
+            max_lines=review_config.max_diff_lines(config),
+            strategy=review_config.diff_truncation_strategy(config),
+            context_floor=review_config.diff_truncation_context_lines(config),
         )
 
     changed_files = _run_git(["diff", "--name-only", f"origin/{base_ref}...HEAD"])

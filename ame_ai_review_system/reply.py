@@ -25,7 +25,7 @@ import sys
 import tempfile
 from typing import Any, cast
 
-from . import engine, github_client, review_config
+from . import diff_truncate, engine, github_client, review_config
 from .stale_detect import is_stale_loop
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
@@ -122,7 +122,21 @@ def _get_pr_diff(
     """Get PR diff via GitHub content negotiation or git diff."""
     from . import diff_utils
 
-    max_diff_lines = 4000
+    config = review_config.load_config()
+    max_diff_lines = review_config.max_diff_lines(config)
+
+    def _compress(raw: str) -> str:
+        compacted = diff_utils.compact_diff(raw)
+        filtered = review_config.filter_review_diff(compacted)
+        if filtered.count("\n") <= max_diff_lines:
+            return filtered
+        # Issue #62: 共通モジュールで head+tail 保持し後方ファイルを可視化。
+        return diff_truncate.truncate_diff(
+            filtered,
+            max_lines=max_diff_lines,
+            strategy=review_config.diff_truncation_strategy(config),
+            context_floor=review_config.diff_truncation_context_lines(config),
+        )
 
     if api_url and repo and pr and token:
         try:
@@ -135,16 +149,7 @@ def _get_pr_diff(
         except RuntimeError:
             raw = None
         if raw:
-            raw = diff_utils.compact_diff(raw)
-            # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
-            raw = review_config.filter_review_diff(raw)
-            all_lines = raw.splitlines()
-            if len(all_lines) > max_diff_lines:
-                return (
-                    "\n".join(all_lines[:max_diff_lines])
-                    + f"\n... (truncated, {len(all_lines)} lines total)"
-                )
-            return raw
+            return _compress(raw)
 
     if not re.match(r"^[a-zA-Z0-9/_-]+$", base_ref):
         print(f"[get_pr_diff] Invalid base_ref: {base_ref!r}", file=sys.stderr)
@@ -164,16 +169,7 @@ def _get_pr_diff(
             )
         except subprocess.CalledProcessError:
             return ""
-    result = diff_utils.compact_diff(result)
-    # Issue #37: 移植先で vendored した ame_ai_review_system 配下はレビュー対象外
-    result = review_config.filter_review_diff(result)
-    all_lines = result.splitlines()
-    if len(all_lines) > max_diff_lines:
-        return (
-            "\n".join(all_lines[:max_diff_lines])
-            + f"\n... (truncated, {len(all_lines)} lines total)"
-        )
-    return result
+    return _compress(result)
 
 
 # ============================================================================
