@@ -201,7 +201,7 @@ Code などの AI エージェントが Dual-Gate レビューラウンドを自
 
 Gate 1（pre-commit）と Gate
 2（PR のスレッド解決ループ）を連続して実行します。本スキルは運用ルール（`SKIP=ai-precommit-review` /
-`--no-verify` の禁止など）を AI エンジェント向けにまとめた指示書です。詳細は
+`--no-verify` の禁止など）を AI エージェント向けにまとめた指示書です。詳細は
 [instructions.md](instructions.md) / [CLAUDE.md](../../CLAUDE.md) を参照してください。
 
 #### 方式 A の場合（wheel インストール時）

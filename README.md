@@ -232,6 +232,7 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    - **方式 B**（ディレクトリコピー時）: `.claude/skills/review-round/` もあわせてコピーする。
 
      ```bash
+     mkdir -p <your-repo>/.claude/skills
      cp -r .claude/skills/review-round <your-repo>/.claude/skills/review-round
      ```
 
