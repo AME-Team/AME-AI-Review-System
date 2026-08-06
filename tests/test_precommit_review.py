@@ -220,16 +220,23 @@ def test_truncate_diff_empty_unchanged() -> None:
     assert not truncate_diff("")
 
 
-def test_truncate_diff_long_gets_shorter() -> None:
+def test_truncate_diff_long_gets_shorter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Issue #62: wrapper は priority 戦略 (markers 未検出時は head+tail) を使う。
+    # 環境設定 (max_diff_lines) に依存しないよう load_config を既定へ固定する。
+    monkeypatch.setattr(review_config, "load_config", dict)
     diff = "\n".join(f"line{i}" for i in range(5000))
     truncated = truncate_diff(diff)
     assert "truncated" in truncated
     assert truncated.count("\n") < diff.count("\n")
 
 
-def test_truncate_diff_closes_unmatched_code_fence() -> None:
+def test_truncate_diff_closes_unmatched_code_fence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # 開いた ``` が切詰めで閉じられない場合、閉じタグを補完すること。
+    monkeypatch.setattr(review_config, "load_config", dict)
     diff = "```diff\n" + "\n".join(f"line{i}" for i in range(5000))
     truncated = truncate_diff(diff)
     assert truncated.count("```") % 2 == 0
@@ -252,7 +259,10 @@ def test_truncate_diff_keeps_staged_section_when_branch_overflows(
     assert "truncated" in truncated
 
 
-def test_truncate_diff_at_boundary_unchanged() -> None:
+def test_truncate_diff_at_boundary_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_config, "load_config", dict)
     diff = "\n".join(f"line{i}" for i in range(4000))
     assert truncate_diff(diff) == diff
 

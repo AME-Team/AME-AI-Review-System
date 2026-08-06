@@ -93,15 +93,18 @@ def _head_tail_pick(
     tail_start = _advance_to_outside_fence(
         lines, max(head_count, len(lines) - safe_tail)
     )
-    tail = list(lines[tail_start:])
-    tail = _close_open_fence(tail)
+    tail = _wrap_partial_diff_block(list(lines[tail_start:]))
 
     omitted = max(0, len(lines) - head_count - len(tail))
-    if omitted == 0:
-        # フェンス整列で尾部が空になった場合は前方のみ返す
+    if not tail or omitted == 0:
+        # フェンス整列で尾部が空になった、または実質的な末尾が残らなかった場合は
+        # 前方のみを返し、後方ファイル消失を注記して「見えない」ことを明示する。
         return [
             *head,
-            f"... (truncated from {len(lines)} to {max_lines} lines)",
+            (
+                f"... (truncated from {len(lines)} to {max_lines} lines; "
+                f"tail dropped after fence alignment)"
+            ),
         ]
     note = (
         f"... (truncated, ~{omitted} middle lines omitted; "
@@ -115,7 +118,15 @@ def _priority_pick(
     markers: list[str],
     max_lines: int,
 ) -> list[str]:
-    """優先セクション全行保持 + コンテキスト末尾保持で切り詰める."""
+    """優先セクション全行保持 + コンテキスト末尾保持で切り詰める.
+
+    優先セクションの合計が ``max_lines`` を超える場合は、バジェットを**先頭の優先
+    セクションから順**に全消費し、2 つ目以降の優先セクションおよび全コンテキストは
+    ヘッダ + 切り捨て注記のみになる (先頭優先・残り全破棄)。``_build_diff`` が生成
+    する優先セクションは現在 1 つ (ステージ済み差分) のため実害はないが、将来
+    ``priority_markers`` に複数ヘッダを一致させると後続優先セクションが静かに消失
+    する点に留意すること。
+    """
     sections = _split_sections(lines, markers)
 
     priority_body_len = sum(len(s["body"]) for s in sections if s["is_priority"])
