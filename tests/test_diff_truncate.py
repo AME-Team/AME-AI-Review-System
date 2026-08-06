@@ -171,6 +171,46 @@ def test_priority_markers_truncates_priority_when_it_overflows() -> None:
     assert "truncated" in out
 
 
+def test_priority_markers_context_floor_guarantees_minimum_tail() -> None:
+    # Issue #62 MIDDLE: context_floor は priority モードでも有効。優先セクションが
+    # 大きく max_lines - floor を超える場合、優先側を切り詰めてでも floor 行を
+    # コンテキスト末尾へ確保し、後方ファイルの不可視化を防ぐ。
+    staged = _section(_STAGED_HEADER, _STAGED_TAG, 950)
+    branch = _section(_BRANCH_HEADER, _BRANCH_TAG, 5000)
+    diff = f"{staged}\n\n{branch}"
+    out = truncate_diff(
+        diff,
+        max_lines=1000,
+        strategy="priority",
+        priority_markers=[_STAGED_HEADER],
+        context_floor=300,
+    )
+    # コンテキスト末尾 (後方ファイル) が floor (300) 行分は可視になる。
+    # branch body 先頭に空行+フェンスの2構造行があるため、境界は line4701 前後。
+    assert f"{_BRANCH_TAG}-line4999" in out
+    assert f"{_BRANCH_TAG}-line4701" in out
+    assert f"{_BRANCH_TAG}-line4700" not in out
+
+
+def test_priority_markers_context_floor_zero_keeps_priority_full() -> None:
+    # context_floor=0 なら優先セクション優先。優先セクションが max_lines に収まる
+    # 際は全行保持し、コンテキストは残余のみ。
+    staged = _section(_STAGED_HEADER, _STAGED_TAG, 950)
+    branch = _section(_BRANCH_HEADER, _BRANCH_TAG, 5000)
+    diff = f"{staged}\n\n{branch}"
+    out = truncate_diff(
+        diff,
+        max_lines=1000,
+        strategy="priority",
+        priority_markers=[_STAGED_HEADER],
+        context_floor=0,
+    )
+    assert f"{_STAGED_TAG}-line949" in out
+    # コンテキストは残余 (約 50 行分) のみ → 末尾 50 行程度が可視
+    assert f"{_BRANCH_TAG}-line4999" in out
+    assert f"{_BRANCH_TAG}-line4900" not in out
+
+
 def test_priority_markers_fence_balance_in_kept_blocks() -> None:
     staged = _section(_STAGED_HEADER, _STAGED_TAG, 50)
     branch_body = "\n".join(f"b{i}" for i in range(5000))

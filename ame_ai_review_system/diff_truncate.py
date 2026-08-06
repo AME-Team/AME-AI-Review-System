@@ -31,8 +31,6 @@ from typing import Any
 
 _FENCE = "```"
 
-_TRUNCATED_TOTAL_SUFFIX = " (truncated)"
-
 
 def truncate_diff(
     diff: str,
@@ -42,10 +40,13 @@ def truncate_diff(
     priority_markers: list[str] | None = None,
     context_floor: int = 0,
 ) -> str:
-    """Diff を max_lines 以下へ戦略的に切り詰める.
+    """Diff をおおよそ max_lines 以下へ戦略的に切り詰める.
 
     既に max_lines 以下の場合は何もしない。それ以外は strategy に従って切り詰め、
-    切り詰めを示す注記行を付与する。
+    切り詰めを示す注記行を付与する。バジェット計上はセクション body 行のみを対象とし、
+    セクションヘッダ・切り詰め注記・フェンス補完行は含まないため、セクション数が
+    多い場合は実際の出力が max_lines を数行〜十数行程度超過し得る (切り詰め自体の目的
+    = トークン削減には十分に寄与する)。
     """
     if max_lines <= 0:
         return diff
@@ -55,7 +56,7 @@ def truncate_diff(
 
     markers = [m for m in (priority_markers or []) if m]
     if strategy == "priority" and markers and _has_priority_section(lines, markers):
-        kept = _priority_pick(lines, markers, max_lines)
+        kept = _priority_pick(lines, markers, max_lines, context_floor)
     elif strategy == "priority":
         kept = _head_tail_pick(lines, max_lines, context_floor)
     else:
@@ -117,10 +118,17 @@ def _priority_pick(
     lines: list[str],
     markers: list[str],
     max_lines: int,
+    context_floor: int = 0,
 ) -> list[str]:
     """優先セクション全行保持 + コンテキスト末尾保持で切り詰める.
 
-    優先セクションの合計が ``max_lines`` を超える場合は、バジェットを**先頭の優先
+    ``context_floor`` はコンテキスト側 (ブランチ差分等) に最低限残す行数。優先
+    セクションが小さければコンテキストは残余を全て得る (>= floor)。優先セクション
+    が大きく ``max_lines - floor`` を超える場合は、優先セクションを前方から切り詰め
+    ても ``floor`` 行をコンテキスト末尾へ確保し、後方ファイル (CSS/types/tests) の
+    不可視化を防ぐ。``floor = 0`` なら従来どおり優先セクション全行を優先する。
+
+    優先セクションの合計がバジェットを超える場合は、バジェットを**先頭の優先
     セクションから順**に全消費し、2 つ目以降の優先セクションおよび全コンテキストは
     ヘッダ + 切り捨て注記のみになる (先頭優先・残り全破棄)。``_build_diff`` が生成
     する優先セクションは現在 1 つ (ステージ済み差分) のため実害はないが、将来
@@ -130,14 +138,17 @@ def _priority_pick(
     sections = _split_sections(lines, markers)
 
     priority_body_len = sum(len(s["body"]) for s in sections if s["is_priority"])
-    # 優先セクションが max_lines に収まるなら全行保持し、残りをコンテキスト末尾へ。
-    if priority_body_len <= max_lines:
+    # コンテキスト最低保証: floor 行を確保する。ただし max_lines の半分は超えない。
+    reserved = max(0, min(context_floor, max_lines // 2))
+    priority_cap = max(0, max_lines - reserved)
+    if priority_body_len <= priority_cap:
+        # 優先セクションが収まるなら全行保持し、残余をコンテキスト末尾へ。
         priority_budget = priority_body_len
         context_budget = max_lines - priority_body_len
     else:
-        # 優先セクション自体が溢れる場合は前方から切り詰め、コンテキストは見捨てる。
-        priority_budget = max_lines
-        context_budget = 0
+        # 優先セクションが大きい: floor を確保するため優先側を切り詰める。
+        priority_budget = priority_cap
+        context_budget = reserved
 
     kept: list[str] = []
     remaining_priority = priority_budget

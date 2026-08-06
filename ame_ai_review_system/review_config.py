@@ -64,7 +64,9 @@ _DEFAULTS: dict[str, Any] = {
     # Issue #62: 切り詰め戦略。"priority" は優先セクション(ステージ済み差分等)を全行保持し、
     # 残予算をコンテキスト側(ブランチ差分等)の後方ファイルから確保する。"front" は従来動作。
     "diff_truncation_strategy": "priority",
-    # Issue #62: priority 戦略でコンテキスト側に最低限残す行数。後方ファイルの不可視化を防ぐ。
+    # Issue #62: priority 戦略でコンテキスト側に最低限残す行数。markers ありの
+    # 優先セクションモードでは優先セクションが大きい際にこの行数をコンテキスト末尾へ
+    # 保証し、markers なしの head+tail モードでは末尾長となる。後方ファイルの不可視化を防ぐ。
     "diff_truncation_context_lines": 800,
 }
 
@@ -202,7 +204,11 @@ def diff_truncation_strategy(config: Mapping[str, Any] | None = None) -> str:
 
 
 def diff_truncation_context_lines(config: Mapping[str, Any] | None = None) -> int:
-    """Priority 戦略でコンテキスト側に最低限残す行数を返す (既定 800)."""
+    """Priority 戦略でコンテキスト側に最低限残す行数を返す (既定 800).
+
+    markers ありの優先セクションモードでは優先セクションが大きい際にこの行数を
+    コンテキスト末尾へ保証する。markers なしの head+tail モードでは末尾長となる。
+    """
     cfg = config if config is not None else load_config()
     raw = cfg.get(
         "diff_truncation_context_lines", _DEFAULTS["diff_truncation_context_lines"]
