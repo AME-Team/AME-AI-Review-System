@@ -194,7 +194,41 @@ cp -r .github/ <your-repo>/
 cp -r ame_ai_review_system/ <your-repo>/
 ```
 
-### Step 2: レビュアー用 GitHub App の作成と Secret 登録
+### Step 2: AI エージェント用スキル（review-round）の導入（推奨）
+
+専用スキルを `.claude/skills/review-round/SKILL.md` に配置します。これにより OpenCode / Claude
+Code などの AI エージェントが Dual-Gate レビューラウンドを自律的に完遂できます。
+
+Gate 1（pre-commit）と Gate
+2（PR のスレッド解決ループ）を連続して実行します。本スキルは運用ルール（`SKIP=ai-precommit-review` /
+`--no-verify` の禁止など）を AI エージェント向けにまとめた指示書です。詳細は
+[instructions.md](instructions.md) / [CLAUDE.md](../../CLAUDE.md) を参照してください。
+
+#### 方式 A の場合（wheel インストール時）
+
+```bash
+mkdir -p .claude/skills/review-round
+curl -fsSL https://raw.githubusercontent.com/tarminjapan/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
+  -o .claude/skills/review-round/SKILL.md
+```
+
+URL の `v0.1.0` は Step 1 で指定した `--ref` と同じリリースタグに揃えること。
+
+#### 方式 B の場合（ディレクトリコピー時）
+
+`.github/` / `ame_ai_review_system/` に加え、`.claude/skills/review-round/` もコピーする。
+
+```bash
+mkdir -p <your-repo>/.claude/skills
+cp -r .claude/skills/review-round <your-repo>/.claude/skills/review-round
+```
+
+> [!NOTE] 配置先は `.claude/skills/review-round/SKILL.md`（[Agent Skills](https://agentskills.io)
+> 標準のプロジェクトスキル配置場所。Claude Code が `.claude/skills/`
+> 配下を自動的に読み込む）。CI 上の API 呼び出しは `GITHUB_REPOSITORY` / `GITHUB_API_URL`
+> を自動参照するため、フォークや別リポジトリでも書き換えなしで動作する。
+
+### Step 3: レビュアー用 GitHub App の作成と Secret 登録
 
 1. GitHub 上で AI レビュアー用の GitHub App を作成する。作成画面は [Settings] → [Developer settings]
    → [GitHub Apps] → [New GitHub App]。App name は任意（例: `ame-ai-reviewer`）。
@@ -221,7 +255,7 @@ cp -r ame_ai_review_system/ <your-repo>/
 > `~/.config/ame-ai-review-system/<name>.token`（PAT）または環境変数 `GITHUB_PAT_TOKEN` /
 > `<NAME>_TOKEN` を使います。CI のみ GitHub App 認証に切り替わっています。
 
-### Step 3: ワークフローの設定確認と修正
+### Step 4: ワークフローの設定確認と修正
 
 `.github/workflows/review_command.yml` および `review_reply.yml` を開き、環境変数を変更します。
 
@@ -230,7 +264,7 @@ env:
   REVIEWER_NAME: ame-ai-reviewer # 作成したレビュアーのアカウント名と一致させる
 ```
 
-### Step 4: 動作設定（`config.json`）
+### Step 5: 動作設定（`config.json`）
 
 `ame_ai_review_system/config.json` でレビューの動作を制御します。
 
@@ -279,7 +313,7 @@ env:
 > mypy を staged された Python ファイルに対して実行し、全て pass した場合のみ AI レビューを実行します。LLM
 > API コストの節約と、フォーマット違反などの単純な指摘の AI レビューへの回送を防ぐための仕組みです。
 
-### Step 5: ユーザー固有設定（`config.user.json`・任意）
+### Step 6: ユーザー固有設定（`config.user.json`・任意）
 
 環境依存の設定（エンジン・モデル・思考量など）は `ame_ai_review_system/config.user.json`
 に記述できます。このファイルは **Git 管理対象外**（`.gitignore` に登録済み）で、`config.json`
