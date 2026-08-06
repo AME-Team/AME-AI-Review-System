@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-06
+
+### Fixed
+
+- Gate 1 (pre-commit)・Gate 2 (PRレビュー) ともに差分が 4000 行を超えると前方のみを保持し、
+  `index.css` / `types/` / `views/` / `tests/` 等の後方ファイルがレビュー対象から消失して
+  「定義が見当たらない」MIDDLE/HIGH 誤指摘が連発する問題を、優先度付き切り捨てで恒久対応 (Issue #62)。
+  - 共通モジュール `diff_truncate.py` を新設。`priority`（優先セクション全行保持 + コンテキスト末尾保持）/
+    `front`（従来）の 2 戦略と、フェンス補完・消失セクションの注記化を実装。
+  - ステージ済み差分（当該コミットのレビュー対象）を全行保持し、ブランチ差分末尾（後方ファイル）を可視化。
+    PRレビュー（優先サブセット無し）は head+tail 保持で後方ファイルを可視化。
+  - 切り捨て上限・戦略・コンテキスト最低保証行数を `config.json` で設定化
+    (`max_diff_lines` / `diff_truncation_strategy` / `diff_truncation_context_lines`)。
+  - `main.py` / `reply.py` の重複切り捨てロジック（3箇所）を共通モジュールへ統一し、フェンス補完漏れも修正。
+
+### Changed
+
 - ランディングページと同梱ドキュメントをソースコードと突き合わせて修正。
   - バージョンバッジを v0.2.1 に更新（`__version__` と整合）。
   - Semgrep カスタムルール数を 7 → 8 に修正（`.semgrep/rules.yml` と整合）。
