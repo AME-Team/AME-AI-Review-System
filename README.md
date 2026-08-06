@@ -215,7 +215,27 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    > [!NOTE] **CI ワークフロー連携**: 方式 A は `ame-ai-reviewer init` が reusable
    > workflow の薄いラッパを生成する。方式 B は `.github/` をコピーする（従来方式）。
 
-2. **GitHub App の登録と Secret 設定**: レビュー用の GitHub
+2. **AI エージェント用スキル（review-round）の導入**（推奨）: `.claude/skills/review-round/SKILL.md`
+   にスキルを配置する。これにより AI エージェントが Dual-Gate レビューラウンド（Gate 1 → Gate
+   2）を自律的に完遂できる。
+
+   - **方式 A**（wheel インストール時）:
+
+     ```bash
+     mkdir -p .claude/skills/review-round
+     curl -fsSL https://raw.githubusercontent.com/tarminjapan/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
+       -o .claude/skills/review-round/SKILL.md
+     ```
+
+     （`v0.1.0` は手順 1 の `--ref` と同じリリースタグに揃える）
+
+   - **方式 B**（ディレクトリコピー時）: `.claude/skills/review-round/` もあわせてコピーする。
+
+     ```bash
+     cp -r .claude/skills/review-round <your-repo>/.claude/skills/review-round
+     ```
+
+3. **GitHub App の登録と Secret 設定**: レビュー用の GitHub
    App を作成し、対象リポジトリにインストールする。App の Credentials として以下を Secrets に登録する。
    - `AME_AI_REVIEWER_APP_ID` : GitHub App の App ID（数値）
    - `AME_AI_REVIEWER_APP_PRIVATE_KEY` : 生成した Private Key（`.pem` 内容全体）
@@ -224,9 +244,9 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    `Issues: Read & Write`。CI ワークフローは `actions/create-github-app-token@v2`
    で都度インストールトークンを取得する。
 
-3. **プロンプトの調整**: `ame_ai_review_system/review_prompt.txt`
+4. **プロンプトの調整**: `ame_ai_review_system/review_prompt.txt`
    をプロジェクトの規約や観点に合わせてカスタマイズする。
-4. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。
+5. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。
 
 > [!NOTE] **エンジン別の SDK**: 既定の `opencode` エンジンはワークフローが TypeScript
 > SDK を自動導入します。`claude` / `antigravity` エンジンを使う場合は Python SDK（`claude-agent-sdk`
