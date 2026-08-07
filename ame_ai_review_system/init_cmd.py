@@ -141,23 +141,26 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
     # Issue #66: Gate 1 フックの entry: に実インタープリタパスを埋め込む。
     python_bin = _resolve_python_bin(args)
+    if " " in python_bin:
+        print(
+            "WARNING: Python パスに空白が含まれます。pre-commit の entry: は shlex "
+            "分割するため空白入りパスは正常に起動できません。空白を含まないパス "
+            "(シンボリックリンク等) を --python で指定してください (Issue #66)。",
+            file=sys.stderr,
+        )
+    import_ok = _verify_importable(python_bin)
+    if not import_ok:
+        _print_import_help(python_bin)
+        # 明示的な --python 指定で import 不可なら、壊れた Gate 1 設定を書き出さず
+        # fail fast する。自動解決 (env/sys.executable) の場合は静的解析設定だけでも
+        # 有用なため警告しつつ書き出す (Issue #66)。
+        if args.python:
+            return 1
     preset_content = src.read_text(encoding="utf-8").replace(
         _PYTHON_BIN_PLACEHOLDER,
         python_bin,
     )
-    written = _write(root / ".pre-commit-config.yaml", preset_content, force=args.force)
-    # 既存ファイルが --force 無しでスキップされた場合は検証しない (書き込まれていない
-    # 設定に対する誤解を招く警告を避ける)。
-    if written:
-        if " " in python_bin:
-            print(
-                "WARNING: Python パスに空白が含まれます。pre-commit の entry: は shlex "
-                "分割するため空白入りパスは正常に起動できません。空白を含まないパス "
-                "(シンボリックリンク等) を --python で指定してください (Issue #66)。",
-                file=sys.stderr,
-            )
-        if not _verify_importable(python_bin):
-            _print_import_help(python_bin)
+    _write(root / ".pre-commit-config.yaml", preset_content, force=args.force)
 
     # CI ラッパワークフローを生成 (reusable workflow 呼び出し)。
     if not args.no_workflow:
