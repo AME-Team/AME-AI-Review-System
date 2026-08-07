@@ -26,14 +26,15 @@ permissions:
 concurrency:
   group: review-command-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
   cancel-in-progress: false
-
 jobs:
   review:
     if: >-
       github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
        github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
-       (startsWith(github.event.comment.body, '/request-review') ||
-        startsWith(github.event.comment.body, '/review')))
+       (github.event.comment.body == '/request-review' ||
+        github.event.comment.body == '/review' ||
+        startsWith(github.event.comment.body, '/request-review ') ||
+        startsWith(github.event.comment.body, '/review ')))
     uses: ./.github/workflows/review-command.yml
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}

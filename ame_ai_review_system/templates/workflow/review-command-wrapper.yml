@@ -25,14 +25,18 @@ permissions:
 concurrency:
   group: review-command-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
   cancel-in-progress: false
-
 jobs:
   review:
+    # Issue #70: 前方一致の誤発火を防ぐため /request-review・/review の完全一致または
+    # 空白区切りの引数付きのみに限定する。実ワークフロー (.github/workflows/review_command.yml)
+    # と必ず同期すること (Issue #68/#70/#71)。
     if: >-
       github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
        github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
-       (startsWith(github.event.comment.body, '/request-review') ||
-        startsWith(github.event.comment.body, '/review')))
+       (github.event.comment.body == '/request-review' ||
+        github.event.comment.body == '/review' ||
+        startsWith(github.event.comment.body, '/request-review ') ||
+        startsWith(github.event.comment.body, '/review ')))
     uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-command.yml@__REF__
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
