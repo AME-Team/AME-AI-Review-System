@@ -13,7 +13,9 @@ idempotent: 既存ファイルは上書きしない。``--force`` で上書き�
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 import sys
 from typing import TYPE_CHECKING
 
@@ -31,6 +33,11 @@ _PRESETS: dict[str, str] = {
     "text": "text.yaml",
 }
 
+# Gate 1 の AI フック entry: に埋め込む Python インタープリタのプレースホルダ。
+# PEP 668 (externally-managed) 環境ではシステム Python への ``pip install --user`` が
+# ブロックされるため、init を実行中のインタープリタ (venv/uv/pipx) を埋め込む (Issue #66)。
+_PYTHON_BIN_PLACEHOLDER = "__PYTHON_BIN__"
+
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
 _AME_REVIEW_FILES = (
     "config.json",
@@ -46,6 +53,51 @@ _WORKFLOW_FILES = (
 
 def _templates_dir() -> Path:
     return paths.package_dir() / "templates"
+
+
+def _resolve_python_bin(args: argparse.Namespace) -> str:
+    """Gate 1 フックへ埋め込む Python インタープリタのパスを解決する (Issue #66).
+
+    優先順位: ``--python`` フラグ → ``AME_INIT_PYTHON`` 環境変数 → ``sys.executable``。
+    PEP 668 環境では ``sys.executable`` が venv/uv/pipx のインタープリタを指すため、
+    そこへ ``ame_ai_review_system`` がインストールされていればフックが動作する。
+    """
+    explicit = getattr(args, "python", None)
+    if explicit:
+        return str(explicit)
+    env_python = os.environ.get("AME_INIT_PYTHON")
+    if env_python:
+        return env_python
+    return sys.executable
+
+
+def _verify_importable(python_bin: str) -> bool:
+    """``python_bin`` で ``ame_ai_review_system`` が import 可能か検証する."""
+    try:
+        result = subprocess.run(
+            [python_bin, "-c", "import ame_ai_review_system"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _print_import_help(python_bin: str) -> None:
+    """``ame_ai_review_system`` が import できない場合の修正手順を表示する (Issue #66)."""
+    print(
+        "WARNING: ame_ai_review_system が指定の Python で import できません。\n"
+        f"  Python: {python_bin}\n"
+        "  Gate 1 (pre-commit AI フック) が動作しません。以下のいずれかで導入してください:\n"
+        "    1. venv:  python -m venv .venv && . .venv/bin/activate && pip install <wheel>\n"
+        "    2. uv:    uv tool install <wheel>\n"
+        "    3. pipx:  pipx install <wheel>\n"
+        "  その後、ame-ai-reviewer init --python <そのPythonのパス> を再実行してください。",
+        file=sys.stderr,
+    )
 
 
 def _write(dst: Path, content: str, *, force: bool) -> bool:
@@ -87,7 +139,15 @@ def cmd_init(args: argparse.Namespace) -> int:
     if not src.exists():
         print(f"ERROR: preset template not found: {src}", file=sys.stderr)
         return 1
-    _copy_template(src, root / ".pre-commit-config.yaml", force=args.force)
+    # Issue #66: Gate 1 フックの entry: に実インタープリタパスを埋め込む。
+    python_bin = _resolve_python_bin(args)
+    preset_content = src.read_text(encoding="utf-8").replace(
+        _PYTHON_BIN_PLACEHOLDER,
+        python_bin,
+    )
+    _write(root / ".pre-commit-config.yaml", preset_content, force=args.force)
+    if not _verify_importable(python_bin):
+        _print_import_help(python_bin)
 
     # CI ラッパワークフローを生成 (reusable workflow 呼び出し)。
     if not args.no_workflow:

@@ -15,6 +15,7 @@ def _make_args(**kwargs: object) -> argparse.Namespace:
         "no_workflow": False,
         "with_engines": False,
         "force": False,
+        "python": None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -78,3 +79,37 @@ def test_init_requires_ref_unless_no_workflow(
 ) -> None:
     _init_in(tmp_path, monkeypatch)
     assert init_cmd.cmd_init(_make_args(ref=None)) == 1
+
+
+def test_init_embeds_python_bin_in_preset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #66: PEP 668 環境向けに Gate 1 フックの entry: へ実インタープリタを埋め込む。
+    root = _init_in(tmp_path, monkeypatch)
+    custom = "/custom/venv/bin/python"
+    assert init_cmd.cmd_init(_make_args(python=custom)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert f"entry: {custom} -m ame_ai_review_system." in cfg
+    assert "__PYTHON_BIN__" not in cfg
+
+
+def test_init_python_bin_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _init_in(tmp_path, monkeypatch)
+    monkeypatch.setenv("AME_INIT_PYTHON", "/env/python")
+    assert init_cmd.cmd_init(_make_args(python=None)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert "entry: /env/python -m ame_ai_review_system." in cfg
+
+
+def test_init_falls_back_to_sys_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _init_in(tmp_path, monkeypatch)
+    monkeypatch.delenv("AME_INIT_PYTHON", raising=False)
+    assert init_cmd.cmd_init(_make_args(python=None)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    import sys
+
+    assert f"entry: {sys.executable} -m ame_ai_review_system." in cfg
