@@ -145,9 +145,19 @@ def cmd_init(args: argparse.Namespace) -> int:
         _PYTHON_BIN_PLACEHOLDER,
         python_bin,
     )
-    _write(root / ".pre-commit-config.yaml", preset_content, force=args.force)
-    if not _verify_importable(python_bin):
-        _print_import_help(python_bin)
+    written = _write(root / ".pre-commit-config.yaml", preset_content, force=args.force)
+    # 既存ファイルが --force 無しでスキップされた場合は検証しない (書き込まれていない
+    # 設定に対する誤解を招く警告を避ける)。
+    if written:
+        if " " in python_bin:
+            print(
+                "WARNING: Python パスに空白が含まれます。pre-commit の entry: は shlex "
+                "分割するため空白入りパスは正常に起動できません。空白を含まないパス "
+                "(シンボリックリンク等) を --python で指定してください (Issue #66)。",
+                file=sys.stderr,
+            )
+        if not _verify_importable(python_bin):
+            _print_import_help(python_bin)
 
     # CI ラッパワークフローを生成 (reusable workflow 呼び出し)。
     if not args.no_workflow:

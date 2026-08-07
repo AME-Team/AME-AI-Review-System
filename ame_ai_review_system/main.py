@@ -805,7 +805,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_init.add_argument(
         "--python",
-        default=os.environ.get("AME_INIT_PYTHON"),
+        default=None,
         help="Gate 1 フックへ埋め込む Python インタープリタパス "
         "(default: AME_INIT_PYTHON env or sys.executable; Issue #66)",
     )
