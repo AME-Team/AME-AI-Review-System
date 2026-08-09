@@ -48,6 +48,12 @@ _DEFAULTS: dict[str, Any] = {
     "show_engine_info_gate2": True,
     # Issue #37: 壊れたレビュー JSON を修復する際に使うモデル (省略時は本体と同じ)。
     "review_repair_model": None,
+    # Issue #65: 壊れたレビュー JSON を LLM で修復する最大試行回数。パース失敗で
+    # ラウンド全体が不成立になるのを防ぐため、既定を従来の 2 から 3 へ引き上げる。
+    "review_repair_attempts": 3,
+    # Issue #67: stale-loop (同一指摘の繰り返し) 判定の Jaccard しきい値。修正済みの
+    # 指摘が本文を変えて再投稿された際に降格させるかを調整する。0.0 < 値 <= 1.0。
+    "stale_jaccard_threshold": 0.80,
     "engine": "claude",
     # Issue #55 B3/I3: model 既定を None 化し、非 claude エンジンはサーバー既定へ委ねる。
     # claude のみ engine.py 側で sonnet 既定を維持する (後方互換)。
@@ -230,6 +236,31 @@ def apply_repair_model(settings: dict[str, Any]) -> dict[str, Any]:
     if repair_model:
         return {**settings, "model": repair_model}
     return settings
+
+
+def max_repair_attempts(config: Mapping[str, Any] | None = None) -> int:
+    """壊れたレビュー JSON の LLM 修復最大試行回数を返す (既定 3, Issue #65).
+
+    ``review_repair_attempts: 0`` は LLM 修復を無効化する (構造的修復のみ)。
+    """
+    cfg = config if config is not None else load_config()
+    raw = cfg.get("review_repair_attempts", _DEFAULTS["review_repair_attempts"])
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(_DEFAULTS["review_repair_attempts"])
+    return value if value >= 0 else int(_DEFAULTS["review_repair_attempts"])
+
+
+def stale_threshold(config: Mapping[str, Any] | None = None) -> float:
+    """stale-loop 判定の Jaccard しきい値を返す (既定 0.80, Issue #67)."""
+    cfg = config if config is not None else load_config()
+    raw = cfg.get("stale_jaccard_threshold", _DEFAULTS["stale_jaccard_threshold"])
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return float(_DEFAULTS["stale_jaccard_threshold"])
+    return value if 0.0 < value <= 1.0 else float(_DEFAULTS["stale_jaccard_threshold"])
 
 
 def filter_review_targets(files: list[str]) -> list[str]:

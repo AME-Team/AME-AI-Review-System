@@ -165,6 +165,95 @@ def test_demote_stale_empty_current_unchanged() -> None:
     assert out == []
 
 
+def test_demote_stale_same_target_repost_demoted() -> None:
+    # Issue #67: 修正済みの指摘が本文を言い換えて再投稿されても、path + line + title が
+    # 同じなら stale と判定して LOW へ降格する。
+    same_target = {
+        "severity": "MIDDLE",
+        "path": "src/app.py",
+        "line": 42,
+        "title": "バグが残っています",
+        "body": "元の指摘詳細文",
+    }
+    prev = [stale_comment_text(same_target)]
+    reposted = [
+        {
+            "severity": "MIDDLE",
+            "path": "src/app.py",
+            "line": 42,
+            "title": "バグが残っています",
+            "body": "言い換えた全く別の詳細文です",
+        },
+    ]
+    out, stale = precommit_review._demote_stale_comments(reposted, prev)
+    assert stale is True
+    assert out[0]["severity"] == "LOW"
+
+
+def test_demote_stale_different_path_keeps_severity() -> None:
+    # path が異なれば別の指摘として降格しない。
+    prev = [
+        stale_comment_text(
+            {"path": "src/a.py", "line": 1, "title": "バグ", "body": "x"},
+        ),
+    ]
+    current = [
+        {
+            "severity": "HIGH",
+            "path": "src/b.py",
+            "line": 1,
+            "title": "バグ",
+            "body": "x",
+        },
+    ]
+    out, stale = precommit_review._demote_stale_comments(current, prev)
+    assert stale is False
+    assert out[0]["severity"] == "HIGH"
+
+
+def test_demote_stale_same_anchor_high_not_demoted() -> None:
+    # Issue #67: 同一 path+line+title でも本文が別種なら HIGH は降格しない
+    # (同一箇所へ再発した重大指摘を誤って stale 扱いしない)。
+    prev = [
+        stale_comment_text(
+            {"path": "src/app.py", "line": 42, "title": "バグ", "body": "元の指摘"},
+        ),
+    ]
+    current = [
+        {
+            "severity": "HIGH",
+            "path": "src/app.py",
+            "line": 42,
+            "title": "バグ",
+            "body": "再発した別の重大な脆弱性",
+        },
+    ]
+    out, stale = precommit_review._demote_stale_comments(current, prev)
+    assert stale is False
+    assert out[0]["severity"] == "HIGH"
+
+
+def test_demote_stale_same_anchor_middle_demoted() -> None:
+    # Issue #67: 同一 path+line+title で MIDDLE は降格する (LOW へ)。
+    prev = [
+        stale_comment_text(
+            {"path": "src/app.py", "line": 42, "title": "バグ", "body": "元の指摘"},
+        ),
+    ]
+    current = [
+        {
+            "severity": "MIDDLE",
+            "path": "src/app.py",
+            "line": 42,
+            "title": "バグ",
+            "body": "言い換えた全く別の詳細文です",
+        },
+    ]
+    out, stale = precommit_review._demote_stale_comments(current, prev)
+    assert stale is True
+    assert out[0]["severity"] == "LOW"
+
+
 # ---------------------------
 # _is_test_file / _test_target_candidates (Issue #55 B1)
 # ---------------------------
