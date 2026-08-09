@@ -94,10 +94,13 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
 - **マルチエンジン**: `config.json` / 環境変数で Claude Code・OpenCode・Antigravity
   CLIを切り替え可能。エンジン・モデル・思考量(high/medium/low)を設定ファイルで指定できる。
 
-## ランディングページ
+## ランディングページ（兼 ドキュメントサイト）
 
 プロダクトの設計概要や、コミット前（Gate 1）およびプルリクエスト時（Gate
-2）の品質チェックフローをブラウザ上でシミュレーションできるインタラクティブな紹介サイトを同梱しています。
+2）の品質チェックフローをブラウザ上でシミュレーションできる紹介サイトを同梱しています。サイトは
+**ドキュメントページ**として構成されています。
+
+左サイドバーのナビゲーションから、使い方・設定・アーキテクチャ・トラブルシューティングを閲覧できます。
 
 公開サイト: <https://tarminjapan.github.io/AME-AI-Review-System/> （`main`
 ブランチへの push で GitHub Pages に自動デプロイされます）
@@ -123,12 +126,17 @@ npm run preview --workspace=landing-page
 ```text
 .github/
   workflows/
-    review_command.yml    # `/request-review` コメントでレビューを実行するワークフロー
-    review_reply.yml      # コメント返信時に自動返答を実行するワークフロー
-    ci.yml                # 本リポジトリのCI設定（pre-commit / pytest / pyright）
+    review_command.yml    # `/request-review` コメントでレビューを実行するラッパ（再利用可は review-command.yml）
+    review-command.yml    # 再利用可能本体（workflow_call）。`main review` を実行
+    review_reply.yml      # インライン返信時に自動返答するラッパ（再利用可は review-reply.yml）
+    review-reply.yml      # 再利用可能本体（workflow_call）。`reply run` を実行
+    ci.yml                # 本リポジトリのCI設定（pre-commit / pytest / vitest / pyright / wheel 検証）
+    release.yml           # `v*` タグ push で wheel/sdist をビルドし GitHub Release に添付
+    deploy-landing-page.yml  # main への push でランディングページを GitHub Pages へデプロイ
 
 ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする資材
-  main.py                # CLI エントリポイント（review / checkout / setup サブコマンド）
+  main.py                # CLI エントリポイント（init / review / checkout / setup サブコマンド）
+  init_cmd.py            # `ame-ai-reviewer init` 本体（プリセット選択・workflow 生成）
   reply.py               # 返信プロンプト生成・スレッド解析・stale-loop検出
   github_client.py       # GitHub REST/GraphQL API 共通クライアント（Resolve 等の GraphQL 操作を含む）
   engine.py              # LLM エンジンアダプタ（claude/opencode/antigravity を切替・role別設定）
@@ -136,17 +144,24 @@ ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする�
   review_config.py       # 設定読み込み・コマンド判定ヘルパ
   static_precheck.py     # PR レビュー前段の静的解析 pre-check（Circuit Breaker）
   diff_utils.py          # diff 圧縮ユーティリティ（RTK アプローチ）
+  diff_base.py           # pre-commit ローカルレビュー用の diff 比較元（upstream/fork-point）自動解決
+  diff_truncate.py       # 戦略的 diff 切り捨て（priority / front / head_tail）
   pr_streak.py           # PR レビューの streak 管理（2回連続LOWで終了）
+  stale_detect.py        # stale-loop 検出（Jaccard 類似度）・LGTM 判定の共通実装
+  skip_guard.py          # `SKIP=ai-precommit-review` バイパスの強制ブロック（ネイティブ Git フック連携）
+  paths.py               # 設定・プロンプト・engines-ts 等のパス解決
   precommit_review.py    # pre-commit AI レビュー本体
   precommit_engine.py    # pre-commit レビューのエンジン解決・自動検出
   precommit_state.py     # pre-commit レビューの状態管理モジュール
   post_commit_reset.py   # post-commit で streak カウンタをリセット
   mermaid_check.py       # Mermaid 記法バリデータ
   setup.py               # 開発環境セットアップ補助
-  config.json            # 動作設定（push/precommit 自動レビューの ON/OFF、エンジン/モデル/思考量 等）
+  config.json            # 動作設定（precommit/PR 自動レビューの ON/OFF、エンジン/モデル/思考量 等）
   review_prompt.txt      # レビュアーへのプロンプト（レビュー観点・静的解析移管後の軽量版）
-  .semgrep/rules.yml     # Semgrep カスタムルール（CLAUDE.md §8 コーディング規約の機械的強制）
+  .semgrep/rules.yml     # Semgrep カスタムルール（CLAUDE.md §8 コーディング規約の機械的強制）8ルール
 
+  engines/               # LLM エンジン用サイドカー（opencode/claude の TS アダプタ）
+  templates/             # `init` が参照するテンプレート（preset / workflow ラッパ / ame-review 設定）
   docs/                   # 同梱ドキュメント
     setup.md              # 移植・セットアップ手順
     architecture.md       # システムアーキテクチャ・処理の流れ
@@ -159,6 +174,8 @@ scripts/
     pr_review_reply.sh         # レビュー返信ワークフロー互換のレガシーパス（互換ラッパ）
   precommit_hygiene.py         # pre-commit 関連の補助スクリプト
   check_suppression_comments.py  # 抑制コメント検証スクリプト
+  install-hooks.sh             # ネイティブ Git フック有効化（core.hooksPath=githooks、SKIP バイパス対策）
+  check_wheel_assets.sh        # wheel の同梱資産（engines-ts / templates / docs）検証
 ```
 
 ## クイックスタート

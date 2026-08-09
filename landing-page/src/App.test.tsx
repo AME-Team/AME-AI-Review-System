@@ -2,31 +2,59 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
 
+const openPage = (label: string): void => {
+  const matches = screen.getAllByRole("button", { name: label });
+  if (matches[0]) {
+    fireEvent.click(matches[0]);
+  }
+};
+
 describe("App Component", () => {
   beforeEach(() => {
     localStorage.clear();
+    window.location.hash = "";
   });
-  it("renders the Japanese titles and navigation elements", () => {
+
+  it("renders the Japanese titles and documentation navigation", () => {
     render(<App />);
     expect(screen.getAllByText(/AME AI Review/)[0]).toBeInTheDocument();
     expect(screen.getByText(/デュアルゲートAIコードレビュー/)).toBeInTheDocument();
     expect(screen.getByText(/厳格な静的解析とAIエージェント/)).toBeInTheDocument();
+    expect(screen.getByText("ドキュメント")).toBeInTheDocument();
   });
 
-  it("renders the hero header image", () => {
+  it("shows the current version badge", () => {
+    render(<App />);
+    expect(screen.getAllByText("v0.2.4").length).toBeGreaterThan(0);
+  });
+
+  it("renders the hero header image on the overview page", () => {
     render(<App />);
     expect(screen.getByRole("img", { name: "AME AI Review" })).toBeInTheDocument();
   });
 
-  it("renders the static analysis suite section with category cards", () => {
+  it("renders the static analysis suite section via sidebar navigation", () => {
     render(<App />);
-    expect(screen.getByText("静的解析プリセット一覧")).toBeInTheDocument();
+    openPage("静的解析プリセット");
+    expect(screen.getByRole("heading", { name: "静的解析プリセット" })).toBeInTheDocument();
     expect(screen.getByText("ruff (lint, ALL+preview)")).toBeInTheDocument();
     expect(screen.getByText("semgrep-custom (8 rules)")).toBeInTheDocument();
   });
 
-  it("toggles the simulated bug checkbox", () => {
+  it("renders detailed documentation pages via sidebar navigation", () => {
     render(<App />);
+    openPage("インストールと初期設定");
+    expect(screen.getByRole("heading", { name: "インストールと初期設定" })).toBeInTheDocument();
+    expect(screen.getAllByText(/ame-ai-reviewer init/).length).toBeGreaterThan(0);
+
+    openPage("config.json");
+    expect(screen.getByRole("heading", { name: "config.json" })).toBeInTheDocument();
+    expect(screen.getByText("precommit_review_enabled")).toBeInTheDocument();
+  });
+
+  it("toggles the simulated bug checkbox on the demo page", () => {
+    render(<App />);
+    openPage("動作デモ");
     const checkbox = screen.getByLabelText(
       "高重要度のバグコードをシミュレートする (AIレビューでの指摘を擬似発生)"
     );
@@ -38,6 +66,7 @@ describe("App Component", () => {
   it("runs the simulator sequence successfully", () => {
     vi.useFakeTimers();
     render(<App />);
+    openPage("動作デモ");
 
     // Initial logs check
     expect(
@@ -79,6 +108,7 @@ describe("App Component", () => {
   it("runs the simulator sequence with simulated bug and blocks commit", () => {
     vi.useFakeTimers();
     render(<App />);
+    openPage("動作デモ");
 
     const checkbox = screen.getByLabelText(
       "高重要度のバグコードをシミュレートする (AIレビューでの指摘を擬似発生)"
