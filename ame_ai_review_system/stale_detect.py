@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _TRIGRAM_SIZE = 3
@@ -56,20 +57,32 @@ def comment_text(comment: dict[str, Any]) -> str:
     severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
     (Issue #55 B2)。
 
-    Issue #67: 指摘の安定識別子である ``path`` / ``line`` / ``title`` を主体にする。
-    LLM は修正済みの同一指摘を本文 (body) を言い換えて再投稿するが、トリグラム集合
-    は本文の差異で希釈されるため本文を比較に使うと Jaccard が下がり stale 判定が
-    発火しない。path/line/title が揃う場合はこれをアンカーとして本文を除外し、
-    同一箇所への再投稿を確実に検出する。アンカーが実質的に空 (path も title も
-    無い) の場合は本文で比較する。
+    Issue #67: 指摘の安定識別子である ``path`` / ``line`` / ``title`` を
+    ``[path|line|title]`` ヘッダとして先頭に付与し、続けて本文 (body) を保持する。
+    同一箇所への再投稿はヘッダで確実に検出しつつ、全文類似度 (同一指摘の再投稿) の
+    判定にも使える。ヘッダが実質的に空 (path も title も無い) の場合は本文のみ返す。
     """
     path = str(comment.get("path", "")).strip()
     # 呼び出し元によって line が int/str で混在しても同一表現になるよう正規化する。
     line = str(comment.get("line", ""))
     title = str(comment.get("title", "")).strip()
+    body = str(comment.get("body", ""))
     if path or title:
-        return f"{path}\n{line}\n{title}"
-    return str(comment.get("body", ""))
+        return f"[{path}|{line}|{title}]\n{body}"
+    return body
+
+
+_ANCHOR_RE = re.compile(r"^\[(.*?)\]")
+
+
+def _anchor_of(text: str) -> str | None:
+    """``comment_text`` 出力からアンカー (path|line|title) を抽出する.
+
+    旧形式 (アンカーなし) の保存済み本文は ``None`` を返し、アンカー一致判定の
+    対象外とする。
+    """
+    m = _ANCHOR_RE.match(text)
+    return m.group(1) if m else None
 
 
 def demote_stale(
@@ -84,6 +97,11 @@ def demote_stale(
     進まないため、コメント単位の Jaccard stale-loop 検出で繰り返し指摘だけを LOW 扱いに
     落として escape を機能させる (Issue #55 B2)。
 
+    降格条件は以下の 2 経路の OR (Issue #67):
+      1. 全文 Jaccard がしきい値以上 (同一本文の再投稿) → severity 不問で降格。
+      2. アンカー (path|line|title) が一致し、かつ severity が LOW/MIDDLE 等の降格
+         許容対象 → HIGH/CRITICAL の過降格 (同一箇所へ再発した別種の重大指摘) を防ぐ。
+
     レビュー全体ではなくコメント単位で突き合わせることで、繰り返し指摘の中に紛れた
     新規の CRITICAL/HIGH 指摘を誤って降格しない。escape 条件自体は変更しない。
     ``threshold`` で Jaccard しきい値を上書きできる (Issue #67)。
@@ -96,10 +114,43 @@ def demote_stale(
     result: list[dict[str, Any]] = []
     for comment in comments:
         current = comment_text(comment)
-        if not current.strip() or not any(
-            is_stale_loop([prev, current], threshold=threshold) for prev in prev_texts
+        if current.strip() and _matches_any_prev(
+            current,
+            comment,
+            prev_texts,
+            threshold=threshold,
         ):
-            result.append(comment)
+            result.append({**comment, "severity": "LOW"})
             continue
-        result.append({**comment, "severity": "LOW"})
+        result.append(comment)
     return result
+
+
+def _matches_any_prev(
+    current: str,
+    comment: dict[str, Any],
+    prev_texts: list[str],
+    *,
+    threshold: float | None,
+) -> bool:
+    """前回のいずれかの本文と ``current`` が stale 関係にあるかを判定する."""
+    current_anchor = _anchor_of(current)
+    for prev in prev_texts:
+        if is_stale_loop([prev, current], threshold=threshold):
+            return True
+        if (
+            current_anchor
+            and _anchor_of(prev) == current_anchor
+            and _is_demotable(comment)
+        ):
+            return True
+    return False
+
+
+_DEMOTABLE_SEVERITIES = frozenset({"LOW", "MIDDLE", "WARNING", "INFO"})
+
+
+def _is_demotable(comment: dict[str, Any]) -> bool:
+    """Stale 判定による降格を許容する severity かを返す (HIGH/CRITICAL は除外)."""
+    severity = str(comment.get("severity", "")).upper().strip()
+    return severity in _DEMOTABLE_SEVERITIES
