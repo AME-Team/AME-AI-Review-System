@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from . import review_config
+
 _FALLBACK: dict[str, Any] = {
     "summary": (
         "AIレビューの出力をJSONとして解析できませんでした。"
@@ -20,8 +22,6 @@ _FALLBACK: dict[str, Any] = {
     ),
     "comments": [],
 }
-
-_DEFAULT_REPAIR_ATTEMPTS = 3
 
 
 def _parse_review_text(raw: str) -> tuple[dict[str, Any], bool]:
@@ -94,8 +94,9 @@ def parse_review_json_with_flag(
 
     ``repair`` は初期解析に失敗したときに呼ばれ、壊れた出力を修復したテキストを
     返す (``None`` なら修復不可)。修復は ``max_attempts`` 回 (省略時は
-    ``_DEFAULT_REPAIR_ATTEMPTS`` = 3) 再試行する。``max_attempts=0`` は LLM 修復を
-    無効にする。それでも解析できない場合は ``(fallback, True)`` となる (Issue #65)。
+    ``review_config.max_repair_attempts()`` の値) 再試行する。``max_attempts=0`` は
+    LLM 修復を無効にする。それでも解析できない場合は ``(fallback, True)`` となる
+    (Issue #65)。
     """
     raw = pathlib.Path(path).read_text(encoding="utf-8").strip()
 
@@ -107,7 +108,7 @@ def parse_review_json_with_flag(
         limit = (
             max_attempts
             if max_attempts is not None and max_attempts >= 0
-            else _DEFAULT_REPAIR_ATTEMPTS
+            else review_config.max_repair_attempts()
         )
         attempts = 0
         while is_fallback and attempts < limit:
