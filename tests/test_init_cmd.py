@@ -182,14 +182,24 @@ def test_init_falls_back_to_sys_executable(
 def test_init_default_python_mode_embeds_pinned_wheel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Issue #79/#84: 既定方式は wheel URL + #sha256= を additional_dependencies に
-    # 埋め込み、絶対パスを含まない。
+    # Issue #79/#84: 既定方式は wheel URL + #sha256= を各フックの
+    # additional_dependencies に埋め込み、絶対パスを含まない。
     root = _init_in(tmp_path, monkeypatch)
     assert init_cmd.cmd_init(_make_args(python=None)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "ame_ai_review_system-0.2.3-py3-none-any.whl#sha256=aaaaaaaaaaaaaaaa" in cfg
-    assert "&ame-wheel-dep" in cfg
-    assert "*ame-wheel-dep" in cfg
+    assert "ame-wheel-dep" not in cfg
+
+
+def test_init_default_python_mode_all_hooks_self_contained(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 指摘対応: YAML アンカーに依存せず、3 フックそれぞれに直接 wheel を記述する。
+    # これによりフック削除・並べ替えでも .pre-commit-config.yaml のロードが破綻しない。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(python=None)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert cfg.count("ame_ai_review_system @ https://github.com/") == 3
 
 
 def test_init_version_flag_controls_wheel_url(

@@ -18,6 +18,12 @@ _MIN_COMMENTS_FOR_STALE = 2
 # Issue #83: 同一スレッドでこの回数連続 non-LGTM 返信が続いたら強制 LGTM する。
 _DEFAULT_MAX_CONSECUTIVE_NON_LGTM = 3
 
+# LGTM 返信は reply.py の固定テンプレートから生成される。本文の部分一致だと
+# 「まだ LGTM ではありません」等の非 LGTM 返信に LGTM 語が含まれた場合に
+# 誤って解決扱いになり consecutive_non_lgtm がリセットされるため、
+# 固定マーカーでの判定に限定する (指摘対応)。
+_LGTM_BODY_MARKERS = ("LGTM ✅", "自動 LGTM")
+
 
 def trigrams(text: str) -> set[str]:
     """本文から文字トリグラム集合を抽出する."""
@@ -55,8 +61,12 @@ def is_stale_loop(
 
 
 def is_lgtm_body(body: str) -> bool:
-    """返信本文が LGTM (解決) かどうかを返す (Issue #83)."""
-    return "LGTM" in body.upper()
+    """返信本文が LGTM (解決) かどうかを返す (Issue #83).
+
+    固定テンプレート由来のマーカーでのみ判定し、本文中の「LGTM」という語の
+    部分一致では判定しない (非 LGTM 返信の誤解決を防ぐ)。
+    """
+    return any(marker in body for marker in _LGTM_BODY_MARKERS)
 
 
 def consecutive_non_lgtm(comment_bodies: list[str]) -> int:

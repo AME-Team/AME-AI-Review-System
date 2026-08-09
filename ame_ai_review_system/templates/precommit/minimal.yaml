@@ -26,7 +26,7 @@ repos:
         name: "AI review skip guard (Issue #26)"
         entry: __AI_HOOK_ENTRY__ame_ai_review_system.skip_guard
         language: __AI_LANGUAGE__
-        additional_dependencies: __AI_ADDEPS_ANCHOR__
+        additional_dependencies: __AI_ADDEPS__
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
@@ -35,7 +35,7 @@ repos:
         name: "AI Code Review (pre-commit)"
         entry: __AI_HOOK_ENTRY__ame_ai_review_system.precommit_review
         language: __AI_LANGUAGE__
-        additional_dependencies: __AI_ADDEPS_REF__
+        additional_dependencies: __AI_ADDEPS__
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
@@ -44,7 +44,7 @@ repos:
         name: "AI review state reset (post-commit)"
         entry: __AI_HOOK_ENTRY__ame_ai_review_system.post_commit_reset
         language: __AI_LANGUAGE__
-        additional_dependencies: __AI_ADDEPS_REF__
+        additional_dependencies: __AI_ADDEPS__
         pass_filenames: false
         always_run: true
         stages: [post-commit]

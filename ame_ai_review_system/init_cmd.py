@@ -48,8 +48,7 @@ _PRESETS: dict[str, str] = {
 #      オフライン環境向けに実インタープリタパスを埋め込む (Issue #66 の後継)。
 _AI_HOOK_ENTRY = "__AI_HOOK_ENTRY__"
 _AI_LANGUAGE = "__AI_LANGUAGE__"
-_AI_ADDEPS_ANCHOR = "__AI_ADDEPS_ANCHOR__"
-_AI_ADDEPS_REF = "__AI_ADDEPS_REF__"
+_AI_ADDEPS = "__AI_ADDEPS__"
 
 # ``language: system`` 時に additional_dependencies の代わりに置く説明コメント。
 _SYSTEM_ADDEPS_COMMENT = (
@@ -152,16 +151,14 @@ def _render_preset(
     *,
     language: str,
     entry_prefix: str,
-    addeps_anchor: str,
-    addeps_ref: str,
+    addeps: str,
 ) -> str:
     """テンプレートの Gate 1 フック用プレースホルダをレンダリングする (Issue #79)."""
     return (
         content
         .replace(_AI_HOOK_ENTRY, entry_prefix)
         .replace(_AI_LANGUAGE, language)
-        .replace(f"additional_dependencies: {_AI_ADDEPS_ANCHOR}", addeps_anchor)
-        .replace(f"additional_dependencies: {_AI_ADDEPS_REF}", addeps_ref)
+        .replace(f"additional_dependencies: {_AI_ADDEPS}", addeps)
     )
 
 
@@ -300,8 +297,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             preset_content,
             language="system",
             entry_prefix=f"{python_bin} -m ",
-            addeps_anchor=_SYSTEM_ADDEPS_COMMENT,
-            addeps_ref=_SYSTEM_ADDEPS_COMMENT,
+            addeps=_SYSTEM_ADDEPS_COMMENT,
         )
     else:
         # 既定: language: python + wheel (絶対パス非依存、各環境で venv 自動作成)。
@@ -318,14 +314,13 @@ def cmd_init(args: argparse.Namespace) -> int:
                 ".pre-commit-config.yaml を編集してください (Issue #84)。",
                 file=sys.stderr,
             )
+        # 指摘対応: フックの削除/並べ替えで YAML アンカー (undefined alias) が破綻しないよう、
+        # 各フックに同一の additional_dependencies を直接記述する。
         preset_content = _render_preset(
             preset_content,
             language="python",
             entry_prefix="python -m ",
-            addeps_anchor=(
-                f"additional_dependencies: &ame-wheel-dep\n          - {dep}"
-            ),
-            addeps_ref="additional_dependencies: *ame-wheel-dep",
+            addeps=f"additional_dependencies:\n          - {dep}",
         )
         print(
             f"  Gate 1: language: python + wheel v{version}"
