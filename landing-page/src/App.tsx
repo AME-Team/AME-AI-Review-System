@@ -101,15 +101,29 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const onHashChange = (): void => {
       const id = parseHash();
-      if (id) {
-        setActivePage(id);
-      }
+      setActivePage(id ?? "overview");
     };
     window.addEventListener("hashchange", onHashChange);
     return (): void => {
       window.removeEventListener("hashchange", onHashChange);
     };
   }, []);
+
+  // Focus management for the mobile sidebar drawer (a11y)
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileDrawerRef = useRef<HTMLDivElement>(null);
+  const wasDrawerOpenRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      wasDrawerOpenRef.current = true;
+      const firstButton = mobileDrawerRef.current?.querySelector<HTMLButtonElement>("button");
+      firstButton?.focus();
+    } else if (wasDrawerOpenRef.current) {
+      wasDrawerOpenRef.current = false;
+      sidebarToggleRef.current?.focus();
+    }
+  }, [sidebarOpen]);
 
   // Sync settings with DOM attributes and localStorage
   useEffect(() => {
@@ -220,10 +234,12 @@ export default function App(): React.JSX.Element {
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
+              ref={sidebarToggleRef}
               onClick={() => {
                 setSidebarOpen(!sidebarOpen);
               }}
-              aria-label={t.sidebarTitle}
+              aria-label={sidebarOpen ? t.menuClose : t.menuOpen}
+              aria-expanded={sidebarOpen}
               className="lg:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
             >
               <svg
@@ -457,7 +473,18 @@ export default function App(): React.JSX.Element {
 
         {/* Mobile Sidebar Drawer */}
         {sidebarOpen && (
-          <div className="lg:hidden fixed inset-0 z-40" role="dialog" aria-modal="true">
+          <div
+            className="lg:hidden fixed inset-0 z-40"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t.sidebarTitle}
+            ref={mobileDrawerRef}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setSidebarOpen(false);
+              }
+            }}
+          >
             <div
               className="absolute inset-0 bg-black/40"
               onClick={() => {

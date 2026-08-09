@@ -127,6 +127,16 @@ describe("App Component", () => {
     vi.useRealTimers();
   });
 
+  it("opens and closes the mobile sidebar drawer with Escape", () => {
+    render(<App />);
+    const menuBtn = screen.getByRole("button", { name: "メニューを開く" });
+    fireEvent.click(menuBtn);
+    const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("changes theme mode setting (light/dark/system)", () => {
     render(<App />);
     const settingsBtn = screen.getByRole("button", { name: "表示設定" });

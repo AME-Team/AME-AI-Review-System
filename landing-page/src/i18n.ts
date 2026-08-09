@@ -95,6 +95,8 @@ export interface TranslationResource {
   pageTroubleshooting: string;
   pagePrev: string;
   pageNext: string;
+  menuOpen: string;
+  menuClose: string;
 }
 
 export const translations: Record<Locale, TranslationResource> = {
@@ -205,6 +207,8 @@ export const translations: Record<Locale, TranslationResource> = {
     pageTroubleshooting: "トラブルシューティング",
     pagePrev: "前へ",
     pageNext: "次へ",
+    menuOpen: "メニューを開く",
+    menuClose: "メニューを閉じる",
   },
   en: {
     title: "AME AI Review",
@@ -313,5 +317,7 @@ export const translations: Record<Locale, TranslationResource> = {
     pageTroubleshooting: "Troubleshooting",
     pagePrev: "Previous",
     pageNext: "Next",
+    menuOpen: "Open menu",
+    menuClose: "Close menu",
   },
 };
