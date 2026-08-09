@@ -10,8 +10,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from . import review_config
+
 _TRIGRAM_SIZE = 3
-_STALE_JACCARD_THRESHOLD = 0.80
 _STALE_MIN_NGRAMS = 4
 _MIN_COMMENTS_FOR_STALE = 2
 
@@ -46,7 +47,7 @@ def is_stale_loop(
     if len(g1) < _STALE_MIN_NGRAMS or len(g2) < _STALE_MIN_NGRAMS:
         return g1 == g2
 
-    cutoff = threshold if threshold is not None else _STALE_JACCARD_THRESHOLD
+    cutoff = threshold if threshold is not None else review_config.stale_threshold()
     jaccard = len(g1 & g2) / len(g1 | g2)
     return jaccard >= cutoff
 
@@ -63,8 +64,9 @@ def comment_text(comment: dict[str, Any]) -> str:
     判定にも使える。ヘッダが実質的に空 (path も title も無い) の場合は本文のみ返す。
     """
     path = str(comment.get("path", "")).strip()
-    # 呼び出し元によって line が int/str で混在しても同一表現になるよう正規化する。
-    line = str(comment.get("line", ""))
+    # キーが欠如している場合と値が null の場合を同一表現 ("") に正規化する。
+    line_value = comment.get("line")
+    line = "" if line_value is None else str(line_value)
     title = str(comment.get("title", "")).strip()
     body = str(comment.get("body", ""))
     if path or title:
