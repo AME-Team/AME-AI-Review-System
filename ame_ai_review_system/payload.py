@@ -85,9 +85,6 @@ def _try_parse_with_structural_repair(raw: str) -> tuple[dict[str, Any], bool]:
     return review, is_fallback
 
 
-_MAX_REPAIR_ATTEMPTS = 3
-
-
 def parse_review_json_with_flag(
     path: str,
     repair: Callable[[str], str | None] | None = None,
@@ -97,8 +94,8 @@ def parse_review_json_with_flag(
 
     ``repair`` は初期解析に失敗したときに呼ばれ、壊れた出力を修復したテキストを
     返す (``None`` なら修復不可)。修復は ``max_attempts`` 回 (省略時は
-    ``_DEFAULT_REPAIR_ATTEMPTS`` = 3) 再試行し、それでも解析できない場合は
-    ``(fallback, True)`` となる (Issue #65)。
+    ``_DEFAULT_REPAIR_ATTEMPTS`` = 3) 再試行する。``max_attempts=0`` は LLM 修復を
+    無効にする。それでも解析できない場合は ``(fallback, True)`` となる (Issue #65)。
     """
     raw = pathlib.Path(path).read_text(encoding="utf-8").strip()
 
@@ -109,7 +106,7 @@ def parse_review_json_with_flag(
         base = _strip_tool_call_syntax(raw)
         limit = (
             max_attempts
-            if max_attempts and max_attempts > 0
+            if max_attempts is not None and max_attempts >= 0
             else _DEFAULT_REPAIR_ATTEMPTS
         )
         attempts = 0

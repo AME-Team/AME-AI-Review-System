@@ -236,14 +236,17 @@ def apply_repair_model(settings: dict[str, Any]) -> dict[str, Any]:
 
 
 def max_repair_attempts(config: Mapping[str, Any] | None = None) -> int:
-    """壊れたレビュー JSON の LLM 修復最大試行回数を返す (既定 3, Issue #65)."""
+    """壊れたレビュー JSON の LLM 修復最大試行回数を返す (既定 3, Issue #65).
+
+    ``review_repair_attempts: 0`` は LLM 修復を無効化する (構造的修復のみ)。
+    """
     cfg = config if config is not None else load_config()
     raw = cfg.get("review_repair_attempts", _DEFAULTS["review_repair_attempts"])
     try:
         value = int(raw)
     except (TypeError, ValueError):
         return int(_DEFAULTS["review_repair_attempts"])
-    return value if value > 0 else int(_DEFAULTS["review_repair_attempts"])
+    return value if value >= 0 else int(_DEFAULTS["review_repair_attempts"])
 
 
 def filter_review_targets(files: list[str]) -> list[str]:

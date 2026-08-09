@@ -199,6 +199,26 @@ def test_parse_review_json_default_attempts_is_three(tmp_path: Path) -> None:
     assert calls["n"] == 3
 
 
+def test_parse_review_json_zero_attempts_disables_repair(tmp_path: Path) -> None:
+    # Issue #65: max_attempts=0 は LLM 修復を無効化する (構造的修復のみ)。
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    calls = {"n": 0}
+
+    def _repair(_raw: str) -> str | None:
+        calls["n"] += 1
+        return "still broken"
+
+    _res, is_fallback = parse_review_json_with_flag(
+        str(tmp_file),
+        repair=_repair,
+        max_attempts=0,
+    )
+    assert is_fallback is True
+    assert calls["n"] == 0
+
+
 def test_build_payloads_omits_reviewed_sha_on_fallback() -> None:
     # Issue #65: パース失敗時は reviewed-sha マーカーを付けず再レビューを可能にする。
     from ame_ai_review_system.payload import build_review_payloads
