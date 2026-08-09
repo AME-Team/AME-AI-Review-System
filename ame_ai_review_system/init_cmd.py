@@ -31,6 +31,7 @@ _PRESETS: dict[str, str] = {
     "minimal": "minimal.yaml",
     "python": "python.yaml",
     "text": "text.yaml",
+    "ts": "ts.yaml",
 }
 
 # Gate 1 の AI フック entry: に埋め込む Python インタープリタのプレースホルダ。
@@ -100,6 +101,48 @@ def _print_import_help(python_bin: str) -> None:
     )
 
 
+_SKIP_DIRS = frozenset(
+    {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"},
+)
+
+
+def _repo_has_suffix(root: Path, suffixes: frozenset[str]) -> bool:
+    """リポジトリ内に指定の拡張子のファイルが存在するかを判定する.
+
+    node_modules / .git / venv 等をスキップして走査し、見つけたら即返す。
+    """
+    for _dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        if any(name.endswith(suffix) for name in filenames for suffix in suffixes):
+            return True
+    return False
+
+
+def _resolve_preset(preset: str, root: Path) -> str:
+    """Preset 名を解決する (Issue #69).
+
+    ``auto`` (既定) のときは package.json と .ts/.tsx ソースの有無で判定する:
+      - package.json があり .ts/.tsx があり .py が無い → ``ts``
+      - それ以外 (Python 主体 / 混在 / どちらも無い) → ``full``
+    Python 主体のリポジトリに package.json が付随していても Python ゲート (ruff/mypy)
+    が消えないよう、.ts/.tsx の存在も併せて判定する (Issue #69)。
+    明示指定された preset はそのまま返す。
+    """
+    if preset != "auto":
+        return preset
+    has_package_json = (root / "package.json").exists()
+    has_ts = _repo_has_suffix(root, frozenset({".ts", ".tsx"}))
+    has_py = _repo_has_suffix(root, frozenset({".py"}))
+    if has_package_json and has_ts and not has_py:
+        print("  package.json + .ts/.tsx detected; preset = ts")
+        return "ts"
+    if has_package_json and not has_ts:
+        print("  package.json but no .ts/.tsx; preset = full (Python hooks kept)")
+    else:
+        print("  no .ts/.tsx; preset = full")
+    return "full"
+
+
 def _write(dst: Path, content: str, *, force: bool) -> bool:
     if dst.exists() and not force:
         print(f"  skip (exists): {dst}")
@@ -134,7 +177,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         _copy_template(src, ame_dir / name, force=args.force)
 
     # .pre-commit-config.yaml を preset から生成。
-    preset_file = _PRESETS.get(args.preset, _PRESETS["full"])
+    preset_name = _resolve_preset(args.preset, root)
+    preset_file = _PRESETS.get(preset_name, _PRESETS["full"])
     src = _templates_dir() / "precommit" / preset_file
     if not src.exists():
         print(f"ERROR: preset template not found: {src}", file=sys.stderr)

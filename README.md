@@ -185,7 +185,12 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
    ```
 
-   - `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
+   - `--preset`: pre-commit 静的解析セット
+     (`auto` / `full` / `python` / `text` / `ts` / `minimal`)。
+     `auto` (既定) は `package.json` + `.ts`/`.tsx` ソースの有無で `ts` か `full` を
+     自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
+     `./node_modules/.bin` を直接起動するため、事前に `npm install` (または pnpm/yarn) が
+     必要 (未実施時は「No such file or directory」で失敗する)
    - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
    - `--python`: Gate 1 (pre-commit AI フック) が使う Python インタープリタパス。
      省略時は `AME_INIT_PYTHON` 環境変数、次に `ame-ai-reviewer` 自身を実行中の

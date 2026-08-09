@@ -52,7 +52,7 @@ _DEFAULTS: dict[str, Any] = {
     # ラウンド全体が不成立になるのを防ぐため、既定を従来の 2 から 3 へ引き上げる。
     "review_repair_attempts": 3,
     # Issue #67: stale-loop (同一指摘の繰り返し) 判定の Jaccard しきい値。修正済みの
-    # 指摘が本文を変えて再投稿された際に降格させるかを調整する。0.0〜1.0。
+    # 指摘が本文を変えて再投稿された際に降格させるかを調整する。0.0 < 値 <= 1.0。
     "stale_jaccard_threshold": 0.80,
     "engine": "claude",
     # Issue #55 B3/I3: model 既定を None 化し、非 claude エンジンはサーバー既定へ委ねる。
