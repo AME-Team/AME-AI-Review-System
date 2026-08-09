@@ -15,6 +15,16 @@ from . import review_config
 _TRIGRAM_SIZE = 3
 _STALE_MIN_NGRAMS = 4
 _MIN_COMMENTS_FOR_STALE = 2
+# Issue #83: 同一スレッドでこの回数連続 non-LGTM 返信が続いたら強制 LGTM する。
+_DEFAULT_MAX_CONSECUTIVE_NON_LGTM = 3
+
+# LGTM 返信は reply.py の固定テンプレートから生成される。本文の部分一致だと
+# 「まだ LGTM ではありません」等の非 LGTM 返信に LGTM 語が含まれた場合に
+# 誤って解決扱いになり consecutive_non_lgtm がリセットされるため、
+# 固定マーカーでの判定に限定する (指摘対応)。
+# reply.py の _DEFAULT_LGTM と単一情報源にする (LGTM_MARKER をテンプレートへ埋め込む)。
+LGTM_MARKER = "LGTM ✅"
+LGTM_BODY_MARKERS = (LGTM_MARKER, "自動 LGTM")
 
 
 def trigrams(text: str) -> set[str]:
@@ -50,6 +60,47 @@ def is_stale_loop(
     cutoff = threshold if threshold is not None else review_config.stale_threshold()
     jaccard = len(g1 & g2) / len(g1 | g2)
     return jaccard >= cutoff
+
+
+def is_lgtm_body(body: str) -> bool:
+    """返信本文が LGTM (解決) かどうかを返す (Issue #83).
+
+    固定テンプレート由来のマーカーでのみ判定し、本文中の「LGTM」という語の
+    部分一致では判定しない (非 LGTM 返信の誤解決を防ぐ)。
+    """
+    return any(marker in body for marker in LGTM_BODY_MARKERS)
+
+
+def consecutive_non_lgtm(comment_bodies: list[str]) -> int:
+    """末尾から数えた連続 non-LGTM 返信の件数を返す (Issue #83).
+
+    ``comment_bodies`` は時系列順 (古い → 新しい) を想定する。末尾が LGTM なら
+    ``0`` (解決済み)。返信判定は 1 ラウンド 1 返信のため、この連続数が
+    「ボットが何度言い換えて同じ指摘を繰り返したか」を表す。
+    """
+    count = 0
+    for body in reversed(comment_bodies):
+        if is_lgtm_body(body):
+            break
+        count += 1
+    return count
+
+
+def is_stale_thread(
+    comment_bodies: list[str],
+    *,
+    threshold: float | None = None,
+    max_consecutive_non_lgtm: int = _DEFAULT_MAX_CONSECUTIVE_NON_LGTM,
+) -> bool:
+    """同一スレッドでの膠着状態を判定する (Issue #83).
+
+    Jaccard stale-loop (既存) に加え、本文を毎回言い換えても Jaccard が閾値未満で
+    検出をすり抜けるケースを塞ぐため、末尾から連続する non-LGTM 返信の回数でも
+    判定する。どちらか一方でも成立すれば ``True``。
+    """
+    if is_stale_loop(comment_bodies, threshold=threshold):
+        return True
+    return consecutive_non_lgtm(comment_bodies) >= max_consecutive_non_lgtm
 
 
 def comment_text(comment: dict[str, Any]) -> str:

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from ame_ai_review_system import github_client, reply
 from ame_ai_review_system.reply import _extract_json, _group_by_thread
-from ame_ai_review_system.stale_detect import is_stale_loop
+from ame_ai_review_system.stale_detect import is_stale_loop, is_stale_thread
 
 
 def test_extract_json_plain() -> None:
@@ -82,6 +82,116 @@ def test_stale_loop_threshold_override_detects_lower_similarity() -> None:
 def test_stale_loop_threshold_none_uses_default() -> None:
     body = "この関数は例外をキャッチしていません 修正してください"
     assert is_stale_loop([body, body], threshold=None) is True
+
+
+# --- is_stale_thread (Issue #83) ------------------------------------------
+
+
+def test_stale_thread_false_for_single_non_lgtm() -> None:
+    # 1 回の non-LGTM 返信だけでは stale にしない。
+    assert is_stale_thread(["このファイルの存在を確認してください"]) is False
+
+
+def test_stale_thread_false_with_ltgm_at_tail() -> None:
+    # 末尾が LGTM なら解決済みのため stale にしない。
+    bodies = [
+        "修正してください",
+        "修正してください",
+        "対応確認しました。LGTM ✅",
+    ]
+    assert is_stale_thread(bodies) is False
+
+
+def test_is_lgtm_body_requires_fixed_marker() -> None:
+    # 指摘対応: 「まだ LGTM ではありません」等の非 LGTM 本文に LGTM 語が含まれて
+    # いても固定マーカーが無ければ解決扱いしない。
+    from ame_ai_review_system.stale_detect import is_lgtm_body
+
+    assert is_lgtm_body("対応確認しました。LGTM ✅ Resolve してください。")
+    assert not is_lgtm_body("まだ LGTM ではありません。対応してください。")
+    assert not is_lgtm_body("以前の LGTM 指摘とは別に修正が必要です")
+
+
+def test_stale_thread_does_not_reset_on_lgtm_word_in_non_lgtm() -> None:
+    # 指摘対応: 非 LGTM 返信に「LGTM」という語が含まれても連続 non-LGTM カウントを
+    # リセットしないため、強制 LGTM ガードが発動する。
+    bodies = [
+        "この関数は例外をキャッチしていません 修正してください",
+        "まだ LGTM ではありません 追加の対応が必要です",
+        "先ほどの LGTM 指摘とは別に、まだ修正が確認できません",
+    ]
+    assert is_stale_thread(bodies) is True
+
+
+def test_engine_error_lgtm_fallback_resets_stale_counter() -> None:
+    # 指摘対応: エンジン出力のパース失敗時も自動 LGTM 本文 (固定マーカー) が投稿され、
+    # 連続 non-LGTM カウントをリセットする。パース失敗が stale 判定に誤加算されない
+    # ことを明示する。
+    fallback = "⚠️ エンジンエラーにより自動 LGTM しています。内容を確認してください。"
+    from ame_ai_review_system.stale_detect import is_lgtm_body
+
+    assert is_lgtm_body(fallback)
+    assert (
+        is_stale_thread(["修正してください", "まだ直っていません", fallback]) is False
+    )
+
+
+def test_default_lgtm_derived_from_shared_marker() -> None:
+    # 指摘対応: reply._DEFAULT_LGTM は stale_detect の LGTM_MARKER から構築され、
+    # LGTM 判定の固定マーカーと単一情報源になる。
+    from ame_ai_review_system.stale_detect import LGTM_MARKER, is_lgtm_body
+
+    assert reply._DEFAULT_LGTM == "対応確認しました。LGTM ✅ Resolve してください。"
+    assert LGTM_MARKER in reply._DEFAULT_LGTM
+    assert is_lgtm_body(reply._DEFAULT_LGTM)
+
+
+def test_stale_thread_detects_consecutive_non_lgtm() -> None:
+    # 同一スレッドで 3 回連続 non-LGTM 返信 → stale (Issue #83)。
+    bodies = [
+        "この関数は例外をキャッチしていません 修正してください",
+        "diff を確認しても修正されていません 対応が必要です",
+        "まだ修正されていません 具体的な対応をお願いします",
+    ]
+    assert is_stale_thread(bodies) is True
+
+
+def test_stale_thread_allows_rewording_escaping_jaccard() -> None:
+    # 言い換えで Jaccard を下回っていても連続 non-LGTM で検出する (Issue #83)。
+    c1 = "この関数は例外をキャッチしていません 修正してください"
+    c2 = "変数名が不適切です snake_case を使ってください"
+    c3 = "別の観点ですがまだ直っていません 対応してください"
+    assert is_stale_loop([c2, c3]) is False
+    assert is_stale_thread([c1, c2, c3]) is True
+
+
+def test_stale_thread_custom_max_consecutive() -> None:
+    bodies = ["対応してください", "まだ直っていません"]
+    assert is_stale_thread(bodies, max_consecutive_non_lgtm=3) is False
+    assert is_stale_thread(bodies, max_consecutive_non_lgtm=2) is True
+
+
+def test_build_prompt_warns_not_to_assert_file_existence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #83: 返信プロンプトに「diff から確認できないファイルの存在を断定しない」
+    # 指示を含む。
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat", in_reply_to=10),
+    ]
+    monkeypatch.setattr(reply, "_get_thread_comments", lambda *_args: comments)
+    monkeypatch.setattr(reply, "_get_pr_diff", lambda *_args, **_kwargs: "diff")
+    prompt = reply._build_prompt_for_thread(
+        "api",
+        "octo/repo",
+        "7",
+        "10",
+        "tok",
+        "ame-ai-reviewer",
+        "main",
+    )
+    assert "存在・非存在は断定しない" in prompt
 
 
 # --- _group_by_thread (GitHub flat comments API) ---------------------------
