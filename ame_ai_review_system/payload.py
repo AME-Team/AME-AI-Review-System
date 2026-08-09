@@ -13,8 +13,13 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from . import review_config
+
 _FALLBACK: dict[str, Any] = {
-    "summary": "AIレビューの出力をJSONとして解析できませんでした。",
+    "summary": (
+        "AIレビューの出力をJSONとして解析できませんでした。"
+        "一時的なエラーです。``/request-review`` で再度レビューを依頼してください。"
+    ),
     "comments": [],
 }
 
@@ -80,18 +85,18 @@ def _try_parse_with_structural_repair(raw: str) -> tuple[dict[str, Any], bool]:
     return review, is_fallback
 
 
-_MAX_REPAIR_ATTEMPTS = 2
-
-
 def parse_review_json_with_flag(
     path: str,
     repair: Callable[[str], str | None] | None = None,
+    max_attempts: int | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """レビュー JSON を解析する.
 
     ``repair`` は初期解析に失敗したときに呼ばれ、壊れた出力を修復したテキストを
-    返す (``None`` なら修復不可)。修復は最大 ``_MAX_REPAIR_ATTEMPTS`` 回再試行し、
-    それでも解析できない場合は ``(fallback, True)``。
+    返す (``None`` なら修復不可)。修復は ``max_attempts`` 回 (省略時は
+    ``review_config.max_repair_attempts()`` の値) 再試行する。``max_attempts=0`` は
+    LLM 修復を無効にする。それでも解析できない場合は ``(fallback, True)`` となる
+    (Issue #65)。
     """
     raw = pathlib.Path(path).read_text(encoding="utf-8").strip()
 
@@ -100,8 +105,13 @@ def parse_review_json_with_flag(
         # 構造的修復済みの元テキストを修復入力に使う。前回の修復出力を繋ぐと
         # JSON 断片が失われエラーが増幅されるため、毎回同じ入力を再送する。
         base = _strip_tool_call_syntax(raw)
+        limit = (
+            max_attempts
+            if max_attempts is not None and max_attempts >= 0
+            else review_config.max_repair_attempts()
+        )
         attempts = 0
-        while is_fallback and attempts < _MAX_REPAIR_ATTEMPTS:
+        while is_fallback and attempts < limit:
             repaired = repair(base)
             attempts += 1
             if not repaired or not repaired.strip():
@@ -252,8 +262,15 @@ def build_review_payloads(
     review: dict[str, Any],
     valid_lines: dict[str, set[int]],
     head_sha: str,
+    *,
+    is_fallback: bool = False,
 ) -> list[dict[str, Any]]:
-    """レビューコメントから GitHub review API のペイロード一覧を構築する."""
+    """レビューコメントから GitHub review API のペイロード一覧を構築する.
+
+    ``is_fallback`` が真のとき (JSON パース失敗) は ``reviewed-sha`` マーカーを
+    付与せず、同一 SHA への再レビューを可能にする (Issue #65)。パース失敗で SHA を
+    reviewed 扱いすると開発者が再レビューできずラウンドが行き詰まるため。
+    """
     severity_icon = {
         "CRITICAL": "🔴",
         "HIGH": "🟠",
@@ -322,11 +339,9 @@ def build_review_payloads(
             f"*{body_only_count} 件は diff 外または追加行なしのためレビューボディに記載。*"
         )
     joined = "\n".join(parts)
-    summary_body = (
-        f"### 総評\n{review.get('summary', '')}\n\n"
-        f"---\n{joined}\n"
-        f"<!-- reviewed-sha: {head_sha} -->"
-    )
+    summary_body = f"### 総評\n{review.get('summary', '')}\n\n---\n{joined}\n"
+    if not is_fallback:
+        summary_body += f"<!-- reviewed-sha: {head_sha} -->\n"
     summary_payload: dict[str, Any] = {
         "event": "COMMENT",
         "body": summary_body,
