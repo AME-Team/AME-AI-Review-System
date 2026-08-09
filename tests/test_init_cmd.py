@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ def _make_args(**kwargs: object) -> argparse.Namespace:
         "with_engines": False,
         "force": False,
         "python": None,
+        "version": None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -25,6 +27,12 @@ def _init_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / ".git").mkdir()
     monkeypatch.setenv("AME_REVIEW_PROJECT_ROOT", str(tmp_path))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 既定 (language: python) 方式のテストが GitHub API に依存しないよう固定ハッシュを返す。
+    monkeypatch.setattr(init_cmd, "_resolve_wheel_sha256", lambda _version: "a" * 64)
 
 
 def test_init_creates_expected_files(
@@ -131,38 +139,90 @@ def test_init_requires_ref_unless_no_workflow(
 def test_init_embeds_python_bin_in_preset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Issue #66: PEP 668 環境向けに Gate 1 フックの entry: へ実インタープリタを埋め込む。
+    # --python 指定時は language: system で実インタープリタを埋め込む (Issue #66/#79)。
     root = _init_in(tmp_path, monkeypatch)
     monkeypatch.setattr(init_cmd, "_verify_importable", lambda _p: True)
     custom = "/custom/venv/bin/python"
     assert init_cmd.cmd_init(_make_args(python=custom)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert f"entry: {custom} -m ame_ai_review_system." in cfg
+    assert "language: system" in cfg
     assert "__PYTHON_BIN__" not in cfg
+    assert "__AI_HOOK_ENTRY__" not in cfg
+    assert "__AI_LANGUAGE__" not in cfg
 
 
 def test_init_python_bin_from_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # AME_INIT_PYTHON 指定時も language: system で生成する (Issue #66/#79)。
     root = _init_in(tmp_path, monkeypatch)
     monkeypatch.setenv("AME_INIT_PYTHON", "/env/python")
     monkeypatch.setattr(init_cmd, "_verify_importable", lambda _p: True)
     assert init_cmd.cmd_init(_make_args(python=None)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "entry: /env/python -m ame_ai_review_system." in cfg
+    assert "language: system" in cfg
 
 
 def test_init_falls_back_to_sys_executable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # --python / AME_INIT_PYTHON が無い場合は既定の language: python (wheel) 方式で
+    # 生成され、絶対パス (sys.executable) を埋め込まない (Issue #79)。
     root = _init_in(tmp_path, monkeypatch)
     monkeypatch.delenv("AME_INIT_PYTHON", raising=False)
-    monkeypatch.setattr(init_cmd, "_verify_importable", lambda _p: True)
     assert init_cmd.cmd_init(_make_args(python=None)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    import sys
+    assert "language: python" in cfg
+    assert "entry: python -m ame_ai_review_system." in cfg
+    assert sys.executable not in cfg
 
-    assert f"entry: {sys.executable} -m ame_ai_review_system." in cfg
+
+def test_init_default_python_mode_embeds_pinned_wheel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #79/#84: 既定方式は wheel URL + #sha256= を additional_dependencies に
+    # 埋め込み、絶対パスを含まない。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(python=None)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert "ame_ai_review_system-0.2.3-py3-none-any.whl#sha256=aaaaaaaaaaaaaaaa" in cfg
+    assert "&ame-wheel-dep" in cfg
+    assert "*ame-wheel-dep" in cfg
+
+
+def test_init_version_flag_controls_wheel_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # --version で参照する wheel バージョンを上書きできる (Issue #84)。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(python=None, version="v9.9.9")) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert "ame_ai_review_system-9.9.9-py3-none-any.whl#sha256=" in cfg
+
+
+def test_init_wheel_sha256_unresolvable_omits_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # sha256 解決に失敗したら #sha256= なしで生成し、警告する (Issue #84)。
+    root = _init_in(tmp_path, monkeypatch)
+    monkeypatch.setattr(init_cmd, "_resolve_wheel_sha256", lambda _version: None)
+    assert init_cmd.cmd_init(_make_args(python=None)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert "ame_ai_review_system-0.2.3-py3-none-any.whl" in cfg
+    assert "whl#sha256=" not in cfg
+
+
+def test_init_system_mode_does_not_require_import_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 既定 (language: python) 方式は import 検証を必要としない。
+    root = _init_in(tmp_path, monkeypatch)
+    monkeypatch.delenv("AME_INIT_PYTHON", raising=False)
+    monkeypatch.setattr(init_cmd, "_verify_importable", lambda _p: False)
+    assert init_cmd.cmd_init(_make_args(python=None, no_workflow=True)) == 0
+    assert (root / ".pre-commit-config.yaml").exists()
 
 
 def test_init_explicit_python_unimportable_fails_fast(
@@ -178,8 +238,9 @@ def test_init_explicit_python_unimportable_fails_fast(
 def test_init_auto_python_unimportable_warns_but_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 自動解決 (env/sys.executable) で import 不可なら警告しつつ設定は書き出す。
+    # system 方式で自動解決 (env) の Python が import 不可なら警告しつつ書き出す。
     root = _init_in(tmp_path, monkeypatch)
+    monkeypatch.setenv("AME_INIT_PYTHON", "/missing/python")
     monkeypatch.setattr(init_cmd, "_verify_importable", lambda _p: False)
     assert init_cmd.cmd_init(_make_args(python=None, no_workflow=True)) == 0
     assert (root / ".pre-commit-config.yaml").exists()

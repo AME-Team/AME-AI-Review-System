@@ -148,6 +148,15 @@ bash scripts/install-hooks.sh
 pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
 ```
 
+`uv` を使う場合（pipx と同等の CLI ツール管理）も利用できます。
+
+```bash
+uv tool install "ame-ai-review-system @ https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+```
+
+> [!NOTE] pipx と uv はどちらも `~/.local/bin`
+> に同一バイナリ（`ame-ai-reviewer`）を配置するため共存できません。切り替え時は一方を uninstall してください。
+
 URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
 ページの最新バージョンに置き換えること。
 
@@ -161,6 +170,12 @@ ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
 
 - `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
 - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
+- `--version`: Gate 1 (pre-commit
+  AI フック) が参照する wheel のバージョン。省略時はインストール済みパッケージの
+  `__version__`。release の wheel を `#sha256=` で内容固定して参照する (Issue #84)。
+- `--python`: オフライン環境向け。指定すると Gate 1 フックを `language: system`
+  で生成し、指定した Python インタープリタパスを埋め込む。省略時は wheel 方式 (`language: python`) で生成され、絶対パスを埋め込まないため生成物を共有・コミットしても他環境/CI で動作する (Issue
+  #79)。`AME_INIT_PYTHON` 環境変数でも同様に system 方式へ切り替わる (Issue #66)。
 
 生成物は以下のとおり。
 
@@ -250,7 +265,7 @@ cp -r .claude/skills/review-round <your-repo>/.claude/skills/review-round
 > env 変数に設定します（Python コードは PAT/App の違いを意識せず動作します）。別のレビュアーを追加する場合は
 > `<REVIEWER_NAME_UPPER>_APP_ID` / `<REVIEWER_NAME_UPPER>_APP_PRIVATE_KEY`
 > の命名規則で Secret を追加してください（[カスタマイズガイド](customization.md)参照）。
-
+>
 > [!IMPORTANT] ローカル開発で `pre-commit` 時の AI レビューを利用する場合は、従来通り
 > `~/.config/ame-ai-review-system/<name>.token`（PAT）または環境変数 `GITHUB_PAT_TOKEN` /
 > `<NAME>_TOKEN` を使います。CI のみ GitHub App 認証に切り替わっています。

@@ -6,6 +6,11 @@
 # 必要。tsc は tsconfig.json が型チェック向けでないと無関係エラーが噛むため、
 # デフォルトでは eslint のみ有効化し tsc はコメントアウトしてある (Issue #69)。
 minimum_pre_commit_version: "4.0.0"
+# Issue #82: ai-review-state-reset (stages: [post-commit]) が standard install で
+# 入るよう post-commit を明示する。既存クローンで pre-commit install 済みの場合は
+#   pre-commit install -t pre-commit -t post-commit
+# を再実行すること。
+default_install_hook_types: [pre-commit, post-commit]
 fail_fast: true
 
 repos:
@@ -14,7 +19,8 @@ repos:
     hooks:
       - id: codespell
         # Issue #69: lockfile の圧縮トークンを typo と誤検知するため除外。
-        exclude: "(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$"
+        # Issue #80: .ame-review/engines-ts/ (TS 側エンジン SDK) も誤検知回避のため除外。
+        exclude: "(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$|^\\.ame-review/engines-ts/"
 
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
@@ -63,29 +69,38 @@ repos:
 
   # =========================================================================
   # AME AI Review System — Gate 1 AI review hooks
+  # pre-commit が `language: python` の venv へ wheel を自動導入するため、
+  # 絶対パスのハードコードは不要 (各環境で解決される)。初回実行時のみ
+  # GitHub Releases の wheel 取得にネットワークが必要 (以降はキャッシュ)。
+  # オフライン/制限環境では `ame-ai-reviewer init --python <path>` を使うと
+  # `language: system` で生成され、事前に導入した Python で実行される。
+  # 供給チェーン対策として wheel は `#sha256=` で内容を固定する (Issue #84)。
   # =========================================================================
   - repo: local
     hooks:
       - id: ai-skip-guard
         name: "AI review skip guard (Issue #26)"
-        entry: __PYTHON_BIN__ -m ame_ai_review_system.skip_guard
-        language: system
+        entry: __AI_HOOK_ENTRY__ame_ai_review_system.skip_guard
+        language: __AI_LANGUAGE__
+        additional_dependencies: __AI_ADDEPS_ANCHOR__
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
 
       - id: ai-precommit-review
         name: "AI Code Review (pre-commit)"
-        entry: __PYTHON_BIN__ -m ame_ai_review_system.precommit_review
-        language: system
+        entry: __AI_HOOK_ENTRY__ame_ai_review_system.precommit_review
+        language: __AI_LANGUAGE__
+        additional_dependencies: __AI_ADDEPS_REF__
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
 
       - id: ai-review-state-reset
         name: "AI review state reset (post-commit)"
-        entry: __PYTHON_BIN__ -m ame_ai_review_system.post_commit_reset
-        language: system
+        entry: __AI_HOOK_ENTRY__ame_ai_review_system.post_commit_reset
+        language: __AI_LANGUAGE__
+        additional_dependencies: __AI_ADDEPS_REF__
         pass_filenames: false
         always_run: true
         stages: [post-commit]

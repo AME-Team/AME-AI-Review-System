@@ -174,6 +174,19 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
    ```
 
+   `uv` を使う場合（pipx と同等の CLI ツール管理）も利用できる。
+
+   ```bash
+   # 導入
+   uv tool install "ame-ai-review-system @ https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+
+   # アップグレード
+   uv tool upgrade "ame-ai-review-system" --from "https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+   ```
+
+   > [!NOTE] pipx と uv はどちらも `~/.local/bin`
+   > に同一バイナリ（`ame-ai-reviewer`）を配置するため共存できません。切り替え時は一方を uninstall してください。
+
    URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
    ページの最新バージョンに置き換えること。
 
@@ -185,23 +198,24 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
    ```
 
-   - `--preset`: pre-commit 静的解析セット
-     (`auto` / `full` / `python` / `text` / `ts` / `minimal`)。
-     `auto` (既定) は `package.json` + `.ts`/`.tsx` ソースの有無で `ts` か `full` を
-     自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
-     `./node_modules/.bin` を直接起動するため、事前に `npm install` (または pnpm/yarn) が
-     必要 (未実施時は「No such file or directory」で失敗する)
+   - `--preset`: pre-commit 静的解析セット (`auto` / `full` / `python` / `text` / `ts` /
+     `minimal`)。 `auto` (既定) は `package.json` + `.ts`/`.tsx` ソースの有無で `ts` か `full`
+     を自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
+     `./node_modules/.bin` を直接起動するため、事前に `npm install`
+     (または pnpm/yarn) が必要 (未実施時は「No such file or directory」で失敗する)
    - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
-   - `--python`: Gate 1 (pre-commit AI フック) が使う Python インタープリタパス。
-     省略時は `AME_INIT_PYTHON` 環境変数、次に `ame-ai-reviewer` 自身を実行中の
-     インタープリタ (`sys.executable`) となる。Ubuntu 24 等 PEP 668
-     (externally-managed) 環境では、venv / `uv tool` / `pipx` の Python を明示するか
-     それらの中から `ame-ai-reviewer` を実行することで Gate 1 が動作する (Issue #66)。
+   - `--version`: Gate 1 (pre-commit
+     AI フック) が参照する wheel のバージョン。省略時はインストール済みパッケージの
+     `__version__`。release の wheel を `#sha256=` で内容固定して参照する (Issue #84)。
+   - `--python`: オフライン環境向け。指定すると Gate 1 フックを `language: system`
+     で生成し、Python インタープリタパスを埋め込む。省略時は wheel 方式 (`language: python`) で生成し、絶対パスを埋め込まない。生成物は共有・コミットしても他環境/CI で動作する (Issue
+     #79)。 `AME_INIT_PYTHON` 環境変数でも system 方式へ切り替わる (Issue #66)。
 
-   > [!NOTE] **生成物は機械固有**: `--python` で埋め込んだ絶対パスは init 実行環境に
-   > 依存するため、生成された `.pre-commit-config.yaml` はそのまま別マシン/CI では
-   > 動きません。各環境で `ame-ai-reviewer init` を実行するか、共有が必要な場合は
-   > `AME_INIT_PYTHON` で環境ごとに解決してください (Issue #66)。
+   > [!NOTE] **生成物は移植可能**: 既定の `language: python`
+   > 方式では pre-commit が各環境で venv を自動作成し wheel を導入するため、絶対パスが埋め込まれません。
+   > `--python`
+   > で生成した場合は埋め込んだ絶対パスが init 実行環境に依存するため、そのまま別マシン/CI では動きません。共有が必要な場合は wheel 方式で生成するか、各環境で
+   > `ame-ai-reviewer init` を実行してください (Issue #79)。
 
    生成物は以下のとおり。
 
@@ -271,9 +285,15 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 >
 > [!NOTE] **pre-commit 時の AI レビューもデフォルトで有効** です。`git commit`
 > 時にローカルで AI レビューが走り、指摘があればコミットをブロックします。PR レビューとは独立して
-> `ame_ai_review_system/config.json` の `precommit_review_enabled` で ON/OFF できます。利用には
-> `pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push -t post-commit`
-> で post-commit フックもインストールする必要があります。
+> `ame_ai_review_system/config.json` の `precommit_review_enabled` で ON/OFF できます。生成される
+> `.pre-commit-config.yaml` は `default_install_hook_types: [pre-commit, post-commit]`
+> を指定しているため、 `pre-commit install`
+> だけで post-commit フック（streak リセット）も導入されます (Issue #82)。既存クローンで
+> `pre-commit install` 済みの場合は以下で再実行してください:
+>
+> ```bash
+> pre-commit install -t pre-commit -t post-commit
+> ```
 >
 > [!IMPORTANT] **AI レビューの SKIP バイパスを強制ブロックする場合はネイティブ Git フックを有効化**
 > してください（Issue #26）。`bash scripts/install-hooks.sh` を実行すると `core.hooksPath=githooks`

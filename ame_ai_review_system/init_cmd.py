@@ -8,18 +8,25 @@ pip インストールされたパッケージのテンプレート (``templates
 - ``.github/workflows/review_command.yml`` / ``review_reply.yml``
   (reusable workflow を呼ぶ薄いラッパ)
 
+Gate 1 の AI フックは既定で ``language: python`` + wheel 参照 (``additional_dependencies``
+に URL + ``#sha256=`` を埋め込み) で生成し、絶対パスを排除する (Issue #79/#84)。
+``--python`` (または ``AME_INIT_PYTHON``) を指定するとオフライン向けに
+``language: system`` で生成する (Issue #66)。
+
 idempotent: 既存ファイルは上書きしない。``--force`` で上書きする。
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+import urllib.request
+from typing import TYPE_CHECKING, Any, cast
 
-from . import paths
+from . import __version__, paths
 
 if TYPE_CHECKING:
     import argparse
@@ -34,10 +41,21 @@ _PRESETS: dict[str, str] = {
     "ts": "ts.yaml",
 }
 
-# Gate 1 の AI フック entry: に埋め込む Python インタープリタのプレースホルダ。
-# PEP 668 (externally-managed) 環境ではシステム Python への ``pip install --user`` が
-# ブロックされるため、init を実行中のインタープリタ (venv/uv/pipx) を埋め込む (Issue #66)。
-_PYTHON_BIN_PLACEHOLDER = "__PYTHON_BIN__"
+# Gate 1 の AI フックを 2 方式でレンダリングするためのプレースホルダ (Issue #79)。
+#   1. 既定: ``language: python`` + ``additional_dependencies`` (wheel URL + #sha256)。
+#      絶対パスを埋め込まず、各環境で pre-commit が venv を自動作成する。
+#   2. ``--python`` / ``AME_INIT_PYTHON`` 指定時: ``language: system``。
+#      オフライン環境向けに実インタープリタパスを埋め込む (Issue #66 の後継)。
+_AI_HOOK_ENTRY = "__AI_HOOK_ENTRY__"
+_AI_LANGUAGE = "__AI_LANGUAGE__"
+_AI_ADDEPS_ANCHOR = "__AI_ADDEPS_ANCHOR__"
+_AI_ADDEPS_REF = "__AI_ADDEPS_REF__"
+
+# ``language: system`` 時に additional_dependencies の代わりに置く説明コメント。
+_SYSTEM_ADDEPS_COMMENT = (
+    "# オフライン: language: system は init --python で指定した"
+    " Python の ame_ai_review_system を使用"
+)
 
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
 _AME_REVIEW_FILES = (
@@ -57,11 +75,10 @@ def _templates_dir() -> Path:
 
 
 def _resolve_python_bin(args: argparse.Namespace) -> str:
-    """Gate 1 フックへ埋め込む Python インタープリタのパスを解決する (Issue #66).
+    """``--python`` / ``AME_INIT_PYTHON`` で指定された Python を解決する (Issue #66).
 
     優先順位: ``--python`` フラグ → ``AME_INIT_PYTHON`` 環境変数 → ``sys.executable``。
-    PEP 668 環境では ``sys.executable`` が venv/uv/pipx のインタープリタを指すため、
-    そこへ ``ame_ai_review_system`` がインストールされていればフックが動作する。
+    ``language: system`` 方式 (オフライン向け) のときだけ使う。
     """
     explicit = getattr(args, "python", None)
     if explicit:
@@ -70,6 +87,82 @@ def _resolve_python_bin(args: argparse.Namespace) -> str:
     if env_python:
         return env_python
     return sys.executable
+
+
+def _use_system_language(args: argparse.Namespace) -> bool:
+    """``language: system`` 方式を使うか (``--python`` / ``AME_INIT_PYTHON`` 指定時)."""
+    return bool(getattr(args, "python", None) or os.environ.get("AME_INIT_PYTHON"))
+
+
+def _resolve_version(args: argparse.Namespace) -> str:
+    """Gate 1 フックが参照する wheel のバージョンを解決する.
+
+    優先順位: ``--version`` フラグ → インストール済みパッケージの ``__version__``。
+    既定は導入中パッケージのバージョン (リリースタグ ``v<version>`` と一致前提)。
+    """
+    explicit = getattr(args, "version", None)
+    if explicit:
+        return str(explicit).lstrip("v")
+    return __version__
+
+
+def _wheel_url(version: str) -> str:
+    """バージョンに対応する配布 wheel のダウンロード URL を返す (Issue #79/#84)."""
+    return (
+        "https://github.com/tarminjapan/AME-AI-Review-System/releases/download/"
+        f"v{version}/ame_ai_review_system-{version}-py3-none-any.whl"
+    )
+
+
+def _resolve_wheel_sha256(version: str) -> str | None:
+    """GitHub API から wheel アセットの sha256 ダイジェストを解決する (Issue #84).
+
+    リリースが未作成 / ネットワーク不可 / アセット不在の場合は ``None`` を返し、
+    呼び出し側で ``#sha256=`` なしの URL にフォールバックする。
+    """
+    api_url = (
+        "https://api.github.com/repos/tarminjapan/AME-AI-Review-System/releases/"
+        f"tags/v{version}"
+    )
+    try:
+        # API URL は固定の HTTPS ホストのみ。file:// 等のスキームは指定されない。
+        req = urllib.request.Request(
+            api_url,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data: Any = json.loads(resp.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    release_data = cast("dict[str, Any]", data)
+    asset_name = f"ame_ai_review_system-{version}-py3-none-any.whl"
+    for asset in cast("list[dict[str, Any]]", release_data.get("assets", [])):
+        if asset.get("name") != asset_name:
+            continue
+        digest = asset.get("digest")
+        if isinstance(digest, str) and digest.startswith("sha256:"):
+            return digest[len("sha256:") :]
+    return None
+
+
+def _render_preset(
+    content: str,
+    *,
+    language: str,
+    entry_prefix: str,
+    addeps_anchor: str,
+    addeps_ref: str,
+) -> str:
+    """テンプレートの Gate 1 フック用プレースホルダをレンダリングする (Issue #79)."""
+    return (
+        content
+        .replace(_AI_HOOK_ENTRY, entry_prefix)
+        .replace(_AI_LANGUAGE, language)
+        .replace(f"additional_dependencies: {_AI_ADDEPS_ANCHOR}", addeps_anchor)
+        .replace(f"additional_dependencies: {_AI_ADDEPS_REF}", addeps_ref)
+    )
 
 
 def _verify_importable(python_bin: str) -> bool:
@@ -183,27 +276,65 @@ def cmd_init(args: argparse.Namespace) -> int:
     if not src.exists():
         print(f"ERROR: preset template not found: {src}", file=sys.stderr)
         return 1
-    # Issue #66: Gate 1 フックの entry: に実インタープリタパスを埋め込む。
-    python_bin = _resolve_python_bin(args)
-    if " " in python_bin:
-        print(
-            "WARNING: Python パスに空白が含まれます。pre-commit の entry: は shlex "
-            "分割するため空白入りパスは正常に起動できません。空白を含まないパス "
-            "(シンボリックリンク等) を --python で指定してください (Issue #66)。",
-            file=sys.stderr,
+    preset_content = src.read_text(encoding="utf-8")
+
+    if _use_system_language(args):
+        # オフライン向け: language: system で実インタープリタパスを埋め込む (Issue #66)。
+        python_bin = _resolve_python_bin(args)
+        if " " in python_bin:
+            print(
+                "WARNING: Python パスに空白が含まれます。pre-commit の entry: は shlex "
+                "分割するため空白入りパスは正常に起動できません。空白を含まないパス "
+                "(シンボリックリンク等) を --python で指定してください (Issue #66)。",
+                file=sys.stderr,
+            )
+        import_ok = _verify_importable(python_bin)
+        if not import_ok:
+            _print_import_help(python_bin)
+            # 明示的な --python 指定で import 不可なら、壊れた Gate 1 設定を書き出さず
+            # fail fast する。自動解決 (env/sys.executable) の場合は静的解析設定だけでも
+            # 有用なため警告しつつ書き出す (Issue #66)。
+            if args.python:
+                return 1
+        preset_content = _render_preset(
+            preset_content,
+            language="system",
+            entry_prefix=f"{python_bin} -m ",
+            addeps_anchor=_SYSTEM_ADDEPS_COMMENT,
+            addeps_ref=_SYSTEM_ADDEPS_COMMENT,
         )
-    import_ok = _verify_importable(python_bin)
-    if not import_ok:
-        _print_import_help(python_bin)
-        # 明示的な --python 指定で import 不可なら、壊れた Gate 1 設定を書き出さず
-        # fail fast する。自動解決 (env/sys.executable) の場合は静的解析設定だけでも
-        # 有用なため警告しつつ書き出す (Issue #66)。
-        if args.python:
-            return 1
-    preset_content = src.read_text(encoding="utf-8").replace(
-        _PYTHON_BIN_PLACEHOLDER,
-        python_bin,
-    )
+    else:
+        # 既定: language: python + wheel (絶対パス非依存、各環境で venv 自動作成)。
+        # 供給チェーン対策として wheel は #sha256= で内容を固定する (Issue #79/#84)。
+        version = _resolve_version(args)
+        dep = f"ame_ai_review_system @ {_wheel_url(version)}"
+        sha256 = _resolve_wheel_sha256(version)
+        if sha256:
+            dep += f"#sha256={sha256}"
+        else:
+            print(
+                f"WARNING: wheel v{version} の sha256 を解決できませんでした。"
+                "#sha256= なしで生成します。供給チェーン対策のため、ハッシュを確認して "
+                ".pre-commit-config.yaml を編集してください (Issue #84)。",
+                file=sys.stderr,
+            )
+        preset_content = _render_preset(
+            preset_content,
+            language="python",
+            entry_prefix="python -m ",
+            addeps_anchor=(
+                f"additional_dependencies: &ame-wheel-dep\n          - {dep}"
+            ),
+            addeps_ref="additional_dependencies: *ame-wheel-dep",
+        )
+        print(
+            f"  Gate 1: language: python + wheel v{version}"
+            f"{' (sha256 固定)' if sha256 else ''} で生成しました。"
+        )
+        print(
+            "  (オフライン環境向けには --python <path> を指定すると "
+            "language: system で生成します)"
+        )
     _write(root / ".pre-commit-config.yaml", preset_content, force=args.force)
 
     # CI ラッパワークフローを生成 (reusable workflow 呼び出し)。

@@ -27,15 +27,16 @@ concurrency:
   cancel-in-progress: false
 jobs:
   review:
-    # Issue #70: 前方一致の誤発火を防ぐため /request-review・/review の完全一致または
-    # 空白区切りの引数付きのみに限定する。実ワークフロー (.github/workflows/review_command.yml)
-    # と必ず同期すること (Issue #68/#70/#71)。
+    # Issue #81: コマンド判定の単一情報源は reusable workflow の is-review-command
+    # パーサー (本文の先頭行を完全一致 or " " 区切りで判定)。ここは軽量な前置フィルタで、
+    # 誤判定はパーサー側で弾く。"/request-review\n<理由>" のような改行区切り本文でも
+    # 発火できるよう /request-review は先頭一致とし、/review は /reviewer 等への
+    # 誤発火を避けるため完全一致 or " " 区切りのみとする。
     if: >-
       github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
        github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
-       (github.event.comment.body == '/request-review' ||
+       (startsWith(github.event.comment.body, '/request-review') ||
         github.event.comment.body == '/review' ||
-        startsWith(github.event.comment.body, '/request-review ') ||
         startsWith(github.event.comment.body, '/review ')))
     uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-command.yml@__REF__
     with:

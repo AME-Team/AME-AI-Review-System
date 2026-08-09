@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from ame_ai_review_system import github_client, reply
 from ame_ai_review_system.reply import _extract_json, _group_by_thread
-from ame_ai_review_system.stale_detect import is_stale_loop
+from ame_ai_review_system.stale_detect import is_stale_loop, is_stale_thread
 
 
 def test_extract_json_plain() -> None:
@@ -82,6 +82,72 @@ def test_stale_loop_threshold_override_detects_lower_similarity() -> None:
 def test_stale_loop_threshold_none_uses_default() -> None:
     body = "この関数は例外をキャッチしていません 修正してください"
     assert is_stale_loop([body, body], threshold=None) is True
+
+
+# --- is_stale_thread (Issue #83) ------------------------------------------
+
+
+def test_stale_thread_false_for_single_non_lgtm() -> None:
+    # 1 回の non-LGTM 返信だけでは stale にしない。
+    assert is_stale_thread(["このファイルの存在を確認してください"]) is False
+
+
+def test_stale_thread_false_with_ltgm_at_tail() -> None:
+    # 末尾が LGTM なら解決済みのため stale にしない。
+    bodies = [
+        "修正してください",
+        "修正してください",
+        "対応確認しました。LGTM ✅",
+    ]
+    assert is_stale_thread(bodies) is False
+
+
+def test_stale_thread_detects_consecutive_non_lgtm() -> None:
+    # 同一スレッドで 3 回連続 non-LGTM 返信 → stale (Issue #83)。
+    bodies = [
+        "この関数は例外をキャッチしていません 修正してください",
+        "diff を確認しても修正されていません 対応が必要です",
+        "まだ修正されていません 具体的な対応をお願いします",
+    ]
+    assert is_stale_thread(bodies) is True
+
+
+def test_stale_thread_allows_rewording_escaping_jaccard() -> None:
+    # 言い換えで Jaccard を下回っていても連続 non-LGTM で検出する (Issue #83)。
+    c1 = "この関数は例外をキャッチしていません 修正してください"
+    c2 = "変数名が不適切です snake_case を使ってください"
+    c3 = "別の観点ですがまだ直っていません 対応してください"
+    assert is_stale_loop([c2, c3]) is False
+    assert is_stale_thread([c1, c2, c3]) is True
+
+
+def test_stale_thread_custom_max_consecutive() -> None:
+    bodies = ["対応してください", "まだ直っていません"]
+    assert is_stale_thread(bodies, max_consecutive_non_lgtm=3) is False
+    assert is_stale_thread(bodies, max_consecutive_non_lgtm=2) is True
+
+
+def test_build_prompt_warns_not_to_assert_file_existence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #83: 返信プロンプトに「diff から確認できないファイルの存在を断定しない」
+    # 指示を含む。
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat", in_reply_to=10),
+    ]
+    monkeypatch.setattr(reply, "_get_thread_comments", lambda *_args: comments)
+    monkeypatch.setattr(reply, "_get_pr_diff", lambda *_args, **_kwargs: "diff")
+    prompt = reply._build_prompt_for_thread(
+        "api",
+        "octo/repo",
+        "7",
+        "10",
+        "tok",
+        "ame-ai-reviewer",
+        "main",
+    )
+    assert "存在・非存在は断定しない" in prompt
 
 
 # --- _group_by_thread (GitHub flat comments API) ---------------------------

@@ -26,7 +26,7 @@ import tempfile
 from typing import Any, cast
 
 from . import diff_truncate, engine, github_client, review_config
-from .stale_detect import is_stale_loop
+from .stale_detect import is_stale_thread
 
 _DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
 
@@ -296,6 +296,12 @@ def _cmd_build(pr: str, thread_id_str: str) -> None:
         "- diff に修正がなく返信だけ → 修正されているか慎重に確認する",
         "- LOW / INFO (🟢) の指摘は、理由の説明があれば対応不要でも LGTM",
         "- 修正が不十分または的外れ → 具体的に何が不足しているか指摘する",
+        # Issue #83: diff に無いファイルの存在を捏造して同じ指摘を繰り返す
+        # stale-loop を防ぐ。指摘は「diff で確認できる内容」に限定する。
+        (
+            "- diff や与えられたコンテキストから確認できないファイルの存在・非存在は断定しない。"
+            "疑わしい場合は修正内容のみで判断する"
+        ),
         "",
         "## 出力フォーマット（JSON のみ。前後に余計な文字は不要）",
         '{"lgtm": true, "reply": "返信本文（日本語）"}',
@@ -391,7 +397,7 @@ def _cmd_stale_check(pr: str, thread_id_str: str) -> None:
         if c.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
     ]
 
-    if is_stale_loop(reviewer_replies):
+    if is_stale_thread(reviewer_replies):
         print("stale")
     else:
         print("ok")
@@ -536,7 +542,7 @@ def _check_stale(
         if c.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
     ]
 
-    if is_stale_loop(reviewer_replies):
+    if is_stale_thread(reviewer_replies):
         return "stale"
     return "ok"
 
@@ -581,6 +587,12 @@ def _build_prompt_for_thread(
         "- diff に修正がなく返信だけ → 修正されているか慎重に確認する",
         "- LOW / INFO (🟢) の指摘は、理由の説明があれば対応不要でも LGTM",
         "- 修正が不十分または的外れ → 具体的に何が不足しているか指摘する",
+        # Issue #83: diff に無いファイルの存在を捏造して同じ指摘を繰り返す
+        # stale-loop を防ぐ。指摘は「diff で確認できる内容」に限定する。
+        (
+            "- diff や与えられたコンテキストから確認できないファイルの存在・非存在は断定しない。"
+            "疑わしい場合は修正内容のみで判断する"
+        ),
         "",
         "## 出力フォーマット（JSON のみ。前後に余計な文字は不要）",
         '{"lgtm": true, "reply": "返信本文（日本語）"}',

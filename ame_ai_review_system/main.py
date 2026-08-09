@@ -825,8 +825,15 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument(
         "--python",
         default=None,
-        help="Gate 1 フックへ埋め込む Python インタープリタパス "
-        "(default: AME_INIT_PYTHON env or sys.executable; Issue #66)",
+        help="Gate 1 フックを language: system で生成するときに埋め込む "
+        "Python インタープリタパス (オフライン向け。default: AME_INIT_PYTHON "
+        "env or sys.executable; Issue #66/#79)",
+    )
+    p_init.add_argument(
+        "--version",
+        default=None,
+        help="Gate 1 フックが参照する wheel のバージョン "
+        "(default: インストール済みパッケージの __version__; Issue #79/#84)",
     )
     p_init.add_argument(
         "--ref",
