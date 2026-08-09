@@ -26,9 +26,10 @@ import tempfile
 from typing import Any, cast
 
 from . import diff_truncate, engine, github_client, review_config
-from .stale_detect import is_stale_thread
+from .stale_detect import LGTM_MARKER, is_stale_thread
 
-_DEFAULT_LGTM = "対応確認しました。LGTM ✅ Resolve してください。"
+# LGTM テンプレートは stale_detect の LGTM_MARKER から構築し単一情報源にする (指摘対応)。
+_DEFAULT_LGTM = f"対応確認しました。{LGTM_MARKER} Resolve してください。"
 
 _HTTP_STATUS_OK = 200
 

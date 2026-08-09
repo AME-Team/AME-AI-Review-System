@@ -32,6 +32,10 @@ jobs:
     # 誤判定はパーサー側で弾く。"/request-review\n<理由>" のような改行区切り本文でも
     # 発火できるよう /request-review は先頭一致とし、/review は /reviewer 等への
     # 誤発火を避けるため完全一致 or " " 区切りのみとする。
+    # 注意: GitHub 式言語はダブルクォート不可・"\n" エスケープ不可のため、
+    # 改行区切り対応には startsWith(body, '/request-review') が必要になる。
+    # /request-reviewer 等の誤発火は startsWith でジョブが起動しても、パーサーが
+    # run_review=false を返し実処理 (AI レビュー) は一切実行されない (コストは起動のみ)。
     if: >-
       github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
        github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&

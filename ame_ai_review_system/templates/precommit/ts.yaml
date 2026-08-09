@@ -75,6 +75,8 @@ repos:
   # オフライン/制限環境では `ame-ai-reviewer init --python <path>` を使うと
   # `language: system` で生成され、事前に導入した Python で実行される。
   # 供給チェーン対策として wheel は `#sha256=` で内容を固定する (Issue #84)。
+  # 各フックの additional_dependencies は常に同一に保つこと (init 生成時は単一の
+  # 定義から全フックへ一律展開される。手動編集時は 3 フックすべてを揃えること)。
   # =========================================================================
   - repo: local
     hooks:

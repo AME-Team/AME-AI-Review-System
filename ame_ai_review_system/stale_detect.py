@@ -22,7 +22,9 @@ _DEFAULT_MAX_CONSECUTIVE_NON_LGTM = 3
 # 「まだ LGTM ではありません」等の非 LGTM 返信に LGTM 語が含まれた場合に
 # 誤って解決扱いになり consecutive_non_lgtm がリセットされるため、
 # 固定マーカーでの判定に限定する (指摘対応)。
-_LGTM_BODY_MARKERS = ("LGTM ✅", "自動 LGTM")
+# reply.py の _DEFAULT_LGTM と単一情報源にする (LGTM_MARKER をテンプレートへ埋め込む)。
+LGTM_MARKER = "LGTM ✅"
+LGTM_BODY_MARKERS = (LGTM_MARKER, "自動 LGTM")
 
 
 def trigrams(text: str) -> set[str]:
@@ -66,7 +68,7 @@ def is_lgtm_body(body: str) -> bool:
     固定テンプレート由来のマーカーでのみ判定し、本文中の「LGTM」という語の
     部分一致では判定しない (非 LGTM 返信の誤解決を防ぐ)。
     """
-    return any(marker in body for marker in _LGTM_BODY_MARKERS)
+    return any(marker in body for marker in LGTM_BODY_MARKERS)
 
 
 def consecutive_non_lgtm(comment_bodies: list[str]) -> int:

@@ -123,6 +123,29 @@ def test_stale_thread_does_not_reset_on_lgtm_word_in_non_lgtm() -> None:
     assert is_stale_thread(bodies) is True
 
 
+def test_engine_error_lgtm_fallback_resets_stale_counter() -> None:
+    # 指摘対応: エンジン出力のパース失敗時も自動 LGTM 本文 (固定マーカー) が投稿され、
+    # 連続 non-LGTM カウントをリセットする。パース失敗が stale 判定に誤加算されない
+    # ことを明示する。
+    fallback = "⚠️ エンジンエラーにより自動 LGTM しています。内容を確認してください。"
+    from ame_ai_review_system.stale_detect import is_lgtm_body
+
+    assert is_lgtm_body(fallback)
+    assert (
+        is_stale_thread(["修正してください", "まだ直っていません", fallback]) is False
+    )
+
+
+def test_default_lgtm_derived_from_shared_marker() -> None:
+    # 指摘対応: reply._DEFAULT_LGTM は stale_detect の LGTM_MARKER から構築され、
+    # LGTM 判定の固定マーカーと単一情報源になる。
+    from ame_ai_review_system.stale_detect import LGTM_MARKER, is_lgtm_body
+
+    assert reply._DEFAULT_LGTM == "対応確認しました。LGTM ✅ Resolve してください。"
+    assert LGTM_MARKER in reply._DEFAULT_LGTM
+    assert is_lgtm_body(reply._DEFAULT_LGTM)
+
+
 def test_stale_thread_detects_consecutive_non_lgtm() -> None:
     # 同一スレッドで 3 回連続 non-LGTM 返信 → stale (Issue #83)。
     bodies = [

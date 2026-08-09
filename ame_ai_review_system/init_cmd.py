@@ -310,8 +310,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         else:
             print(
                 f"WARNING: wheel v{version} の sha256 を解決できませんでした。"
-                "#sha256= なしで生成します。供給チェーン対策のため、ハッシュを確認して "
-                ".pre-commit-config.yaml を編集してください (Issue #84)。",
+                "#sha256= なしで生成します。供給チェーン対策のため、対応する release の"
+                " sha256 を確認して .pre-commit-config.yaml を編集するか、"
+                "--force で再生成してください (Issue #84)。",
                 file=sys.stderr,
             )
         # 指摘対応: フックの削除/並べ替えで YAML アンカー (undefined alias) が破綻しないよう、
