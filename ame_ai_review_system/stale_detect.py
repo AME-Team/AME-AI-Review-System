@@ -64,7 +64,8 @@ def comment_text(comment: dict[str, Any]) -> str:
     無い) の場合は本文で比較する。
     """
     path = str(comment.get("path", "")).strip()
-    line = comment.get("line", "")
+    # 呼び出し元によって line が int/str で混在しても同一表現になるよう正規化する。
+    line = str(comment.get("line", ""))
     title = str(comment.get("title", "")).strip()
     if path or title:
         return f"{path}\n{line}\n{title}"
