@@ -31,7 +31,8 @@ repos:
         name: eslint (TypeScript)
         entry: ./node_modules/.bin/eslint --max-warnings=0 --no-warn-ignored
         language: system
-        types: [ts]
+        # types: [ts] は .tsx を対象外にするため types_or で両対応する (Issue #69)。
+        types_or: [ts, tsx]
         pass_filenames: true
 
       # tsc は tsconfig が型チェック向け (noEmit 等) の場合のみ有効化すること。
