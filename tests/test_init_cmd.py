@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from ame_ai_review_system import init_cmd
+from ame_ai_review_system import __version__, init_cmd
 
 
 def _make_args(**kwargs: object) -> argparse.Namespace:
@@ -187,7 +187,8 @@ def test_init_default_python_mode_embeds_pinned_wheel(
     root = _init_in(tmp_path, monkeypatch)
     assert init_cmd.cmd_init(_make_args(python=None)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    assert "ame_ai_review_system-0.2.3-py3-none-any.whl#sha256=aaaaaaaaaaaaaaaa" in cfg
+    wheel = f"ame_ai_review_system-{__version__}-py3-none-any.whl"
+    assert f"{wheel}#sha256=aaaaaaaaaaaaaaaa" in cfg
     assert "ame-wheel-dep" not in cfg
 
 
@@ -220,7 +221,8 @@ def test_init_wheel_sha256_unresolvable_omits_hash(
     monkeypatch.setattr(init_cmd, "_resolve_wheel_sha256", lambda _version: None)
     assert init_cmd.cmd_init(_make_args(python=None)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    assert "ame_ai_review_system-0.2.3-py3-none-any.whl" in cfg
+    wheel = f"ame_ai_review_system-{__version__}-py3-none-any.whl"
+    assert wheel in cfg
     assert "whl#sha256=" not in cfg
 
 
