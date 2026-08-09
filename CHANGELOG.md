@@ -5,20 +5,55 @@
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-09
+
+### Added
+
+- `ame-ai-reviewer init` に TypeScript 向け preset (`ts`) と `--preset auto` を追加。
+  `package.json` + `.ts`/`.tsx` ソースの有無で `ts` / `full` を自動選択し、Python 主体で
+  `package.json` が付随するリポジトリでも Python ゲート (ruff/mypy) を消さない (Issue #69)。
+- 生成する `.pre-commit-config.yaml` で lockfile を codespell / yamllint /
+  prettier から自動除外 (Issue #69)。
+
+### Fixed
+
+- `workflow_dispatch` 時に `command` が空になり手動実行でレビュー判定が通らない問題。
+  `command: comment.body || '/request-review'` でフォールバック (Issue #71)。
+- `review_command` ラッパが `/request-review`
+  以外のスラッシュコメントでも発火する問題。コマンド判定を完全一致 / 空白区切りの引数付きに限定 (Issue
+  #70)。
+- Issue へのコメントで `review_command`
+  が発火し skipped ランがノイズになる問題。concurrency グループ化で抑制 (Issue #68)。
+- PEP 668 (externally-managed) 環境で Gate 1 の pre-commit AI フックが動作しない問題。 `--python` /
+  `AME_INIT_PYTHON` / `sys.executable` の順でインタープリタを自動検出して `entry:`
+  に埋め込み、import 可能性を検証 (Issue #66)。
+- AI レビュー出力の JSON パース失敗でラウンド全体が失敗する問題。修復試行回数をパラメータ化 (`review_repair_attempts`) し、パース失敗時は
+  `reviewed-sha` マーカーを付与せず再レビュー可能にした。プロンプトでも JSON 出力を強制 (Issue
+  #65)。
+- 修正済み指摘の再投稿で stale-loop 検出が発火しない問題。`path`/`line`/`title` のアンカー一致 +
+  severity ガードで再投稿を検出しつつ、HIGH/CRITICAL の過降格を防止 (Issue #67)。
+
+### Changed
+
+- `init` が生成する Gate 1 フックの `entry:`
+  を実インタープリタパス埋め込み方式へ変更。パスに空白が含まれる場合は警告 (Issue #66)。
+
 ## [0.2.2] - 2026-08-06
 
 ### Fixed
 
 - Gate 1 (pre-commit)・Gate 2 (PRレビュー) ともに差分が 4000 行を超えると前方のみを保持し、
-  `index.css` / `types/` / `views/` / `tests/` 等の後方ファイルがレビュー対象から消失して
-  「定義が見当たらない」MIDDLE/HIGH 誤指摘が連発する問題を、優先度付き切り捨てで恒久対応 (Issue #62)。
-  - 共通モジュール `diff_truncate.py` を新設。`priority`（優先セクション全行保持 + コンテキスト末尾保持）/
+  `index.css` / `types/` / `views/` / `tests/`
+  等の後方ファイルがレビュー対象から消失して「定義が見当たらない」MIDDLE/HIGH 誤指摘が連発する問題を、優先度付き切り捨てで恒久対応 (Issue
+  #62)。
+  - 共通モジュール `diff_truncate.py`
+    を新設。`priority`（優先セクション全行保持 + コンテキスト末尾保持）/
     `front`（従来）の 2 戦略と、フェンス補完・消失セクションの注記化を実装。
-  - ステージ済み差分（当該コミットのレビュー対象）を全行保持し、ブランチ差分末尾（後方ファイル）を可視化。
-    PRレビュー（優先サブセット無し）は head+tail 保持で後方ファイルを可視化。
-  - 切り捨て上限・戦略・コンテキスト最低保証行数を `config.json` で設定化
-    (`max_diff_lines` / `diff_truncation_strategy` / `diff_truncation_context_lines`)。
-  - `main.py` / `reply.py` の重複切り捨てロジック（3箇所）を共通モジュールへ統一し、フェンス補完漏れも修正。
+  - ステージ済み差分（当該コミットのレビュー対象）を全行保持し、ブランチ差分末尾（後方ファイル）を可視化。PRレビュー（優先サブセット無し）は head+tail 保持で後方ファイルを可視化。
+  - 切り捨て上限・戦略・最低保証行数を `config.json` で設定化。(`max_diff_lines` /
+    `diff_truncation_strategy` / `diff_truncation_context_lines`)。
+  - `main.py` / `reply.py`
+    の重複切り捨てロジック（3箇所）を共通モジュールへ統一し、フェンス補完漏れも修正。
 
 ### Changed
 
