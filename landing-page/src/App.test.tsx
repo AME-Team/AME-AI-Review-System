@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
 
@@ -135,6 +135,29 @@ describe("App Component", () => {
     expect(dialog).toBeInTheDocument();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("traps Tab focus within the mobile sidebar drawer", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "メニューを開く" }));
+    const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
+    const firstNav = within(dialog).getAllByRole("button", { name: "概要" })[0];
+    const lastNav = within(dialog).getAllByRole("button", { name: "トラブルシューティング" })[0];
+    if (firstNav === undefined || lastNav === undefined) {
+      throw new Error("drawer nav buttons not found");
+    }
+    // Focus moves into the drawer on open
+    expect(document.activeElement).toBe(firstNav);
+
+    // Tab from the last element wraps to the first
+    lastNav.focus();
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(firstNav);
+
+    // Shift+Tab from the first element wraps to the last
+    firstNav.focus();
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(lastNav);
   });
 
   it("changes theme mode setting (light/dark/system)", () => {

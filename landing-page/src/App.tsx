@@ -125,6 +125,36 @@ export default function App(): React.JSX.Element {
     }
   }, [sidebarOpen]);
 
+  const handleDrawerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Escape") {
+      setSidebarOpen(false);
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const container = mobileDrawerRef.current;
+    if (!container) return;
+    const focusables = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+      )
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (first === undefined || last === undefined) return;
+    const active = document.activeElement;
+    const activeInside = active !== null && container.contains(active);
+    if (e.shiftKey) {
+      if (active === first || !activeInside) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || !activeInside) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   // Sync settings with DOM attributes and localStorage
   useEffect(() => {
     document.documentElement.setAttribute("data-locale", locale);
@@ -479,11 +509,7 @@ export default function App(): React.JSX.Element {
             aria-modal="true"
             aria-label={t.sidebarTitle}
             ref={mobileDrawerRef}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setSidebarOpen(false);
-              }
-            }}
+            onKeyDown={handleDrawerKeyDown}
           >
             <div
               className="absolute inset-0 bg-black/40"
