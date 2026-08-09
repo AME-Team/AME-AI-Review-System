@@ -5,6 +5,33 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-10
+
+### Fixed
+
+- `ame-ai-reviewer init` が生成する `.pre-commit-config.yaml`
+  に開発者固有の Python 絶対パスが埋め込まれていた。生成物の共有・コミット時に他環境/CI で失敗する問題を解消。既定を
+  `language: python` + `additional_dependencies` に変更し、wheel URL と `#sha256=`
+  固定で参照する方式とした。pre-commit が各環境で venv を自動作成する。 `--python` /
+  `AME_INIT_PYTHON` 指定時のみオフライン向けの `language: system` で生成 (Issue #79)。
+- init が wheel の `#sha256=` をピン留めしない供給チェーンリスク。生成時に GitHub Release
+  API から sha256 ダイジェストを解決して URL へ固定。解決できない場合は警告して `#sha256=`
+  なしで生成 (Issue #84)。
+- codespell exclude から `.ame-review/engines-ts/` の除外が脱落した回帰 (Issue #80)。
+- `review_command` wrapper の if と `is-review-command`
+  パーサーが不整合だった。改行区切りコマンド（`/request-review\n<理由>`）が静かに skipped される問題を解消。wrapper を軽量な前置フィルタに変更した。厳密判定は reusable ワークフローのパーサーへ一本化 (Issue
+  #81)。
+- 生成する pre-commit config に `default_install_hook_types` が無い問題。 `pre-commit install`
+  だけでは post-commit フック（streak リセット）が導入されなかった。 `[pre-commit, post-commit]`
+  を明示し、既存クローン向けの再実行手順を README に追記 (Issue #82)。
+- 返信判定モデルが diff に無いファイルの存在を捏造し、同じ指摘を繰り返す stale-loop。返信プロンプトに「diff から確認できないファイルの存在・非存在は断定しない」指示を追加。同一スレッドの連続 non-LGTM 返信（既定 3 回）でも強制 LGTM する判定を追加 (Issue
+  #83)。
+
+### Changed
+
+- README / セットアップガイドのクイックスタートに、`uv tool install`
+  での導入手順を追加（pipx と同等の CLI ツール管理）(Issue #85)。
+
 ## [0.2.3] - 2026-08-09
 
 ### Added
