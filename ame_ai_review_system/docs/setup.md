@@ -168,14 +168,22 @@ claude-ts) を使う場合は `--with-engines`
 ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
 ```
 
-- `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
-- `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
+- `--preset`: pre-commit 静的解析セット (`auto` / `full` / `python` / `text` / `ts` /
+  `minimal`)。`auto` (既定) は `package.json` と `.ts`/`.tsx` ソースの有無から `ts` か `full`
+  を自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
+  `./node_modules/.bin` を直接起動するため、事前に `npm install` が必要
+- `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)。`--no-workflow` 指定時以外は必須
 - `--version`: Gate 1 (pre-commit
   AI フック) が参照する wheel のバージョン。省略時はインストール済みパッケージの
   `__version__`。release の wheel を `#sha256=` で内容固定して参照する (Issue #84)。
 - `--python`: オフライン環境向け。指定すると Gate 1 フックを `language: system`
   で生成し、指定した Python インタープリタパスを埋め込む。省略時は wheel 方式 (`language: python`) で生成され、絶対パスを埋め込まないため生成物を共有・コミットしても他環境/CI で動作する (Issue
   #79)。`AME_INIT_PYTHON` 環境変数でも同様に system 方式へ切り替わる (Issue #66)。
+- `--no-workflow`: CI ラッパワークフロー (`review_command.yml` /
+  `review_reply.yml`) の生成をスキップする
+- `--with-engines`:
+  TS エンジンサイドカー (`.ame-review/engines-ts/`) を展開し npm 依存をインストールする
+- `--force`: 既存ファイルを上書きする。既定は「ファイルが存在すればスキップ」
 
 生成物は以下のとおり。
 

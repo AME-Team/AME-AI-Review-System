@@ -1,32 +1,60 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
+
+const openPage = (label: string): void => {
+  const matches = screen.getAllByRole("button", { name: label });
+  if (matches[0]) {
+    fireEvent.click(matches[0]);
+  }
+};
 
 describe("App Component", () => {
   beforeEach(() => {
     localStorage.clear();
+    window.location.hash = "";
   });
-  it("renders the Japanese titles and navigation elements", () => {
+
+  it("renders the Japanese titles and documentation navigation", () => {
     render(<App />);
     expect(screen.getAllByText(/AME AI Review/)[0]).toBeInTheDocument();
     expect(screen.getByText(/デュアルゲートAIコードレビュー/)).toBeInTheDocument();
     expect(screen.getByText(/厳格な静的解析とAIエージェント/)).toBeInTheDocument();
+    expect(screen.getByText("ドキュメント")).toBeInTheDocument();
   });
 
-  it("renders the hero header image", () => {
+  it("shows the current version badge", () => {
+    render(<App />);
+    expect(screen.getAllByText("v0.2.4").length).toBeGreaterThan(0);
+  });
+
+  it("renders the hero header image on the overview page", () => {
     render(<App />);
     expect(screen.getByRole("img", { name: "AME AI Review" })).toBeInTheDocument();
   });
 
-  it("renders the static analysis suite section with category cards", () => {
+  it("renders the static analysis suite section via sidebar navigation", () => {
     render(<App />);
-    expect(screen.getByText("静的解析プリセット一覧")).toBeInTheDocument();
+    openPage("静的解析プリセット");
+    expect(screen.getByRole("heading", { name: "静的解析プリセット" })).toBeInTheDocument();
     expect(screen.getByText("ruff (lint, ALL+preview)")).toBeInTheDocument();
     expect(screen.getByText("semgrep-custom (8 rules)")).toBeInTheDocument();
   });
 
-  it("toggles the simulated bug checkbox", () => {
+  it("renders detailed documentation pages via sidebar navigation", () => {
     render(<App />);
+    openPage("インストールと初期設定");
+    expect(screen.getByRole("heading", { name: "インストールと初期設定" })).toBeInTheDocument();
+    expect(screen.getAllByText(/ame-ai-reviewer init/).length).toBeGreaterThan(0);
+
+    openPage("config.json");
+    expect(screen.getByRole("heading", { name: "config.json" })).toBeInTheDocument();
+    expect(screen.getByText("precommit_review_enabled")).toBeInTheDocument();
+  });
+
+  it("toggles the simulated bug checkbox on the demo page", () => {
+    render(<App />);
+    openPage("動作デモ");
     const checkbox = screen.getByLabelText(
       "高重要度のバグコードをシミュレートする (AIレビューでの指摘を擬似発生)"
     );
@@ -38,6 +66,7 @@ describe("App Component", () => {
   it("runs the simulator sequence successfully", () => {
     vi.useFakeTimers();
     render(<App />);
+    openPage("動作デモ");
 
     // Initial logs check
     expect(
@@ -79,6 +108,7 @@ describe("App Component", () => {
   it("runs the simulator sequence with simulated bug and blocks commit", () => {
     vi.useFakeTimers();
     render(<App />);
+    openPage("動作デモ");
 
     const checkbox = screen.getByLabelText(
       "高重要度のバグコードをシミュレートする (AIレビューでの指摘を擬似発生)"
@@ -95,6 +125,39 @@ describe("App Component", () => {
     expect(screen.getByText(/コミットがブロックされました。/)).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+
+  it("opens and closes the mobile sidebar drawer with Escape", () => {
+    render(<App />);
+    const menuBtn = screen.getByRole("button", { name: "メニューを開く" });
+    fireEvent.click(menuBtn);
+    const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("traps Tab focus within the mobile sidebar drawer", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "メニューを開く" }));
+    const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
+    const firstNav = within(dialog).getAllByRole("button", { name: "概要" })[0];
+    const lastNav = within(dialog).getAllByRole("button", { name: "トラブルシューティング" })[0];
+    if (firstNav === undefined || lastNav === undefined) {
+      throw new Error("drawer nav buttons not found");
+    }
+    // Focus moves into the drawer on open
+    expect(document.activeElement).toBe(firstNav);
+
+    // Tab from the last element wraps to the first
+    lastNav.focus();
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(firstNav);
+
+    // Shift+Tab from the first element wraps to the last
+    firstNav.focus();
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(lastNav);
   });
 
   it("changes theme mode setting (light/dark/system)", () => {
