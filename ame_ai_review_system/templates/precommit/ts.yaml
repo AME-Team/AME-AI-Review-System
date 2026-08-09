@@ -50,6 +50,8 @@ repos:
         entry: ./node_modules/.bin/prettier --check
         language: system
         types_or: [ts, tsx, js, jsx, json, css, scss, yaml, markdown]
+        # Issue #69: lockfile は整形規則と一致しないため除外。
+        exclude: "(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$"
         pass_filenames: true
 
       - id: stylelint

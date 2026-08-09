@@ -76,12 +76,28 @@ def test_init_no_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 def test_init_auto_preset_picks_ts_when_package_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Issue #69: package.json があれば auto は ts を選ぶ。
+    # Issue #69: package.json + .ts があれば auto は ts を選ぶ。
     root = _init_in(tmp_path, monkeypatch)
     (root / "package.json").write_text("{}", encoding="utf-8")
+    (root / "src").mkdir()
+    (root / "src" / "index.ts").write_text("export const x = 1;\n", encoding="utf-8")
     assert init_cmd.cmd_init(_make_args(preset="auto", no_workflow=True)) == 0
     cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "eslint" in cfg
+
+
+def test_init_auto_preset_keeps_python_for_py_repo_with_package_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #69: Python 主体で package.json が付随しても .ts/.tsx が無ければ full
+    # (ruff/mypy 等の Python ゲート) を選び、静かに ts へ置き換わらない。
+    root = _init_in(tmp_path, monkeypatch)
+    (root / "package.json").write_text("{}", encoding="utf-8")
+    (root / "main.py").write_text("print(1)\n", encoding="utf-8")
+    assert init_cmd.cmd_init(_make_args(preset="auto", no_workflow=True)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert "ruff-pre-commit" in cfg
+    assert "eslint" not in cfg
 
 
 def test_init_auto_preset_picks_full_without_package_json(

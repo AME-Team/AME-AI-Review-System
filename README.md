@@ -187,7 +187,10 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 
    - `--preset`: pre-commit 静的解析セット
      (`auto` / `full` / `python` / `text` / `ts` / `minimal`)。
-     `auto` (既定) は `package.json` の有無で `ts` か `full` を自動選択する (Issue #69)
+     `auto` (既定) は `package.json` + `.ts`/`.tsx` ソースの有無で `ts` か `full` を
+     自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
+     `./node_modules/.bin` を直接起動するため、事前に `npm install` (または pnpm/yarn) が
+     必要 (未実施時は「No such file or directory」で失敗する)
    - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
 
    生成物は以下のとおり。
