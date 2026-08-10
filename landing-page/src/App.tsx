@@ -381,7 +381,7 @@ export default function App(): React.JSX.Element {
 
               {/* Floating Settings Card */}
               {showSettings && (
-                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 transition-all duration-150 animate-in fade-in slide-in-from-top-2">
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 dropdown-enter">
                   <h3 className="font-bold text-sm text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-2">
                     {t.settingsTitle}
                   </h3>
@@ -561,12 +561,12 @@ export default function App(): React.JSX.Element {
             onKeyDown={handleDrawerKeyDown}
           >
             <div
-              className="absolute inset-0 bg-black/40"
+              className="absolute inset-0 bg-black/40 drawer-backdrop-enter"
               onClick={() => {
                 setSidebarOpen(false);
               }}
             ></div>
-            <div className="absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20">
+            <div className="absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 drawer-panel-enter">
               <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">
                 {t.sidebarTitle}
               </div>
@@ -584,13 +584,15 @@ export default function App(): React.JSX.Element {
               </div>
             </div>
 
-            <DocPage
-              id={activePage}
-              t={t}
-              locale={locale}
-              fontStyle={fontStyle}
-              onNavigate={navigate}
-            />
+            <div key={activePage} className="doc-page-enter">
+              <DocPage
+                id={activePage}
+                t={t}
+                locale={locale}
+                fontStyle={fontStyle}
+                onNavigate={navigate}
+              />
+            </div>
 
             {/* Prev / Next navigation */}
             <nav

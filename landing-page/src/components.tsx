@@ -556,7 +556,7 @@ export const PipelineDiagram: React.FC<{ t: TranslationResource; locale: Locale 
                 onClick={() => {
                   setActiveStep(step.id);
                 }}
-                className={`bg-white dark:bg-gray-850 p-4 rounded-md border text-left flex flex-col items-start gap-3 hover:-translate-y-0.5 transition-all duration-150 cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-primary ${isActive ? "border-primary ring-1 ring-primary shadow-md" : "border-gray-200 dark:border-gray-800"}`}
+                className={`bg-white dark:bg-gray-850 p-4 rounded-md border text-left flex flex-col items-start gap-3 hover:-translate-y-0.5 transition-all duration-150 ease-out cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-primary ${isActive ? "border-primary ring-1 ring-primary shadow-md" : "border-gray-200 dark:border-gray-800"}`}
               >
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${isActive ? "bg-primary text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-500"}`}
