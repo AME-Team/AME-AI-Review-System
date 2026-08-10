@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="#005B99"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 176 150 L 256 118 L 336 150 L 336 246 Q 336 330 256 372 Q 176 330 176 246 Z"/>
+             <path d="M 222 258 L 250 288 L 294 236"/>
+  </g>
+  <text x="256" y="440" text-anchor="middle" font-family="DejaVu Sans" font-weight="bold" font-size="32" letter-spacing="8" fill="#FFFFFF">AI REVIEW</text>
+</svg>
