@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import App from "./App";
+import App, { DRAWER_EXIT_MS } from "./App";
 
 const openPage = (label: string): void => {
   const matches = screen.getAllByRole("button", { name: label });
@@ -172,7 +172,7 @@ describe("App Component", () => {
     expect(dialog).toBeInTheDocument();
     fireEvent.keyDown(dialog, { key: "Escape" });
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(DRAWER_EXIT_MS);
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

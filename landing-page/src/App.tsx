@@ -74,6 +74,41 @@ function getPageLabel(t: TranslationResource, id: DocPageId): { category: string
   return { category: "", label: id };
 }
 
+// exit アニメーションの所要時間 (index.css のトランジション duration と同期させること)
+export const DRAWER_EXIT_MS = 300;
+export const SETTINGS_EXIT_MS = 150;
+
+// 開閉の mount → visible → unmount と終了所要時間を 1 箇所で管理し、CSS とのズレを防ぐ
+function useOpenAnimation(open: boolean, exitMs: number): { rendered: boolean; visible: boolean } {
+  const [rendered, setRendered] = useState<boolean>(false);
+  const [visible, setVisible] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (rendered) {
+      setVisible(open);
+    }
+  }, [rendered, open]);
+
+  useEffect(() => {
+    if (!open && rendered) {
+      const t = setTimeout(() => {
+        setRendered(false);
+      }, exitMs);
+      return (): void => {
+        clearTimeout(t);
+      };
+    }
+  }, [open, rendered, exitMs]);
+
+  return { rendered, visible };
+}
+
 export default function App(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings>(loadSavedSettings);
   const [showSettings, setShowSettings] = useState<boolean>(false);
@@ -83,10 +118,8 @@ export default function App(): React.JSX.Element {
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
   );
   const [activePage, setActivePage] = useState<DocPageId>(() => parseHash() ?? "overview");
-  const [drawerRendered, setDrawerRendered] = useState<boolean>(false);
-  const [drawerVisible, setDrawerVisible] = useState<boolean>(false);
-  const [settingsRendered, setSettingsRendered] = useState<boolean>(false);
-  const [settingsVisible, setSettingsVisible] = useState<boolean>(false);
+  const drawer = useOpenAnimation(sidebarOpen, DRAWER_EXIT_MS);
+  const settingsDropdown = useOpenAnimation(showSettings, SETTINGS_EXIT_MS);
 
   const { locale, fontStyle, primaryColor, theme } = settings;
 
@@ -125,7 +158,7 @@ export default function App(): React.JSX.Element {
   const wasDrawerOpenRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (drawerVisible) {
+    if (drawer.visible) {
       wasDrawerOpenRef.current = true;
       const firstButton = mobileDrawerRef.current?.querySelector<HTMLButtonElement>("button");
       firstButton?.focus();
@@ -133,7 +166,7 @@ export default function App(): React.JSX.Element {
       wasDrawerOpenRef.current = false;
       sidebarToggleRef.current?.focus();
     }
-  }, [drawerVisible]);
+  }, [drawer.visible]);
 
   const handleDrawerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === "Escape") {
@@ -182,54 +215,6 @@ export default function App(): React.JSX.Element {
       mq.removeEventListener("change", update);
     };
   }, []);
-
-  // Mobile drawer: mount on open, animate enter/exit, unmount after exit completes
-  useEffect(() => {
-    if (sidebarOpen) {
-      setDrawerRendered(true);
-    }
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    if (drawerRendered) {
-      setDrawerVisible(sidebarOpen);
-    }
-  }, [drawerRendered, sidebarOpen]);
-
-  useEffect(() => {
-    if (!sidebarOpen && drawerRendered) {
-      const t = setTimeout(() => {
-        setDrawerRendered(false);
-      }, 300);
-      return (): void => {
-        clearTimeout(t);
-      };
-    }
-  }, [sidebarOpen, drawerRendered]);
-
-  // Settings dropdown: mount on open, animate enter/exit, unmount after exit completes
-  useEffect(() => {
-    if (showSettings) {
-      setSettingsRendered(true);
-    }
-  }, [showSettings]);
-
-  useEffect(() => {
-    if (settingsRendered) {
-      setSettingsVisible(showSettings);
-    }
-  }, [settingsRendered, showSettings]);
-
-  useEffect(() => {
-    if (!showSettings && settingsRendered) {
-      const t = setTimeout(() => {
-        setSettingsRendered(false);
-      }, 150);
-      return (): void => {
-        clearTimeout(t);
-      };
-    }
-  }, [showSettings, settingsRendered]);
 
   // Re-trigger the page transition animation on navigation without remounting the
   // DocPage subtree (preserves its internal state). The first render is skipped so
@@ -449,9 +434,11 @@ export default function App(): React.JSX.Element {
               </button>
 
               {/* Floating Settings Card */}
-              {settingsRendered && (
+              {settingsDropdown.rendered && (
                 <div
-                  className={`absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 transition-all duration-150 ease-out ${settingsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"}`}
+                  aria-hidden={!settingsDropdown.visible}
+                  inert={!settingsDropdown.visible}
+                  className={`absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 transition-all duration-150 ease-out ${settingsDropdown.visible ? "opacity-100 translate-y-0" : "pointer-events-none opacity-0 -translate-y-1"}`}
                 >
                   <h3 className="font-bold text-sm text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-2">
                     {t.settingsTitle}
@@ -622,23 +609,25 @@ export default function App(): React.JSX.Element {
         </aside>
 
         {/* Mobile Sidebar Drawer */}
-        {drawerRendered && (
+        {drawer.rendered && (
           <div
             className="lg:hidden fixed inset-0 z-40"
             role="dialog"
             aria-modal="true"
             aria-label={t.sidebarTitle}
+            aria-hidden={!drawer.visible}
+            inert={!drawer.visible}
             ref={mobileDrawerRef}
             onKeyDown={handleDrawerKeyDown}
           >
             <div
-              className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ease-in-out ${drawerVisible ? "opacity-100" : "opacity-0"}`}
+              className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ease-in-out ${drawer.visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
               onClick={() => {
                 setSidebarOpen(false);
               }}
             ></div>
             <div
-              className={`absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 transition-transform duration-300 ease-in-out ${drawerVisible ? "translate-x-0" : "-translate-x-full"}`}
+              className={`absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 transition-transform duration-300 ease-in-out ${drawer.visible ? "translate-x-0" : "-translate-x-full"}`}
             >
               <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">
                 {t.sidebarTitle}
