@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import App from "./App";
 
 const openPage = (label: string): void => {
@@ -15,9 +15,13 @@ describe("App Component", () => {
     window.location.hash = "";
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the Japanese titles and documentation navigation", () => {
     render(<App />);
-    expect(screen.getAllByText(/AME AI Review/)[0]).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /AME-AI-Review-System/ })).toBeInTheDocument();
     expect(screen.getByText(/デュアルゲートAIコードレビュー/)).toBeInTheDocument();
     expect(screen.getByText(/厳格な静的解析とAIエージェント/)).toBeInTheDocument();
     expect(screen.getByText("ドキュメント")).toBeInTheDocument();
@@ -30,7 +34,7 @@ describe("App Component", () => {
 
   it("renders the hero header image on the overview page", () => {
     render(<App />);
-    expect(screen.getByRole("img", { name: "AME AI Review" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "AME-AI-Review-System" })).toBeInTheDocument();
   });
 
   it("renders the static analysis suite section via sidebar navigation", () => {
@@ -125,6 +129,37 @@ describe("App Component", () => {
     expect(screen.getByText(/コミットがブロックされました。/)).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+
+  it("collapses and expands the desktop sidebar", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string): MediaQueryList => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(() => false),
+      }))
+    );
+    render(<App />);
+    expect(screen.getByTestId("desktop-sidebar")).toBeInTheDocument();
+
+    const closeBtn = screen.getByRole("button", { name: "サイドバーを閉じる" });
+    expect(closeBtn).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(closeBtn);
+    const openBtn = screen.getByRole("button", { name: "サイドバーを開く" });
+    expect(openBtn).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(openBtn);
+    expect(screen.getByRole("button", { name: "サイドバーを閉じる" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
   });
 
   it("opens and closes the mobile sidebar drawer with Escape", () => {
