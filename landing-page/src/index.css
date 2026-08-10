@@ -10,6 +10,10 @@
   --font-ui-ja-serif: "Noto Serif JP", serif;
   --font-ui-en-sans: "Noto Sans", sans-serif;
   --font-ui-en-serif: "Noto Serif", serif;
+
+  /* animationTiming.ts の DRAWER_EXIT_MS / SETTINGS_EXIT_MS と同一ソースで参照する */
+  --drawer-exit-ms: 300ms;
+  --settings-exit-ms: 150ms;
 }
 
 /* Light Mode presets */

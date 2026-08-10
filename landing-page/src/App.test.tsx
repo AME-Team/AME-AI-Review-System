@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import App, { DRAWER_EXIT_MS } from "./App";
+import App from "./App";
+import { DRAWER_EXIT_MS } from "./animationTiming";
 
 const openPage = (label: string): void => {
   const matches = screen.getAllByRole("button", { name: label });
@@ -170,7 +171,9 @@ describe("App Component", () => {
     fireEvent.click(menuBtn);
     const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
     expect(dialog).toBeInTheDocument();
+    expect(dialog).not.toHaveAttribute("inert");
     fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).toHaveAttribute("inert");
     act(() => {
       vi.advanceTimersByTime(DRAWER_EXIT_MS);
     });

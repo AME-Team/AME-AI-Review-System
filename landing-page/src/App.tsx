@@ -74,9 +74,7 @@ function getPageLabel(t: TranslationResource, id: DocPageId): { category: string
   return { category: "", label: id };
 }
 
-// exit アニメーションの所要時間 (index.css のトランジション duration と同期させること)
-export const DRAWER_EXIT_MS = 300;
-export const SETTINGS_EXIT_MS = 150;
+import { DRAWER_EXIT_MS, SETTINGS_EXIT_MS } from "./animationTiming";
 
 // 開閉の mount → visible → unmount と終了所要時間を 1 箇所で管理し、CSS とのズレを防ぐ
 function useOpenAnimation(open: boolean, exitMs: number): { rendered: boolean; visible: boolean } {
@@ -438,7 +436,7 @@ export default function App(): React.JSX.Element {
                 <div
                   aria-hidden={!settingsDropdown.visible}
                   inert={!settingsDropdown.visible}
-                  className={`absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 transition-all duration-150 ease-out ${settingsDropdown.visible ? "opacity-100 translate-y-0" : "pointer-events-none opacity-0 -translate-y-1"}`}
+                  className={`absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 transition-all duration-[var(--settings-exit-ms)] ease-out ${settingsDropdown.visible ? "opacity-100 translate-y-0" : "pointer-events-none opacity-0 -translate-y-1"}`}
                 >
                   <h3 className="font-bold text-sm text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-2">
                     {t.settingsTitle}
@@ -620,14 +618,15 @@ export default function App(): React.JSX.Element {
             ref={mobileDrawerRef}
             onKeyDown={handleDrawerKeyDown}
           >
+            {/* パネル退出と同じ duration に揃え、退出後半にパネルだけが残って見えるチラつきを防ぐ */}
             <div
-              className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ease-in-out ${drawer.visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
+              className={`absolute inset-0 bg-black/40 transition-opacity duration-[var(--drawer-exit-ms)] ease-in-out ${drawer.visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
               onClick={() => {
                 setSidebarOpen(false);
               }}
             ></div>
             <div
-              className={`absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 transition-transform duration-300 ease-in-out ${drawer.visible ? "translate-x-0" : "-translate-x-full"}`}
+              className={`absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 transition-transform duration-[var(--drawer-exit-ms)] ease-in-out ${drawer.visible ? "translate-x-0" : "-translate-x-full"}`}
             >
               <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">
                 {t.sidebarTitle}
