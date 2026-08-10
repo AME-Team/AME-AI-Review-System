@@ -79,7 +79,9 @@ export default function App(): React.JSX.Element {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
-  const [isDesktop, setIsDesktop] = useState<boolean>(false);
+  const [isDesktop, setIsDesktop] = useState<boolean>(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
+  );
   const [activePage, setActivePage] = useState<DocPageId>(() => parseHash() ?? "overview");
 
   const { locale, fontStyle, primaryColor, theme } = settings;
@@ -162,7 +164,11 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
     const update = (): void => {
-      setIsDesktop(mq.matches);
+      const matches = mq.matches;
+      setIsDesktop(matches);
+      if (matches) {
+        setSidebarOpen(false);
+      }
     };
     update();
     mq.addEventListener("change", update);
