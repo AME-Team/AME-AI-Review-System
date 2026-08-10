@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { translations, type TranslationResource, type Locale } from "./i18n";
 import { type FontStyle } from "./assets/headerImage";
 import { DocPage } from "./docs";
@@ -83,10 +83,16 @@ export default function App(): React.JSX.Element {
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
   );
   const [activePage, setActivePage] = useState<DocPageId>(() => parseHash() ?? "overview");
+  const [drawerRendered, setDrawerRendered] = useState<boolean>(false);
+  const [drawerVisible, setDrawerVisible] = useState<boolean>(false);
+  const [settingsRendered, setSettingsRendered] = useState<boolean>(false);
+  const [settingsVisible, setSettingsVisible] = useState<boolean>(false);
 
   const { locale, fontStyle, primaryColor, theme } = settings;
 
   const settingsRef = useRef<HTMLDivElement>(null);
+  const docPageRef = useRef<HTMLDivElement>(null);
+  const isFirstPageRender = useRef<boolean>(true);
 
   const navigate = (id: DocPageId): void => {
     setActivePage(id);
@@ -119,7 +125,7 @@ export default function App(): React.JSX.Element {
   const wasDrawerOpenRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (sidebarOpen) {
+    if (drawerVisible) {
       wasDrawerOpenRef.current = true;
       const firstButton = mobileDrawerRef.current?.querySelector<HTMLButtonElement>("button");
       firstButton?.focus();
@@ -127,7 +133,7 @@ export default function App(): React.JSX.Element {
       wasDrawerOpenRef.current = false;
       sidebarToggleRef.current?.focus();
     }
-  }, [sidebarOpen]);
+  }, [drawerVisible]);
 
   const handleDrawerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === "Escape") {
@@ -176,6 +182,69 @@ export default function App(): React.JSX.Element {
       mq.removeEventListener("change", update);
     };
   }, []);
+
+  // Mobile drawer: mount on open, animate enter/exit, unmount after exit completes
+  useEffect(() => {
+    if (sidebarOpen) {
+      setDrawerRendered(true);
+    }
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (drawerRendered) {
+      setDrawerVisible(sidebarOpen);
+    }
+  }, [drawerRendered, sidebarOpen]);
+
+  useEffect(() => {
+    if (!sidebarOpen && drawerRendered) {
+      const t = setTimeout(() => {
+        setDrawerRendered(false);
+      }, 300);
+      return (): void => {
+        clearTimeout(t);
+      };
+    }
+  }, [sidebarOpen, drawerRendered]);
+
+  // Settings dropdown: mount on open, animate enter/exit, unmount after exit completes
+  useEffect(() => {
+    if (showSettings) {
+      setSettingsRendered(true);
+    }
+  }, [showSettings]);
+
+  useEffect(() => {
+    if (settingsRendered) {
+      setSettingsVisible(showSettings);
+    }
+  }, [settingsRendered, showSettings]);
+
+  useEffect(() => {
+    if (!showSettings && settingsRendered) {
+      const t = setTimeout(() => {
+        setSettingsRendered(false);
+      }, 150);
+      return (): void => {
+        clearTimeout(t);
+      };
+    }
+  }, [showSettings, settingsRendered]);
+
+  // Re-trigger the page transition animation on navigation without remounting the
+  // DocPage subtree (preserves its internal state). The first render is skipped so
+  // the animation never overlaps with the drawer opening on the initial paint.
+  useLayoutEffect(() => {
+    if (isFirstPageRender.current) {
+      isFirstPageRender.current = false;
+      return;
+    }
+    const el = docPageRef.current;
+    if (el === null) return;
+    el.classList.remove("doc-page-enter");
+    void el.getBoundingClientRect();
+    el.classList.add("doc-page-enter");
+  }, [activePage]);
 
   const toggleSidebar = (): void => {
     if (isDesktop) {
@@ -380,8 +449,10 @@ export default function App(): React.JSX.Element {
               </button>
 
               {/* Floating Settings Card */}
-              {showSettings && (
-                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 dropdown-enter">
+              {settingsRendered && (
+                <div
+                  className={`absolute right-0 mt-2 w-80 bg-white dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-md shadow-md p-4 flex flex-col gap-4 z-50 transition-all duration-150 ease-out ${settingsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"}`}
+                >
                   <h3 className="font-bold text-sm text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-2">
                     {t.settingsTitle}
                   </h3>
@@ -551,7 +622,7 @@ export default function App(): React.JSX.Element {
         </aside>
 
         {/* Mobile Sidebar Drawer */}
-        {sidebarOpen && (
+        {drawerRendered && (
           <div
             className="lg:hidden fixed inset-0 z-40"
             role="dialog"
@@ -561,12 +632,14 @@ export default function App(): React.JSX.Element {
             onKeyDown={handleDrawerKeyDown}
           >
             <div
-              className="absolute inset-0 bg-black/40 drawer-backdrop-enter"
+              className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ease-in-out ${drawerVisible ? "opacity-100" : "opacity-0"}`}
               onClick={() => {
                 setSidebarOpen(false);
               }}
             ></div>
-            <div className="absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 drawer-panel-enter">
+            <div
+              className={`absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-4 pt-20 transition-transform duration-300 ease-in-out ${drawerVisible ? "translate-x-0" : "-translate-x-full"}`}
+            >
               <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">
                 {t.sidebarTitle}
               </div>
@@ -584,7 +657,7 @@ export default function App(): React.JSX.Element {
               </div>
             </div>
 
-            <div key={activePage} className="doc-page-enter">
+            <div ref={docPageRef}>
               <DocPage
                 id={activePage}
                 t={t}

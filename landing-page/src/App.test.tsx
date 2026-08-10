@@ -17,6 +17,7 @@ describe("App Component", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("renders the Japanese titles and documentation navigation", () => {
@@ -163,12 +164,16 @@ describe("App Component", () => {
   });
 
   it("opens and closes the mobile sidebar drawer with Escape", () => {
+    vi.useFakeTimers();
     render(<App />);
     const menuBtn = screen.getByRole("button", { name: "メニューを開く" });
     fireEvent.click(menuBtn);
     const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
     expect(dialog).toBeInTheDocument();
     fireEvent.keyDown(dialog, { key: "Escape" });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
