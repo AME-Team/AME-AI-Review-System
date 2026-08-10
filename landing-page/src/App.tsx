@@ -78,6 +78,8 @@ export default function App(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings>(loadSavedSettings);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [isDesktop, setIsDesktop] = useState<boolean>(false);
   const [activePage, setActivePage] = useState<DocPageId>(() => parseHash() ?? "overview");
 
   const { locale, fontStyle, primaryColor, theme } = settings;
@@ -152,6 +154,28 @@ export default function App(): React.JSX.Element {
     } else if (active === last || !activeInside) {
       e.preventDefault();
       first.focus();
+    }
+  };
+
+  // Track desktop viewport so the sidebar toggle switches between
+  // the desktop collapse and the mobile drawer behavior
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = (): void => {
+      setIsDesktop(mq.matches);
+    };
+    update();
+    mq.addEventListener("change", update);
+    return (): void => {
+      mq.removeEventListener("change", update);
+    };
+  }, []);
+
+  const toggleSidebar = (): void => {
+    if (isDesktop) {
+      setSidebarCollapsed((prev) => !prev);
+    } else {
+      setSidebarOpen((prev) => !prev);
     }
   };
 
@@ -265,12 +289,18 @@ export default function App(): React.JSX.Element {
             <button
               type="button"
               ref={sidebarToggleRef}
-              onClick={() => {
-                setSidebarOpen(!sidebarOpen);
-              }}
-              aria-label={sidebarOpen ? t.menuClose : t.menuOpen}
-              aria-expanded={sidebarOpen}
-              className="lg:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+              onClick={toggleSidebar}
+              aria-label={
+                isDesktop
+                  ? sidebarCollapsed
+                    ? t.sidebarOpen
+                    : t.sidebarClose
+                  : sidebarOpen
+                    ? t.menuClose
+                    : t.menuOpen
+              }
+              aria-expanded={isDesktop ? !sidebarCollapsed : sidebarOpen}
+              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
             >
               <svg
                 className="w-5 h-5"
@@ -492,7 +522,9 @@ export default function App(): React.JSX.Element {
 
       <div className="flex">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:block w-64 shrink-0 border-r border-gray-200/50 dark:border-gray-800/50">
+        <aside
+          className={`${sidebarCollapsed ? "lg:hidden" : "hidden lg:block"} w-64 shrink-0 border-r border-gray-200/50 dark:border-gray-800/50`}
+        >
           <div className="sticky top-16 max-h-[calc(100vh-4rem)] overflow-y-auto p-4">
             <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">
               {t.sidebarTitle}
@@ -528,7 +560,7 @@ export default function App(): React.JSX.Element {
 
         {/* Main Content */}
         <main className="flex-1 min-w-0">
-          <div className="max-w-3xl mx-auto px-6 py-10 flex flex-col gap-10">
+          <div className="max-w-4xl mx-auto px-6 py-10 flex flex-col gap-10">
             <div className="flex flex-col gap-2">
               <div className="text-xs text-gray-400 dark:text-gray-500">
                 {t.sidebarTitle} / {currentLabel.category} / {currentLabel.label}
@@ -588,7 +620,7 @@ export default function App(): React.JSX.Element {
       <footer className="border-t border-gray-200/50 dark:border-gray-800/50 py-8 mt-12 transition-colors duration-150">
         <div className="max-w-[1400px] mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <span className="text-sm font-bold text-gray-900 dark:text-white">
-            AME AI Review System
+            AME-AI-Review-System
           </span>
           <div className="flex flex-col md:flex-row items-center gap-2 text-xs text-gray-500">
             <a

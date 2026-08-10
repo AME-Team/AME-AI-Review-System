@@ -97,11 +97,13 @@ export interface TranslationResource {
   pageNext: string;
   menuOpen: string;
   menuClose: string;
+  sidebarOpen: string;
+  sidebarClose: string;
 }
 
 export const translations: Record<Locale, TranslationResource> = {
   ja: {
-    title: "AME AI Review",
+    title: "AME-AI-Review-System",
     githubRepo: "GitHub リポジトリ",
     badgeVersion: "v0.2.4",
     heroTitle1: "デュアルゲートAIコードレビュー",
@@ -209,9 +211,11 @@ export const translations: Record<Locale, TranslationResource> = {
     pageNext: "次へ",
     menuOpen: "メニューを開く",
     menuClose: "メニューを閉じる",
+    sidebarOpen: "サイドバーを開く",
+    sidebarClose: "サイドバーを閉じる",
   },
   en: {
-    title: "AME AI Review",
+    title: "AME-AI-Review-System",
     githubRepo: "GitHub Repo",
     badgeVersion: "v0.2.4",
     heroTitle1: "Dual-Gate AI Code Review",
@@ -319,5 +323,7 @@ export const translations: Record<Locale, TranslationResource> = {
     pageNext: "Next",
     menuOpen: "Open menu",
     menuClose: "Close menu",
+    sidebarOpen: "Open sidebar",
+    sidebarClose: "Close sidebar",
   },
 };
