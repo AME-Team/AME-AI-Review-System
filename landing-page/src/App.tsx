@@ -246,6 +246,14 @@ export default function App(): React.JSX.Element {
   const nextPage = currentIdx < DOC_PAGE_ORDER.length - 1 ? DOC_PAGE_ORDER[currentIdx + 1] : null;
   const currentLabel = getPageLabel(t, activePage);
 
+  const sidebarIconPath = isDesktop
+    ? sidebarCollapsed
+      ? "M9 5l7 7-7 7"
+      : "M15 19l-7-7 7-7"
+    : sidebarOpen
+      ? "M6 18L18 6M6 6l12 12"
+      : "M4 6h16M4 12h16M4 18h16";
+
   const renderNavItems = (): React.ReactNode => (
     <nav className="flex flex-col gap-6" aria-label={t.sidebarTitle}>
       {nav.map((cat) => (
@@ -300,6 +308,7 @@ export default function App(): React.JSX.Element {
                     : t.menuOpen
               }
               aria-expanded={isDesktop ? !sidebarCollapsed : sidebarOpen}
+              aria-controls={isDesktop ? "desktop-sidebar" : undefined}
               className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
             >
               <svg
@@ -309,7 +318,7 @@ export default function App(): React.JSX.Element {
                 strokeWidth="2"
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                <path strokeLinecap="round" strokeLinejoin="round" d={sidebarIconPath} />
               </svg>
             </button>
             <button
@@ -523,6 +532,8 @@ export default function App(): React.JSX.Element {
       <div className="flex">
         {/* Desktop Sidebar */}
         <aside
+          id="desktop-sidebar"
+          data-testid="desktop-sidebar"
           className={`hidden w-64 shrink-0 border-r border-gray-200/50 dark:border-gray-800/50 ${sidebarCollapsed ? "lg:hidden" : "lg:block"}`}
         >
           <div className="sticky top-16 max-h-[calc(100vh-4rem)] overflow-y-auto p-4">

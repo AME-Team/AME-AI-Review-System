@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import App from "./App";
 
 const openPage = (label: string): void => {
@@ -13,6 +13,10 @@ describe("App Component", () => {
   beforeEach(() => {
     localStorage.clear();
     window.location.hash = "";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders the Japanese titles and documentation navigation", () => {
@@ -142,19 +146,20 @@ describe("App Component", () => {
       }))
     );
     render(<App />);
-    const aside = document.querySelector("aside");
-    if (aside === null) {
-      throw new Error("desktop aside not found");
-    }
-    expect(aside.classList.contains("lg:hidden")).toBe(false);
+    expect(screen.getByTestId("desktop-sidebar")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "サイドバーを閉じる" }));
-    expect(aside.classList.contains("lg:hidden")).toBe(true);
+    const closeBtn = screen.getByRole("button", { name: "サイドバーを閉じる" });
+    expect(closeBtn).toHaveAttribute("aria-expanded", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: "サイドバーを開く" }));
-    expect(aside.classList.contains("lg:hidden")).toBe(false);
+    fireEvent.click(closeBtn);
+    const openBtn = screen.getByRole("button", { name: "サイドバーを開く" });
+    expect(openBtn).toHaveAttribute("aria-expanded", "false");
 
-    vi.unstubAllGlobals();
+    fireEvent.click(openBtn);
+    expect(screen.getByRole("button", { name: "サイドバーを閉じる" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
   });
 
   it("opens and closes the mobile sidebar drawer with Escape", () => {
