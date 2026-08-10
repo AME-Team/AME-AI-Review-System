@@ -10,6 +10,10 @@
   --font-ui-ja-serif: "Noto Serif JP", serif;
   --font-ui-en-sans: "Noto Sans", sans-serif;
   --font-ui-en-serif: "Noto Serif", serif;
+
+  /* animationTiming.ts の DRAWER_EXIT_MS / SETTINGS_EXIT_MS と同一ソースで参照する */
+  --drawer-exit-ms: 300ms;
+  --settings-exit-ms: 150ms;
 }
 
 /* Light Mode presets */
@@ -146,5 +150,40 @@
       background-color: #111827;
       color: #d1d5db;
     }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+
+/* Animation rules (ame-ui-philosophy §6: 150-300ms, reduced-motion OK) */
+
+/* ------------------------------------------------------------------ */
+
+/* ページ切替 (200-300ms, ease-in-out) */
+@keyframes doc-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.doc-page-enter {
+  animation: doc-page-in 250ms ease-in-out;
+}
+
+/* prefers-reduced-motion: reduce 時は全アニメーションを無効化 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

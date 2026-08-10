@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import App from "./App";
+import { DRAWER_EXIT_MS } from "./animationTiming";
 
 const openPage = (label: string): void => {
   const matches = screen.getAllByRole("button", { name: label });
@@ -17,6 +18,7 @@ describe("App Component", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("renders the Japanese titles and documentation navigation", () => {
@@ -163,12 +165,18 @@ describe("App Component", () => {
   });
 
   it("opens and closes the mobile sidebar drawer with Escape", () => {
+    vi.useFakeTimers();
     render(<App />);
     const menuBtn = screen.getByRole("button", { name: "メニューを開く" });
     fireEvent.click(menuBtn);
     const dialog = screen.getByRole("dialog", { name: "ドキュメント" });
     expect(dialog).toBeInTheDocument();
+    expect(dialog).not.toHaveAttribute("inert");
     fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).toHaveAttribute("inert");
+    act(() => {
+      vi.advanceTimersByTime(DRAWER_EXIT_MS);
+    });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
