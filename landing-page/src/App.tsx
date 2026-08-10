@@ -523,7 +523,7 @@ export default function App(): React.JSX.Element {
       <div className="flex">
         {/* Desktop Sidebar */}
         <aside
-          className={`${sidebarCollapsed ? "lg:hidden" : "hidden lg:block"} w-64 shrink-0 border-r border-gray-200/50 dark:border-gray-800/50`}
+          className={`hidden w-64 shrink-0 border-r border-gray-200/50 dark:border-gray-800/50 ${sidebarCollapsed ? "lg:hidden" : "lg:block"}`}
         >
           <div className="sticky top-16 max-h-[calc(100vh-4rem)] overflow-y-auto p-4">
             <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">
