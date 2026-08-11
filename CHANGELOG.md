@@ -37,6 +37,31 @@
 - `_coerce_line` に `inf` / `nan` ガード (`math.isfinite`) を追加。JSON の `1e999` や `"inf"`
   経由の例外 (OverflowError / ValueError) を防ぐ。
 
+### Gate 2 レビュー指摘への対応 (本 PR 内)
+
+- `_run_git_check` の既定タイムアウトは従来どおり 30 秒を維持。大規模になり得る `git fetch` のみ
+  `GIT_TIMEOUT_SECONDS` (既定 300) で制御可能にし、checkout 失敗の誤判定を防ぐ。
+- `_is_valid_ref_name` の許容文字を git refname 規約 (`git check-ref-format`) に合わせて `(`, `)`,
+  `%`, `,`, `{`, `}`, `;`, `$`
+  等へ拡張。subprocess はリスト引数のためシェルインジェクションの懸念がなく、有効なブランチ名 (例:
+  `fix(issue)`) を拒否しない。
+- `reviewer_logins()` の `GET /user`
+  について、恒久的不許可 (401、App トークン) はキャッシュして無駄な API 呼び出しを抑止。一時障害 (5xx
+  / レート制限 403) は従来どおりキャッシュしない。
+- `GIT_TIMEOUT_SECONDS` に `math.isfinite` ガードを追加し、`inf` / `nan`
+  を既定 300 へフォールバック。subprocess のタイムアウトで OverflowError が誘発されるのを防ぐ。
+- `_is_valid_ref_name`
+  の結果は必ず subprocess のリスト引数 (シェル境界を通らない) で渡すというセキュリティ契約を
+  `_git_ref_check`
+  へ集約。検証済み ref から args を内部生成し、呼び出し側の二重管理による乖離を防ぐ。
+- `reviewer_logins`
+  が 401 を恒久失敗としてキャッシュする際に警告を一度だけ出力し、PAT の誤設定が無言で `[bot]`
+  固定照合へ退行するのを検知可能にする。
+- `_is_valid_ref_name` にコンポーネント単位の規約 (先頭ドット `feature/.bar` / `.lock` 終端
+  `feature/foo.lock`) と先頭ハイフン (オプション注入対策) の明示的な拒否を追加し、
+  `git check-ref-format` との乖離を縮小。
+- `reviewer_logins` の各テストで一意のトークンを使い、共有キャッシュ由来の実行順依存を排除。
+
 ## [0.2.4] - 2026-08-10
 
 ### Fixed

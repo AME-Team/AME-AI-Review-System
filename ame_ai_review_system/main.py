@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import math
 import os
 import pathlib
 import re
@@ -83,12 +84,18 @@ def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
 def _run_git_check(
     args: list[str],
     cwd: pathlib.Path | None = None,
+    timeout: float | None = None,
 ) -> tuple[bool, str]:
     """Git コマンドの成否と詳細 (stdout+stderr) を返す.
 
     ``_run_git`` は失敗を空文字で握り潰すため、成否判定が必要な箇所 (checkout 等) では
     こちらを使う (Issue #95)。
+
+    ``timeout`` を明示しない場合の既定は 30 秒 (``_run_git`` と同一)。大規模リポジトリの
+    ``git fetch`` のように 30 秒を超え得る処理は、呼び出し側で ``_git_timeout()``
+    (既定 300、``GIT_TIMEOUT_SECONDS`` で制御) を明示して使う (Gate 1 指摘対応)。
     """
+    timeout_seconds = timeout if timeout is not None else 30.0
     try:
         result = subprocess.run(
             ["git", *args],
@@ -96,7 +103,7 @@ def _run_git_check(
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            timeout=timeout_seconds,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return False, str(exc)
@@ -104,19 +111,65 @@ def _run_git_check(
     return result.returncode == 0, detail
 
 
+def _git_ref_check(
+    command: str,
+    ref: str,
+    cwd: pathlib.Path | None = None,
+    timeout: float | None = None,
+    extra_args: list[str] | None = None,
+) -> tuple[bool, str]:
+    """検証済み refname をリスト引数で git へ渡す薄いヘルパー (Gate 1 指摘対応).
+
+    ``_is_valid_ref_name`` の結果は必ず subprocess のリスト引数 (シェル境界を通らない)
+    として渡すというセキュリティ契約を、本ヘルパーへ集約して機械的に守る。検証済みの
+    ``ref`` から ``[command, *extra_args, ref]`` を内部生成するため、呼び出し側が
+    args と検証対象 ref を二重管理して乖離する余地がない。将来呼び出し側が
+    ``shell=True`` や文字列補間を誤用しても、このヘルパー経由なら検証済み ref のみが
+    渡る。
+    """
+    if not _is_valid_ref_name(ref):
+        return False, f"invalid refname: {ref!r}"
+    args = [command, *(extra_args or []), ref]
+    return _run_git_check(args, cwd=cwd, timeout=timeout)
+
+
+def _git_timeout() -> float:
+    """``git fetch`` など大規模処理向けのタイムアウトを返す (既定 300).
+
+    ``_run_git_check`` の既定 (30 秒) を超え得る fetch にのみ使用し、checkout 等の
+    軽量操作は既定のままとする (Gate 1 指摘対応)。
+
+    ``inf`` / ``nan`` (``GIT_TIMEOUT_SECONDS=inf`` 等) は subprocess のタイムアウトに
+    渡すとプラットフォーム依存で OverflowError を誘発し得るため、``math.isfinite`` で
+    既定へフォールバックする (Gate 1 指摘対応)。
+    """
+    raw = os.environ.get("GIT_TIMEOUT_SECONDS", "300")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 300.0
+    if not math.isfinite(value):
+        return 300.0
+    return value if value > 0 else 300.0
+
+
 def _is_valid_ref_name(name: str) -> bool:
     r"""Git の refname として安全なブランチ名かを判定する (Issue #95).
 
     ``git check-ref-format`` の規約に倣う (先頭ドット禁止・``..``/``@{``/空白/``~``/
     ``^``/``:``/``?``/``*``/``[``/``\`` 禁止・``/`` 始まりと ``//`` 禁止・``@`` 単体
-    禁止)。subprocess のリスト引数として渡すため、git が許容しつつシェルメタ文字を
-    含まない文字集合 ``[A-Za-z0-9/_.@#+=-]`` に制限する (Gate 1 指摘対応)。
+    禁止)。subprocess はリスト引数で起動されるためシェルメタ文字の展開は無く、
+    git が許可する文字 (``(`` / ``)`` / ``%`` / ``,`` / ``{`` / ``}`` / ``;`` /
+    ``$`` 等) を含むブランチ名 (例: ``fix(issue)``) を拒否しない (Gate 2 指摘対応)。
 
-    当初 ``[A-Za-z0-9/_.-]+`` のみで制限していたが、``@`` / ``#`` / ``+`` 等を含む
-    有効なブランチ名 (例: ``hotfix#123``) を拒否してしまうため拡張した。
+    **セキュリティ契約**: 本関数の結果は必ず ``subprocess.run`` のリスト引数
+    (シェル境界を通らない) として渡すこと。``shell=True`` やシェル文字列補間、
+    他プロセスの入力に流す改修を入れた場合は、この検証ではインジェクションを防げない
+    ため、呼び出し側でその経路を作らないこと (Gate 1 指摘対応)。
     """
     if not name or name == "@":
         return False
+    # 先頭ハイフンは git がオプションとして解釈するため拒否 (オプション注入対策)。
     if name.startswith(("-", ".", "/")):
         return False
     if name.endswith(("/", ".", ".lock")):
@@ -125,9 +178,16 @@ def _is_valid_ref_name(name: str) -> bool:
         return False
     if "@{" in name:
         return False
-    if any(ch in name for ch in " ~^:?*["):
+    # コンポーネント単位の規約: 先頭ドット (.foo / feature/.bar) と .lock 終端の
+    # コンポーネント (feature/foo.lock) は git check-ref-format で不正 (Gate 1 指摘対応)。
+    if "/." in name or name.startswith("."):
         return False
-    return re.fullmatch(r"[A-Za-z0-9/_.@#+=-]+", name) is not None
+    if any(part.endswith(".lock") for part in name.split("/")):
+        return False
+    # git が refname で禁止する文字と、制御文字・空白のみを拒否する。
+    return not any(ch in name for ch in " ~\t^:?*[\\") and not any(
+        ch < "\x20" or ch == "\x7f" for ch in name
+    )
 
 
 # ============================================================================
@@ -207,14 +267,23 @@ def cmd_checkout(args: argparse.Namespace) -> int:
             )
 
     # Fetch and checkout
-    ok, detail = _run_git_check(["fetch", "origin", head_branch])
+    # _git_ref_check が refname 検証とリスト引数起動 (シェル境界を通らない) を一体で
+    # 保証する。fetch は大規模リポジトリで 30 秒を超え得るため、長めのタイムアウトを
+    # 明示する (GIT_TIMEOUT_SECONDS で制御、既定 300)。checkout は既定 (30 秒)。
+    ok, detail = _git_ref_check(
+        "fetch",
+        head_branch,
+        extra_args=["origin"],
+        timeout=_git_timeout(),
+    )
     if not ok:
         print(
             f"[checkout] ERROR: git fetch origin {head_branch!r} failed: {detail}",
             file=sys.stderr,
         )
         return 1
-    ok, detail = _run_git_check(["checkout", head_branch])
+    # checkout も _git_ref_check 経由で検証済み refname をリスト引数で渡す。
+    ok, detail = _git_ref_check("checkout", head_branch)
     if not ok:
         print(
             f"[checkout] ERROR: git checkout {head_branch!r} failed: {detail}",
