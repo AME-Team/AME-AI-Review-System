@@ -100,6 +100,251 @@ def test_bot_login_preserves_hyphenated_slug() -> None:
 
 
 # ============================================================================
+# reviewer_logins (Issue #92)
+# ============================================================================
+
+
+def test_reviewer_logins_resolves_real_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PAT 運用で GET /user が実投稿者を返す場合、和集合に含まれることを検証する。."""
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, str]:
+        return {"login": "developer"}
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    assert github_client.reviewer_logins(
+        "https://api.github.com", "tok-real", "ame-ai-reviewer"
+    ) == {"developer", "ame-ai-reviewer[bot]"}
+
+
+def test_reviewer_logins_falls_back_to_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /user 失敗時は App 運用の後方互換として [bot] のみ返すことを検証する。."""
+
+    def _raise(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(github_client, "http_request", _raise)
+    assert github_client.reviewer_logins(
+        "https://api.github.com", "tok-bot", "ame-ai-reviewer"
+    ) == {"ame-ai-reviewer[bot]"}
+
+
+def test_reviewer_logins_non_dict_response_falls_back_to_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /user が非 dict を返した場合は [bot] のみ返すことを検証する。."""
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> list[str]:
+        return ["not", "a", "dict"]
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    assert github_client.reviewer_logins(
+        "https://api.github.com", "tok-nondict", "ame-ai-reviewer"
+    ) == {"ame-ai-reviewer[bot]"}
+
+
+def test_reviewer_logins_failure_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    r"""GET /user の失敗結果はキャッシュせず、後続呼び出しで再解決できることを検証する.
+
+    lru_cache だと一時的な API 失敗がプロセス内で固定され、PAT 運用の実投稿者 login が
+    解決されず Issue #92 が再発するため、成功時のみキャッシュする手動実装を採用した
+    (Gate 1 指摘対応)。
+    """
+    calls: list[str] = []
+
+    def _fail(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        calls.append(url)
+        msg = "temporary 5xx"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(github_client, "http_request", _fail)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok-fail", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok-fail", "ame-ai-reviewer"
+    )
+    assert first == {"ame-ai-reviewer[bot]"}
+    assert second == {"ame-ai-reviewer[bot]"}
+    # 失敗はキャッシュされないため、2 回目の呼び出しでも API へ再アクセスする。
+    assert len(calls) == 2
+
+
+def test_reviewer_logins_success_is_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /user の成功結果はキャッシュされ、繰り返し呼び出しても API を 1 回しか叩かない。."""
+    calls: list[str] = []
+
+    def _ok(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, str]:
+        calls.append(url)
+        return {"login": "developer"}
+
+    monkeypatch.setattr(github_client, "http_request", _ok)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok-cache-ok", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok-cache-ok", "ame-ai-reviewer"
+    )
+    assert first == {"developer", "ame-ai-reviewer[bot]"}
+    assert second == {"developer", "ame-ai-reviewer[bot]"}
+    assert len(calls) == 1
+
+
+def test_reviewer_logins_auth_error_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """恒久的不許可 (401、App トークンの GET /user) はキャッシュし再アクセスしない.
+
+    App 運用では ``GET /user`` が毎回 401 になるため、プロセス毎の無駄な API 呼び出しと
+    エラーログノイズを避ける (Gate 2 指摘対応)。
+    """
+    calls: list[str] = []
+
+    def _unauthorized(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        calls.append(url)
+        raise github_client.HttpError(401, "Unauthorized")
+
+    monkeypatch.setattr(github_client, "http_request", _unauthorized)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok-401", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok-401", "ame-ai-reviewer"
+    )
+    assert first == {"ame-ai-reviewer[bot]"}
+    assert second == {"ame-ai-reviewer[bot]"}
+    assert len(calls) == 1
+
+
+def test_reviewer_logins_401_emits_warning_once(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """401 恒久キャッシュ時に警告を一度だけ出力する (Gate 1 指摘対応)."""
+
+    def _unauthorized(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        raise github_client.HttpError(401, "Unauthorized")
+
+    monkeypatch.setattr(github_client, "http_request", _unauthorized)
+    github_client.reviewer_logins(
+        "https://api.github.com", "tok-warn", "ame-ai-reviewer"
+    )
+    github_client.reviewer_logins(
+        "https://api.github.com", "tok-warn", "ame-ai-reviewer"
+    )
+    captured = capsys.readouterr()
+    assert "401" in captured.err
+    assert "WARNING" in captured.err
+    # キャッシュ後の 2 回目は API を叩かないため警告も出ない (1 回のみ)。
+    assert captured.err.count("WARNING") == 1
+
+
+def test_reviewer_logins_rate_limit_403_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """レート制限 403 はキャッシュせず再解決できることを検証する.
+
+    403 はレート制限超過を伴い得る (X-RateLimit-Remaining: 0)。一律キャッシュすると
+    一時障害で ``[bot]`` 固定照合へ退行し Issue #92 が再発するため対象外とする
+    (Gate 1 指摘対応)。
+    """
+    calls: list[str] = []
+
+    def _rate_limited(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        calls.append(url)
+        raise github_client.HttpError(403, "API rate limit exceeded")
+
+    monkeypatch.setattr(github_client, "http_request", _rate_limited)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok-403", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok-403", "ame-ai-reviewer"
+    )
+    assert first == {"ame-ai-reviewer[bot]"}
+    assert second == {"ame-ai-reviewer[bot]"}
+    assert len(calls) == 2
+
+
+def test_reviewer_logins_5xx_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """一時障害 (5xx) はキャッシュせず、後続呼び出しで再解決できることを検証する。."""
+    calls: list[str] = []
+
+    def _server_error(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        calls.append(url)
+        raise github_client.HttpError(503, "Service Unavailable")
+
+    monkeypatch.setattr(github_client, "http_request", _server_error)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok-5xx", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok-5xx", "ame-ai-reviewer"
+    )
+    assert first == {"ame-ai-reviewer[bot]"}
+    assert second == {"ame-ai-reviewer[bot]"}
+    assert len(calls) == 2
+
+
+# ============================================================================
 # mentions_reviewer
 # ============================================================================
 

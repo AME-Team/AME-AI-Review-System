@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import math
 import os
 import pathlib
 import re
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 
 from . import diff_truncate, github_client, init_cmd, paths, pr_streak, review_config
 from . import payload as payload_module
-from .engine import apply_engine_info_env, resolve_settings
+from .engine import apply_engine_info_env, resolve_settings, resolve_timeout
 
 # ============================================================================
 # Common utilities
@@ -56,15 +57,13 @@ def _reviewer_author_login(api_url: str, token: str, reviewer_name: str) -> str:
     ``GET /user`` で実投稿者を解決する。失敗時は App 運用の後方互換として
     ``bot_login`` にフォールバックする。
     """
-    try:
-        user = github_client.http_request("GET", f"{api_url}/user", token)
-    except RuntimeError:
-        return github_client.bot_login(reviewer_name)
-    if isinstance(user, dict):
-        login = cast("dict[str, Any]", user).get("login")
-        if isinstance(login, str):
+    logins = github_client.reviewer_logins(api_url, token, reviewer_name)
+    bot = github_client.bot_login(reviewer_name)
+    # 実投稿者 (bot login 以外) を優先して返す。和集合に実投稿者が無ければ bot。
+    for login in logins:
+        if login != bot:
             return login
-    return github_client.bot_login(reviewer_name)
+    return bot
 
 
 def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
@@ -80,6 +79,116 @@ def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return ""
+
+
+def _run_git_check(
+    args: list[str],
+    cwd: pathlib.Path | None = None,
+    timeout: float | None = None,
+) -> tuple[bool, str]:
+    """Git コマンドの成否と詳細 (stdout+stderr) を返す.
+
+    ``_run_git`` は失敗を空文字で握り潰すため、成否判定が必要な箇所 (checkout 等) では
+    こちらを使う (Issue #95)。
+
+    ``timeout`` を明示しない場合の既定は 30 秒 (``_run_git`` と同一)。大規模リポジトリの
+    ``git fetch`` のように 30 秒を超え得る処理は、呼び出し側で ``_git_timeout()``
+    (既定 300、``GIT_TIMEOUT_SECONDS`` で制御) を明示して使う (Gate 1 指摘対応)。
+    """
+    timeout_seconds = timeout if timeout is not None else 30.0
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=cwd or PROJ_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+    detail = (result.stdout + result.stderr).strip()
+    return result.returncode == 0, detail
+
+
+def _git_ref_check(
+    command: str,
+    ref: str,
+    cwd: pathlib.Path | None = None,
+    timeout: float | None = None,
+    extra_args: list[str] | None = None,
+) -> tuple[bool, str]:
+    """検証済み refname をリスト引数で git へ渡す薄いヘルパー (Gate 1 指摘対応).
+
+    ``_is_valid_ref_name`` の結果は必ず subprocess のリスト引数 (シェル境界を通らない)
+    として渡すというセキュリティ契約を、本ヘルパーへ集約して機械的に守る。検証済みの
+    ``ref`` から ``[command, *extra_args, ref]`` を内部生成するため、呼び出し側が
+    args と検証対象 ref を二重管理して乖離する余地がない。将来呼び出し側が
+    ``shell=True`` や文字列補間を誤用しても、このヘルパー経由なら検証済み ref のみが
+    渡る。
+    """
+    if not _is_valid_ref_name(ref):
+        return False, f"invalid refname: {ref!r}"
+    args = [command, *(extra_args or []), ref]
+    return _run_git_check(args, cwd=cwd, timeout=timeout)
+
+
+def _git_timeout() -> float:
+    """``git fetch`` など大規模処理向けのタイムアウトを返す (既定 300).
+
+    ``_run_git_check`` の既定 (30 秒) を超え得る fetch にのみ使用し、checkout 等の
+    軽量操作は既定のままとする (Gate 1 指摘対応)。
+
+    ``inf`` / ``nan`` (``GIT_TIMEOUT_SECONDS=inf`` 等) は subprocess のタイムアウトに
+    渡すとプラットフォーム依存で OverflowError を誘発し得るため、``math.isfinite`` で
+    既定へフォールバックする (Gate 1 指摘対応)。
+    """
+    raw = os.environ.get("GIT_TIMEOUT_SECONDS", "300")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 300.0
+    if not math.isfinite(value):
+        return 300.0
+    return value if value > 0 else 300.0
+
+
+def _is_valid_ref_name(name: str) -> bool:
+    r"""Git の refname として安全なブランチ名かを判定する (Issue #95).
+
+    ``git check-ref-format`` の規約に倣う (先頭ドット禁止・``..``/``@{``/空白/``~``/
+    ``^``/``:``/``?``/``*``/``[``/``\`` 禁止・``/`` 始まりと ``//`` 禁止・``@`` 単体
+    禁止)。subprocess はリスト引数で起動されるためシェルメタ文字の展開は無く、
+    git が許可する文字 (``(`` / ``)`` / ``%`` / ``,`` / ``{`` / ``}`` / ``;`` /
+    ``$`` 等) を含むブランチ名 (例: ``fix(issue)``) を拒否しない (Gate 2 指摘対応)。
+
+    **セキュリティ契約**: 本関数の結果は必ず ``subprocess.run`` のリスト引数
+    (シェル境界を通らない) として渡すこと。``shell=True`` やシェル文字列補間、
+    他プロセスの入力に流す改修を入れた場合は、この検証ではインジェクションを防げない
+    ため、呼び出し側でその経路を作らないこと (Gate 1 指摘対応)。
+    """
+    if not name or name == "@":
+        return False
+    # 先頭ハイフンは git がオプションとして解釈するため拒否 (オプション注入対策)。
+    if name.startswith(("-", ".", "/")):
+        return False
+    if name.endswith(("/", ".", ".lock")):
+        return False
+    if ".." in name or "//" in name or "\\" in name:
+        return False
+    if "@{" in name:
+        return False
+    # コンポーネント単位の規約: 先頭ドット (feature/.bar) と .lock 終端の
+    # コンポーネント (feature/foo.lock) は git check-ref-format で不正 (Gate 1 指摘対応)。
+    # 全体の先頭ドットは name.startswith(("-", ".", "/")) で既に拒否済み。
+    if "/." in name:
+        return False
+    if any(part.endswith(".lock") for part in name.split("/")):
+        return False
+    # git が refname で禁止する文字と、制御文字・空白のみを拒否する。
+    return not any(ch in name for ch in " ~\t^:?*[\\") and not any(
+        ch < "\x20" or ch == "\x7f" for ch in name
+    )
 
 
 # ============================================================================
@@ -123,7 +232,7 @@ def cmd_checkout(args: argparse.Namespace) -> int:
 
     pr_dict = cast("dict[str, Any]", pr_data)
     base_ref = cast("str", pr_dict.get("base", {}).get("ref", ""))
-    if not re.fullmatch(r"[A-Za-z0-9/_.-]+", base_ref):
+    if not _is_valid_ref_name(base_ref):
         print(f"[checkout] ERROR: Invalid BASE_REF: {base_ref!r}", file=sys.stderr)
         return 1
 
@@ -135,6 +244,12 @@ def cmd_checkout(args: argparse.Namespace) -> int:
         print(
             f"[checkout] ERROR: Could not determine head branch for PR #{pr_number}",
             file=sys.stderr,
+        )
+        return 1
+
+    if not _is_valid_ref_name(head_branch):
+        print(
+            f"[checkout] ERROR: Invalid head branch: {head_branch!r}", file=sys.stderr
         )
         return 1
 
@@ -153,8 +268,29 @@ def cmd_checkout(args: argparse.Namespace) -> int:
             )
 
     # Fetch and checkout
-    _run_git(["fetch", "origin", head_branch])
-    _run_git(["checkout", head_branch])
+    # _git_ref_check が refname 検証とリスト引数起動 (シェル境界を通らない) を一体で
+    # 保証する。fetch は大規模リポジトリで 30 秒を超え得るため、長めのタイムアウトを
+    # 明示する (GIT_TIMEOUT_SECONDS で制御、既定 300)。checkout は既定 (30 秒)。
+    ok, detail = _git_ref_check(
+        "fetch",
+        head_branch,
+        extra_args=["origin"],
+        timeout=_git_timeout(),
+    )
+    if not ok:
+        print(
+            f"[checkout] ERROR: git fetch origin {head_branch!r} failed: {detail}",
+            file=sys.stderr,
+        )
+        return 1
+    # checkout も _git_ref_check 経由で検証済み refname をリスト引数で渡す。
+    ok, detail = _git_ref_check("checkout", head_branch)
+    if not ok:
+        print(
+            f"[checkout] ERROR: git checkout {head_branch!r} failed: {detail}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(
         f"[checkout] Checked out PR #{pr_number} branch '{head_branch}' (base: {base_ref})",
@@ -251,6 +387,11 @@ def _run_engine_capture(
 
     err_file = out_file + ".err"
 
+    # Issue #94: engine.py と同じ解決経路 (REVIEW_TIMEOUT_SECONDS 既定 600) を親の
+    # subprocess にも適用する。reply.py と経路を統一し、ハードコード 600 や
+    # settings 由来の乖離を防ぐ。
+    timeout = resolve_timeout()
+
     # Issue #40: Gate 2 のエンジン情報バナー表示フラグを子プロセスへ注入する。
     engine_env = dict(os.environ)
     apply_engine_info_env(engine_env, show_info=show_info)
@@ -273,7 +414,7 @@ def _run_engine_capture(
                 stdout=fout,
                 stderr=efi,
                 env=engine_env,
-                timeout=600,
+                timeout=timeout,
                 check=False,
             )
         engine_exit = proc.returncode

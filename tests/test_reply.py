@@ -287,7 +287,11 @@ def test_root_id_for_comment_unknown_returns_none() -> None:
 
 def _thread_is_pending_for(thread: list[dict[str, Any]]) -> bool:
     return reply._thread_is_pending(
-        int(thread[0]["id"]), thread, set(), "ame-ai-reviewer"
+        int(thread[0]["id"]),
+        thread,
+        set(),
+        "ame-ai-reviewer",
+        {"ame-ai-reviewer[bot]"},
     )
 
 
@@ -326,7 +330,33 @@ def test_thread_is_pending_resolved() -> None:
         _comment(10, "root", login="ame-ai-reviewer[bot]"),
         _comment(11, "@ame-ai-reviewer 修正しました", login="octocat"),
     ]
-    assert reply._thread_is_pending(10, thread, {10}, "ame-ai-reviewer") is False
+    assert (
+        reply._thread_is_pending(
+            10, thread, {10}, "ame-ai-reviewer", {"ame-ai-reviewer[bot]"}
+        )
+        is False
+    )
+
+
+def test_thread_is_pending_after_reviewer_reply_pat_login() -> None:
+    # Issue #92: PAT 運用ではレビュアーの返信がトークン所有者の login で記録される。
+    # reviewer_logins に実投稿者が含まれていれば [bot] 固定照合より認識できる。
+    thread = [
+        _comment(10, "root", login="developer"),
+        _comment(11, "@ame-ai-reviewer 修正しました", login="octocat"),
+        _comment(
+            12,
+            "対応確認しました。LGTM ✅",
+            login="developer",
+            created_at="2024-01-02T00:00:00Z",
+        ),
+    ]
+    assert (
+        reply._thread_is_pending(
+            10, thread, set(), "ame-ai-reviewer", {"developer", "ame-ai-reviewer[bot]"}
+        )
+        is False
+    )
 
 
 # --- _resolved_root_ids (GraphQL isResolved integration) ------------------

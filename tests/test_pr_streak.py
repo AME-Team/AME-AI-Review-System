@@ -593,3 +593,29 @@ def test_token_fallback_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Path, "exists", lambda _self: False)
     monkeypatch.setattr(Path, "is_file", lambda _self: False)
     assert token() == "envtoken"
+
+
+def test_token_fallback_to_reviewer_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Issue #97: CI は AME_AI_REVIEWER_TOKEN を設定するため両 env を読めること。
+    monkeypatch.setattr(Path, "exists", lambda _self: False)
+    monkeypatch.setattr(Path, "is_file", lambda _self: False)
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {"AME_AI_REVIEWER_TOKEN": "ci-token"},
+    )
+    assert token() == "ci-token"
+
+
+def test_token_reviewer_env_prefers_reviewer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # REVIEWER_TOKEN が先、AME_AI_REVIEWER_TOKEN はフォールバック。
+    monkeypatch.setattr(Path, "exists", lambda _self: False)
+    monkeypatch.setattr(Path, "is_file", lambda _self: False)
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {"REVIEWER_TOKEN": "legacy", "AME_AI_REVIEWER_TOKEN": "ci"},
+    )
+    assert token() == "legacy"

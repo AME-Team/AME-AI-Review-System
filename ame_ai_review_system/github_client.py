@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -83,6 +84,68 @@ def bot_login(name: str) -> str:
     二重付与を防ぐためそのまま返す。
     """
     return name if name.endswith("[bot]") else f"{name}[bot]"
+
+
+_REVIEWER_LOGINS_CACHE: dict[tuple[str, str, str], set[str]] = {}
+
+# 恒久的不許可 (GitHub App インストールトークンの GET /user は 401)。
+# レート制限は 403 で返り得るため、403 はキャッシュ対象としない。
+_HTTP_UNAUTHORIZED = 401
+
+
+def clear_reviewer_logins_cache() -> None:
+    """reviewer_logins のキャッシュを破棄する (テスト用・トークン切替用)."""
+    _REVIEWER_LOGINS_CACHE.clear()
+
+
+def reviewer_logins(api_url: str, token: str, reviewer_name: str) -> set[str]:
+    """レビュアーが投稿し得る login の集合を返す.
+
+    GitHub App 運用では ``{slug}[bot]`` で投稿されるが、PAT 運用ではトークン所有者の
+    login になる (Issue #55 B5)。``GET /user`` で実投稿者を解決し、bot login との
+    和集合を返す。解決失敗時は App 運用の後方互換として ``{slug}[bot]`` のみ返す。
+    main.py / reply.py のレビュアー返信判定で共用する (Issue #92)。
+
+    ``(api_url, token, reviewer_name)`` でキャッシュし、1 プロセス内で何度も
+    ``GET /user`` を呼ばないようにする (reply.py のスレッド毎呼び出し対策)。
+
+    - 成功時は常にキャッシュする。
+    - 一時障害 (5xx / レート制限 403 等) はキャッシュせず、後続の呼び出しで再解決できる
+      ようにする (一時障害時に ``[bot]`` 固定照合へ退行し Issue #92 が再発するのを防ぐ)。
+    - 恒久的不許可 (401。GitHub App インストールトークンは ``GET /user`` が 401 に
+      なる) のみキャッシュし、プロセス毎の無駄な API 呼び出しとエラーログノイズを避ける。
+      403 はレート制限超過を伴い得るためキャッシュ対象としない (Gate 2 指摘対応)。
+    """
+    key = (api_url, token, reviewer_name)
+    cached = _REVIEWER_LOGINS_CACHE.get(key)
+    if cached is not None:
+        return set(cached)
+
+    logins = {bot_login(reviewer_name)}
+    try:
+        user = http_request("GET", f"{api_url}/user", token)
+    except HttpError as exc:
+        if exc.status_code == _HTTP_UNAUTHORIZED:
+            # 401 は App トークン (恒久) と想定してキャッシュするが、PAT の誤設定等の
+            # 一時的 401 を無言で隠さないよう一度だけ警告する (Gate 1 指摘対応)。
+            print(
+                f"[github_client] WARNING: GET /user returned 401; assuming "
+                f"GitHub App token and falling back to {bot_login(reviewer_name)}. "
+                "If this is a user PAT misconfiguration, clear the reviewer_logins "
+                "cache or fix the token.",
+                file=sys.stderr,
+            )
+            _REVIEWER_LOGINS_CACHE[key] = logins
+        return logins
+    except RuntimeError:
+        return logins
+    if isinstance(user, dict):
+        user_dict: dict[str, Any] = cast("dict[str, Any]", user)
+        login = user_dict.get("login")
+        if isinstance(login, str):
+            logins.add(login)
+    _REVIEWER_LOGINS_CACHE[key] = logins
+    return set(logins)
 
 
 def mentions_reviewer(body: str, name: str) -> bool:

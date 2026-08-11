@@ -58,7 +58,14 @@ def _token() -> str:
     try:
         return github_client.get_token(str(token_file))
     except RuntimeError:
-        return os.environ.get("REVIEWER_TOKEN") or ""
+        pass
+    # Issue #97: CI の review-command.yml は REVIEWER_TOKEN ではなく
+    # AME_AI_REVIEWER_TOKEN を設定するため、両方をフォールバックで読む。
+    return (
+        os.environ.get("REVIEWER_TOKEN")
+        or os.environ.get("AME_AI_REVIEWER_TOKEN")
+        or ""
+    )
 
 
 def _github_env() -> tuple[str, str]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import pathlib
 import re
@@ -257,6 +258,34 @@ def build_valid_lines_map(base_ref: str) -> dict[str, set[int]]:
 
 _REQUIRED_ARGS = 2
 
+# GitHub review API の line は 1 以上の整数。
+_LINE_MIN = 1
+
+
+def _coerce_line(raw: Any) -> int | None:
+    """コメントの ``line`` 値を検証し int を返す。不正値は ``None`` (body-only 扱い).
+
+    LLM が ``"line": null`` や ``"12.5"`` / ``"abc"`` のような非整数を出力しても
+    レビュー全体を失敗させず、body-only コメントへフォールバックする (Issue #93)。
+
+    - ``bool`` は ``int`` のサブクラスのため ``True`` / ``False`` を除外する。
+    - 整数でない float (``12.5``) は静かに切り捨てると誤行を指摘するため除外する。
+    - ``inf`` / ``nan`` (JSON の ``1e999`` や ``"inf"`` 経由) は ``int()`` が例外を
+      投げるため ``math.isfinite`` で除外する (Issue #93 の回帰防止)。
+    - 1 未満の値は GitHub review API の要件 (line >= 1) を満たさないため除外する。
+    """
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    if value != int(value) or int(value) < _LINE_MIN:
+        return None
+    return int(value)
+
 
 def build_review_payloads(
     review: dict[str, Any],
@@ -284,12 +313,29 @@ def build_review_payloads(
     body_only_count = 0
     for c in review.get("comments", []):
         path = c.get("path", "")
-        line = int(c.get("line", 1))
+        line = _coerce_line(c.get("line", 1))
         icon = severity_icon.get(c.get("severity", "INFO"), "🟢")
         body = f"**{icon} {c.get('severity', 'INFO')}: {c.get('title', '')}**\n\n{c.get('body', '')}"
 
+        if line is None:
+            body = f"📍 **指摘対象: `{path}`（行番号が不正）**\n\n{body}"
+            individual_payloads.append(
+                {
+                    "event": "COMMENT",
+                    "body": body,
+                    "commit_id": head_sha,
+                    "comments": [],
+                },
+            )
+            body_only_count += 1
+            continue
+
+        # ここから下は line が有効な int であることが保証されている。
+        line_int = line
         if path not in valid_lines:
-            body = f"📍 **指摘対象: `{path}` L{line}（diff 外のファイル）**\n\n{body}"
+            body = (
+                f"📍 **指摘対象: `{path}` L{line_int}（diff 外のファイル）**\n\n{body}"
+            )
             individual_payloads.append(
                 {
                     "event": "COMMENT",
@@ -303,7 +349,7 @@ def build_review_payloads(
 
         lines = valid_lines[path]
         if not lines:
-            body = f"📍 **指摘対象: `{path}` L{line}（追加行なし）**\n\n{body}"
+            body = f"📍 **指摘対象: `{path}` L{line_int}（追加行なし）**\n\n{body}"
             individual_payloads.append(
                 {
                     "event": "COMMENT",
@@ -314,10 +360,10 @@ def build_review_payloads(
             )
             body_only_count += 1
             continue
-        target_line = line if line in lines else None
+        target_line = line_int if line_int in lines else None
         if target_line is None:
-            body = f"📍 **指摘対象: `{path}` L{line}（diff 外の行）**\n\n{body}"
-            target_line = min(lines, key=lambda x: abs(x - line))
+            body = f"📍 **指摘対象: `{path}` L{line_int}（diff 外の行）**\n\n{body}"
+            target_line = min(lines, key=lambda x: abs(x - line_int))
 
         individual_payloads.append(
             {

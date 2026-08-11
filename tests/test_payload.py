@@ -247,6 +247,114 @@ def test_build_repair_prompt_sanitizes_fence() -> None:
     assert prompt.count("```") == 2
 
 
+def test_build_payloads_invalid_line_falls_back_to_body_only() -> None:
+    # Issue #93: line が null / 非整数でもクラッシュせず body-only へフォールバックする。
+    from ame_ai_review_system.payload import build_review_payloads
+
+    review = {
+        "summary": "summary",
+        "comments": [
+            {
+                "path": "a.py",
+                "line": None,
+                "severity": "HIGH",
+                "title": "t",
+                "body": "b",
+            },
+            {
+                "path": "a.py",
+                "line": "12.5",
+                "severity": "LOW",
+                "title": "t",
+                "body": "b",
+            },
+            {
+                "path": "a.py",
+                "line": "abc",
+                "severity": "LOW",
+                "title": "t",
+                "body": "b",
+            },
+        ],
+    }
+    payloads = build_review_payloads(review, {"a.py": {1, 2, 3}}, "abc123")
+    invalid = [p for p in payloads if "行番号が不正" in p["body"]]
+    assert len(invalid) == 3
+    for p in invalid:
+        assert p.get("comments") == []
+
+
+def test_build_payloads_valid_line_keeps_inline() -> None:
+    from ame_ai_review_system.payload import build_review_payloads
+
+    review = {
+        "summary": "summary",
+        "comments": [
+            {"path": "a.py", "line": 2, "severity": "HIGH", "title": "t", "body": "b"}
+        ],
+    }
+    payloads = build_review_payloads(review, {"a.py": {1, 2, 3}}, "abc123")
+    inline = [p for p in payloads if p.get("comments")]
+    assert len(inline) == 1
+    assert inline[0]["comments"][0]["line"] == 2
+
+
+def test_build_payloads_float_and_bool_line_fall_back_to_body_only() -> None:
+    # Issue #93: float (12.5) や bool は int に静かに変換せず body-only へフォールバックする。
+    from ame_ai_review_system.payload import _coerce_line, build_review_payloads
+
+    assert _coerce_line(12.5) is None
+    assert _coerce_line("12.5") is None
+    bool_true: object = True
+    bool_false: object = False
+    assert _coerce_line(bool_true) is None
+    assert _coerce_line(bool_false) is None
+    assert _coerce_line(None) is None
+    assert _coerce_line(float("inf")) is None
+    assert _coerce_line("inf") is None
+    assert _coerce_line(float("nan")) is None
+    assert _coerce_line("nan") is None
+    assert _coerce_line(1e999) is None
+    assert _coerce_line(12) == 12
+    assert _coerce_line("12") == 12
+    assert _coerce_line(12.0) == 12
+    assert _coerce_line(0) is None
+    assert _coerce_line(-1) is None
+
+    review = {
+        "summary": "summary",
+        "comments": [
+            {
+                "path": "a.py",
+                "line": 12.5,
+                "severity": "HIGH",
+                "title": "t",
+                "body": "b",
+            },
+            {
+                "path": "a.py",
+                "line": True,
+                "severity": "HIGH",
+                "title": "t",
+                "body": "b",
+            },
+            {
+                "path": "a.py",
+                "line": 12.0,
+                "severity": "HIGH",
+                "title": "t",
+                "body": "b",
+            },
+        ],
+    }
+    payloads = build_review_payloads(review, {"a.py": {1, 2, 3, 12}}, "abc123")
+    invalid = [p for p in payloads if "行番号が不正" in p["body"]]
+    assert len(invalid) == 2
+    inline = [p for p in payloads if p.get("comments")]
+    assert len(inline) == 1
+    assert inline[0]["comments"][0]["line"] == 12
+
+
 # ---------------------------
 # build_valid_lines_map / _primary_diff_text (Issue #55)
 # ---------------------------

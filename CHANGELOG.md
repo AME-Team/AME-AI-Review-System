@@ -5,6 +5,63 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `reply.py`
+  が PAT 運用でレビュアー自身の返信を認識できず、スレッドが pending のまま重複 LGTM が投稿される可能性。`github_client.reviewer_logins()`
+  で実投稿者 login を解決し、bot login との和集合で照合するよう修正 (Issue #92)。
+- レビュー JSON のコメントが `line: null` や非整数を出力すると `build_review_payloads`
+  が例外を投げ、ラウンド全体が失敗する問題。`line`
+  を検証し、不正値は body-only コメントへフォールバックするよう修正 (Issue #93)。
+- `cmd_review` / `reply` の親プロセス `subprocess.run` が `timeout=600` 固定で
+  `REVIEW_TIMEOUT_SECONDS` 設定が反映されない問題。`engine.resolve_timeout()`
+  で解決した値を渡すよう修正 (Issue #94)。
+- `cmd_checkout` が `git fetch` / `git checkout` の失敗を握り潰して exit
+  0 を返し、誤ったブランチでレビューが走る問題。成否を検証して失敗時はエラー終了し、`head_branch` も
+  `base_ref` と同基準のバリデーションを追加 (Issue #95)。
+- `mermaid_check`
+  がダブルクォート済みノードラベル（`A["text (parens)"]`）を括弧・波括弧の誤検知でブロックする問題。クォート済みラベルをチェック対象外に修正 (Issue
+  #96)。
+- `pr_streak._token()` が CI で設定される `AME_AI_REVIEWER_TOKEN`
+  を読めず、streak 判定が CI 上で常に無効だった問題。`REVIEWER_TOKEN` / `AME_AI_REVIEWER_TOKEN`
+  の両方をフォールバックで読むよう修正 (Issue #97)。
+
+### Gate 1 レビュー指摘への対応 (本 PR 内)
+
+- `reviewer_logins()`
+  の実投稿者解決 (`GET /user`) を**成功時のみ**キャッシュ化し、スレッド毎の多重 API 呼び出しを排除。一時的な API 失敗はキャッシュせず再解決できるようにし、失敗固定で Issue
+  #92 が再発するのを防ぐ。
+- `head_branch` のバリデーションを `[A-Za-z0-9/_.-]` の過剰制限から git
+  refname 規約 (`git check-ref-format` 相当) へ変更。`@` / `#` / `+` 等を含む有効なブランチ名 (例:
+  `hotfix#123`) を拒否しないよう修正し、先頭ドット・`..`・`@{`・空白等を拒否。
+- `_coerce_line` に `inf` / `nan` ガード (`math.isfinite`) を追加。JSON の `1e999` や `"inf"`
+  経由の例外 (OverflowError / ValueError) を防ぐ。
+
+### Gate 2 レビュー指摘への対応 (本 PR 内)
+
+- `_run_git_check` の既定タイムアウトは従来どおり 30 秒を維持。大規模になり得る `git fetch` のみ
+  `GIT_TIMEOUT_SECONDS` (既定 300) で制御可能にし、checkout 失敗の誤判定を防ぐ。
+- `_is_valid_ref_name` の許容文字を git refname 規約 (`git check-ref-format`) に合わせて `(`, `)`,
+  `%`, `,`, `{`, `}`, `;`, `$`
+  等へ拡張。subprocess はリスト引数のためシェルインジェクションの懸念がなく、有効なブランチ名 (例:
+  `fix(issue)`) を拒否しない。
+- `reviewer_logins()` の `GET /user`
+  について、恒久的不許可 (401、App トークン) はキャッシュして無駄な API 呼び出しを抑止。一時障害 (5xx
+  / レート制限 403) は従来どおりキャッシュしない。
+- `GIT_TIMEOUT_SECONDS` に `math.isfinite` ガードを追加し、`inf` / `nan`
+  を既定 300 へフォールバック。subprocess のタイムアウトで OverflowError が誘発されるのを防ぐ。
+- `_is_valid_ref_name`
+  の結果は必ず subprocess のリスト引数 (シェル境界を通らない) で渡すというセキュリティ契約を
+  `_git_ref_check`
+  へ集約。検証済み ref から args を内部生成し、呼び出し側の二重管理による乖離を防ぐ。
+- `reviewer_logins`
+  が 401 を恒久失敗としてキャッシュする際に警告を一度だけ出力し、PAT の誤設定が無言で `[bot]`
+  固定照合へ退行するのを検知可能にする。
+- `_is_valid_ref_name` にコンポーネント単位の規約 (`feature/.bar` /
+  `feature/foo.lock`) と先頭ハイフン (オプション注入対策) の明示的な拒否を追加し、`git check-ref-format`
+  との乖離を縮小。全体の先頭ドットは既存の先頭文字検査に一本化して重複を除去。
+- `reviewer_logins` の各テストで一意のトークンを使い、共有キャッシュ由来の実行順依存を排除。
+
 ## [0.2.4] - 2026-08-10
 
 ### Fixed
