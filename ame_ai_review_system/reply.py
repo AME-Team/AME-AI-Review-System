@@ -183,6 +183,7 @@ def _thread_is_pending(
     thread: list[dict[str, Any]] | None,
     resolved_ids: set[int],
     reviewer_name: str,
+    reviewer_logins: set[str],
 ) -> bool:
     """1 スレッドが返信待ち状態かを判定する（_get_pending_threads と同一基準）."""
     if thread is None or root_id in resolved_ids:
@@ -200,7 +201,7 @@ def _thread_is_pending(
 
     latest_mention_time = max(r.get("created_at", "") for r in mention_replies)
     reviewer_replied_after = any(
-        r.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
+        r.get("user", {}).get("login") in reviewer_logins
         and r.get("created_at", "") > latest_mention_time
         for r in replies
     )
@@ -218,11 +219,22 @@ def _get_pending_threads(
     comments = _get_thread_comments(api_url, repo, pr, token)
     threads = _group_by_thread(comments)
     resolved_ids = _resolved_root_ids(int(pr), token)
+    reviewer_logins = github_client.reviewer_logins(
+        api_url,
+        token,
+        reviewer_name,
+    )
 
     return [
         root_id
         for root_id, thread in threads.items()
-        if _thread_is_pending(root_id, thread, resolved_ids, reviewer_name)
+        if _thread_is_pending(
+            root_id,
+            thread,
+            resolved_ids,
+            reviewer_name,
+            reviewer_logins,
+        )
     ]
 
 
@@ -252,7 +264,18 @@ def _thread_still_pending(
     comments = _get_thread_comments(api_url, repo, pr, token)
     thread = _find_thread(comments, thread_id)
     resolved_ids = _resolved_root_ids(int(pr), token)
-    return _thread_is_pending(thread_id, thread, resolved_ids, reviewer_name)
+    reviewer_logins = github_client.reviewer_logins(
+        api_url,
+        token,
+        reviewer_name,
+    )
+    return _thread_is_pending(
+        thread_id,
+        thread,
+        resolved_ids,
+        reviewer_name,
+        reviewer_logins,
+    )
 
 
 # ============================================================================
@@ -392,10 +415,15 @@ def _cmd_stale_check(pr: str, thread_id_str: str) -> None:
         print("ok")
         return
 
+    reviewer_logins = github_client.reviewer_logins(
+        api_url,
+        token,
+        reviewer_name,
+    )
     reviewer_replies = [
         str(c.get("body", ""))
         for c in thread[1:]
-        if c.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
+        if c.get("user", {}).get("login") in reviewer_logins
     ]
 
     if is_stale_thread(reviewer_replies):
@@ -461,7 +489,12 @@ def _post_reply(
         return _HTTP_STATUS_OK
 
 
-def _run_engine(prompt: str, *, show_info: bool = True) -> tuple[int, str]:
+def _run_engine(
+    prompt: str,
+    *,
+    show_info: bool = True,
+    timeout: float = 600.0,
+) -> tuple[int, str]:
     """Run engine.py with prompt, return (exit_code, stdout)."""
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -504,7 +537,7 @@ def _run_engine(prompt: str, *, show_info: bool = True) -> tuple[int, str]:
                 stdout=fout,
                 stderr=efi,
                 env=engine_env,
-                timeout=600,
+                timeout=timeout,
                 check=False,
             )
         engine_exit = proc.returncode
@@ -537,10 +570,15 @@ def _check_stale(
     if thread is None:
         return "ok"
 
+    reviewer_logins = github_client.reviewer_logins(
+        api_url,
+        token,
+        reviewer_name,
+    )
     reviewer_replies = [
         str(c.get("body", ""))
         for c in thread[1:]
-        if c.get("user", {}).get("login") == github_client.bot_login(reviewer_name)
+        if c.get("user", {}).get("login") in reviewer_logins
     ]
 
     if is_stale_thread(reviewer_replies):
@@ -678,7 +716,12 @@ def _process_thread(
             return
 
         # Run engine
-        engine_exit, engine_out = _run_engine(prompt, show_info=show_info)
+        # Issue #94: REVIEW_TIMEOUT_SECONDS (既定 600) を親プロセスへ反映する。
+        engine_exit, engine_out = _run_engine(
+            prompt,
+            show_info=show_info,
+            timeout=engine.resolve_timeout(),
+        )
 
         if engine_exit != 0 or not engine_out.strip():
             print("[reply] Engine failed, using default LGTM.")

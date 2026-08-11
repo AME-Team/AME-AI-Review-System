@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 from . import diff_truncate, github_client, init_cmd, paths, pr_streak, review_config
 from . import payload as payload_module
-from .engine import apply_engine_info_env, resolve_settings
+from .engine import apply_engine_info_env, resolve_settings, resolve_timeout
 
 # ============================================================================
 # Common utilities
@@ -56,15 +56,13 @@ def _reviewer_author_login(api_url: str, token: str, reviewer_name: str) -> str:
     ``GET /user`` で実投稿者を解決する。失敗時は App 運用の後方互換として
     ``bot_login`` にフォールバックする。
     """
-    try:
-        user = github_client.http_request("GET", f"{api_url}/user", token)
-    except RuntimeError:
-        return github_client.bot_login(reviewer_name)
-    if isinstance(user, dict):
-        login = cast("dict[str, Any]", user).get("login")
-        if isinstance(login, str):
+    logins = github_client.reviewer_logins(api_url, token, reviewer_name)
+    bot = github_client.bot_login(reviewer_name)
+    # 実投稿者 (bot login 以外) を優先して返す。和集合に実投稿者が無ければ bot。
+    for login in logins:
+        if login != bot:
             return login
-    return github_client.bot_login(reviewer_name)
+    return bot
 
 
 def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
@@ -80,6 +78,56 @@ def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return ""
+
+
+def _run_git_check(
+    args: list[str],
+    cwd: pathlib.Path | None = None,
+) -> tuple[bool, str]:
+    """Git コマンドの成否と詳細 (stdout+stderr) を返す.
+
+    ``_run_git`` は失敗を空文字で握り潰すため、成否判定が必要な箇所 (checkout 等) では
+    こちらを使う (Issue #95)。
+    """
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=cwd or PROJ_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+    detail = (result.stdout + result.stderr).strip()
+    return result.returncode == 0, detail
+
+
+def _is_valid_ref_name(name: str) -> bool:
+    r"""Git の refname として安全なブランチ名かを判定する (Issue #95).
+
+    ``git check-ref-format`` の規約に倣う (先頭ドット禁止・``..``/``@{``/空白/``~``/
+    ``^``/``:``/``?``/``*``/``[``/``\`` 禁止・``/`` 始まりと ``//`` 禁止・``@`` 単体
+    禁止)。subprocess のリスト引数として渡すため、git が許容しつつシェルメタ文字を
+    含まない文字集合 ``[A-Za-z0-9/_.@#+=-]`` に制限する (Gate 1 指摘対応)。
+
+    当初 ``[A-Za-z0-9/_.-]+`` のみで制限していたが、``@`` / ``#`` / ``+`` 等を含む
+    有効なブランチ名 (例: ``hotfix#123``) を拒否してしまうため拡張した。
+    """
+    if not name or name == "@":
+        return False
+    if name.startswith(("-", ".", "/")):
+        return False
+    if name.endswith(("/", ".", ".lock")):
+        return False
+    if ".." in name or "//" in name or "\\" in name:
+        return False
+    if "@{" in name:
+        return False
+    if any(ch in name for ch in " ~^:?*["):
+        return False
+    return re.fullmatch(r"[A-Za-z0-9/_.@#+=-]+", name) is not None
 
 
 # ============================================================================
@@ -123,7 +171,7 @@ def cmd_checkout(args: argparse.Namespace) -> int:
 
     pr_dict = cast("dict[str, Any]", pr_data)
     base_ref = cast("str", pr_dict.get("base", {}).get("ref", ""))
-    if not re.fullmatch(r"[A-Za-z0-9/_.-]+", base_ref):
+    if not _is_valid_ref_name(base_ref):
         print(f"[checkout] ERROR: Invalid BASE_REF: {base_ref!r}", file=sys.stderr)
         return 1
 
@@ -135,6 +183,12 @@ def cmd_checkout(args: argparse.Namespace) -> int:
         print(
             f"[checkout] ERROR: Could not determine head branch for PR #{pr_number}",
             file=sys.stderr,
+        )
+        return 1
+
+    if not _is_valid_ref_name(head_branch):
+        print(
+            f"[checkout] ERROR: Invalid head branch: {head_branch!r}", file=sys.stderr
         )
         return 1
 
@@ -153,8 +207,20 @@ def cmd_checkout(args: argparse.Namespace) -> int:
             )
 
     # Fetch and checkout
-    _run_git(["fetch", "origin", head_branch])
-    _run_git(["checkout", head_branch])
+    ok, detail = _run_git_check(["fetch", "origin", head_branch])
+    if not ok:
+        print(
+            f"[checkout] ERROR: git fetch origin {head_branch!r} failed: {detail}",
+            file=sys.stderr,
+        )
+        return 1
+    ok, detail = _run_git_check(["checkout", head_branch])
+    if not ok:
+        print(
+            f"[checkout] ERROR: git checkout {head_branch!r} failed: {detail}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(
         f"[checkout] Checked out PR #{pr_number} branch '{head_branch}' (base: {base_ref})",
@@ -251,6 +317,11 @@ def _run_engine_capture(
 
     err_file = out_file + ".err"
 
+    # Issue #94: engine.py と同じ解決経路 (REVIEW_TIMEOUT_SECONDS 既定 600) を親の
+    # subprocess にも適用する。reply.py と経路を統一し、ハードコード 600 や
+    # settings 由来の乖離を防ぐ。
+    timeout = resolve_timeout()
+
     # Issue #40: Gate 2 のエンジン情報バナー表示フラグを子プロセスへ注入する。
     engine_env = dict(os.environ)
     apply_engine_info_env(engine_env, show_info=show_info)
@@ -273,7 +344,7 @@ def _run_engine_capture(
                 stdout=fout,
                 stderr=efi,
                 env=engine_env,
-                timeout=600,
+                timeout=timeout,
                 check=False,
             )
         engine_exit = proc.returncode

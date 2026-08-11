@@ -5,6 +5,38 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `reply.py`
+  が PAT 運用でレビュアー自身の返信を認識できず、スレッドが pending のまま重複 LGTM が投稿される可能性。`github_client.reviewer_logins()`
+  で実投稿者 login を解決し、bot login との和集合で照合するよう修正 (Issue #92)。
+- レビュー JSON のコメントが `line: null` や非整数を出力すると `build_review_payloads`
+  が例外を投げ、ラウンド全体が失敗する問題。`line`
+  を検証し、不正値は body-only コメントへフォールバックするよう修正 (Issue #93)。
+- `cmd_review` / `reply` の親プロセス `subprocess.run` が `timeout=600` 固定で
+  `REVIEW_TIMEOUT_SECONDS` 設定が反映されない問題。`engine.resolve_timeout()`
+  で解決した値を渡すよう修正 (Issue #94)。
+- `cmd_checkout` が `git fetch` / `git checkout` の失敗を握り潰して exit
+  0 を返し、誤ったブランチでレビューが走る問題。成否を検証して失敗時はエラー終了し、`head_branch` も
+  `base_ref` と同基準のバリデーションを追加 (Issue #95)。
+- `mermaid_check`
+  がダブルクォート済みノードラベル（`A["text (parens)"]`）を括弧・波括弧の誤検知でブロックする問題。クォート済みラベルをチェック対象外に修正 (Issue
+  #96)。
+- `pr_streak._token()` が CI で設定される `AME_AI_REVIEWER_TOKEN`
+  を読めず、streak 判定が CI 上で常に無効だった問題。`REVIEWER_TOKEN` / `AME_AI_REVIEWER_TOKEN`
+  の両方をフォールバックで読むよう修正 (Issue #97)。
+
+### Gate 1 レビュー指摘への対応 (本 PR 内)
+
+- `reviewer_logins()`
+  の実投稿者解決 (`GET /user`) を**成功時のみ**キャッシュ化し、スレッド毎の多重 API 呼び出しを排除。一時的な API 失敗はキャッシュせず再解決できるようにし、失敗固定で Issue
+  #92 が再発するのを防ぐ。
+- `head_branch` のバリデーションを `[A-Za-z0-9/_.-]` の過剰制限から git
+  refname 規約 (`git check-ref-format` 相当) へ変更。`@` / `#` / `+` 等を含む有効なブランチ名 (例:
+  `hotfix#123`) を拒否しないよう修正し、先頭ドット・`..`・`@{`・空白等を拒否。
+- `_coerce_line` に `inf` / `nan` ガード (`math.isfinite`) を追加。JSON の `1e999` や `"inf"`
+  経由の例外 (OverflowError / ValueError) を防ぐ。
+
 ## [0.2.4] - 2026-08-10
 
 ### Fixed

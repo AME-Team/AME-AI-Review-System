@@ -85,6 +85,46 @@ def bot_login(name: str) -> str:
     return name if name.endswith("[bot]") else f"{name}[bot]"
 
 
+_REVIEWER_LOGINS_CACHE: dict[tuple[str, str, str], set[str]] = {}
+
+
+def clear_reviewer_logins_cache() -> None:
+    """reviewer_logins のキャッシュを破棄する (テスト用・トークン切替用)."""
+    _REVIEWER_LOGINS_CACHE.clear()
+
+
+def reviewer_logins(api_url: str, token: str, reviewer_name: str) -> set[str]:
+    """レビュアーが投稿し得る login の集合を返す.
+
+    GitHub App 運用では ``{slug}[bot]`` で投稿されるが、PAT 運用ではトークン所有者の
+    login になる (Issue #55 B5)。``GET /user`` で実投稿者を解決し、bot login との
+    和集合を返す。解決失敗時は App 運用の後方互換として ``{slug}[bot]`` のみ返す。
+    main.py / reply.py のレビュアー返信判定で共用する (Issue #92)。
+
+    ``(api_url, token, reviewer_name)`` で**成功時のみ**キャッシュし、1 プロセス内で
+    何度も ``GET /user`` を呼ばないようにする (reply.py のスレッド毎呼び出し対策)。
+    失敗 (RuntimeError) はキャッシュせず、後続の呼び出しで再解決できるようにする
+    (一時障害時に ``[bot]`` 固定照合へ退行し Issue #92 が再発するのを防ぐ)。
+    """
+    key = (api_url, token, reviewer_name)
+    cached = _REVIEWER_LOGINS_CACHE.get(key)
+    if cached is not None:
+        return set(cached)
+
+    logins = {bot_login(reviewer_name)}
+    try:
+        user = http_request("GET", f"{api_url}/user", token)
+    except RuntimeError:
+        return logins
+    if isinstance(user, dict):
+        user_dict: dict[str, Any] = cast("dict[str, Any]", user)
+        login = user_dict.get("login")
+        if isinstance(login, str):
+            logins.add(login)
+    _REVIEWER_LOGINS_CACHE[key] = logins
+    return set(logins)
+
+
 def mentions_reviewer(body: str, name: str) -> bool:
     """コメント本文がレビュアーへのメンションを含むかを判定する.
 

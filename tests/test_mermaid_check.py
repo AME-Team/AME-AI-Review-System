@@ -70,6 +70,12 @@ def test_node_square_no_parens_ok() -> None:
     assert check_line("test.md", 1, "    A[hello world]") == []
 
 
+def test_node_square_quoted_parens_ok() -> None:
+    # Issue #96: クォート済み (["text"]) は括弧を含んでも正しい形式のため誤検知しない。
+    assert check_line("test.md", 1, '    A["hello (world)"]') == []
+    assert check_line("test.md", 1, '    B["text with )"]') == []
+
+
 def test_node_brace_braces_detected() -> None:
     issues = check_line("test.md", 1, "    A{hello {inner}}")
     assert len(issues) == 1
@@ -78,6 +84,11 @@ def test_node_brace_braces_detected() -> None:
 
 def test_node_brace_simple_ok() -> None:
     assert check_line("test.md", 1, "    A{decision}") == []
+
+
+def test_node_brace_quoted_braces_ok() -> None:
+    # Issue #96: クォート済み ({"text"}) は波括弧を含んでも正しい形式のため誤検知しない。
+    assert check_line("test.md", 1, '    A{"hello {inner}"}') == []
 
 
 # -------------------------------------------------------

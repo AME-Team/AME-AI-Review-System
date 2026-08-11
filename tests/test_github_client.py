@@ -100,6 +100,133 @@ def test_bot_login_preserves_hyphenated_slug() -> None:
 
 
 # ============================================================================
+# reviewer_logins (Issue #92)
+# ============================================================================
+
+
+def test_reviewer_logins_resolves_real_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PAT 運用で GET /user が実投稿者を返す場合、和集合に含まれることを検証する。."""
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, str]:
+        return {"login": "developer"}
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    assert github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    ) == {"developer", "ame-ai-reviewer[bot]"}
+
+
+def test_reviewer_logins_falls_back_to_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /user 失敗時は App 運用の後方互換として [bot] のみ返すことを検証する。."""
+
+    def _raise(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(github_client, "http_request", _raise)
+    assert github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    ) == {"ame-ai-reviewer[bot]"}
+
+
+def test_reviewer_logins_non_dict_response_falls_back_to_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /user が非 dict を返した場合は [bot] のみ返すことを検証する。."""
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> list[str]:
+        return ["not", "a", "dict"]
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    assert github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    ) == {"ame-ai-reviewer[bot]"}
+
+
+def test_reviewer_logins_failure_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    r"""GET /user の失敗結果はキャッシュせず、後続呼び出しで再解決できることを検証する.
+
+    lru_cache だと一時的な API 失敗がプロセス内で固定され、PAT 運用の実投稿者 login が
+    解決されず Issue #92 が再発するため、成功時のみキャッシュする手動実装を採用した
+    (Gate 1 指摘対応)。
+    """
+    calls: list[str] = []
+
+    def _fail(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        calls.append(url)
+        msg = "temporary 5xx"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(github_client, "http_request", _fail)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    )
+    assert first == {"ame-ai-reviewer[bot]"}
+    assert second == {"ame-ai-reviewer[bot]"}
+    # 失敗はキャッシュされないため、2 回目の呼び出しでも API へ再アクセスする。
+    assert len(calls) == 2
+
+
+def test_reviewer_logins_success_is_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /user の成功結果はキャッシュされ、繰り返し呼び出しても API を 1 回しか叩かない。."""
+    calls: list[str] = []
+
+    def _ok(
+        method: str,
+        url: str,
+        token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, str]:
+        calls.append(url)
+        return {"login": "developer"}
+
+    monkeypatch.setattr(github_client, "http_request", _ok)
+    first = github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    )
+    second = github_client.reviewer_logins(
+        "https://api.github.com", "tok", "ame-ai-reviewer"
+    )
+    assert first == {"developer", "ame-ai-reviewer[bot]"}
+    assert second == {"developer", "ame-ai-reviewer[bot]"}
+    assert len(calls) == 1
+
+
+# ============================================================================
 # mentions_reviewer
 # ============================================================================
 

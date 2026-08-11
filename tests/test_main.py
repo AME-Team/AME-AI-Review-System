@@ -103,3 +103,122 @@ def test_run_engine_capture_omits_show_info_when_false(
 ) -> None:
     main._run_engine_capture({}, "PROMPT", show_info=False)
     assert capture_engine_env["env"].get("AME_ENGINE_SHOW_INFO") == "0"
+
+
+# --- _run_engine_capture timeout propagation (Issue #94) ---------------------
+
+
+def test_run_engine_capture_forwards_timeout(
+    capture_engine_env: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 哨戒テスト: REVIEW_TIMEOUT_SECONDS が親 subprocess の timeout に反映される (Issue #94)。
+    # conftest が subprocess.run を monkeypatch しているため timeout 引数を捕捉できる。
+    monkeypatch.setenv("REVIEW_TIMEOUT_SECONDS", "1234.5")
+    main._run_engine_capture({"timeout": 999.0}, "PROMPT")
+    assert capture_engine_env["timeout"] == pytest.approx(1234.5)
+
+
+def test_run_engine_capture_default_timeout(
+    capture_engine_env: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # REVIEW_TIMEOUT_SECONDS 未設定時は既定 600 が使われる。
+    monkeypatch.delenv("REVIEW_TIMEOUT_SECONDS", raising=False)
+    main._run_engine_capture({}, "PROMPT")
+    assert capture_engine_env["timeout"] == pytest.approx(600.0)
+
+
+# --- _run_git_check (Issue #95) ----------------------------------------------
+
+
+def test_run_git_check_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_run(
+        args: list[str],
+        **kwargs: Any,
+    ) -> Any:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+        class _Result:
+            returncode = 0
+            stdout = "stdout-data"
+            stderr = ""
+
+        return _Result()
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    ok, detail = main._run_git_check(["rev-parse", "HEAD"])
+    assert ok is True
+    assert detail == "stdout-data"
+
+
+def test_run_git_check_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_run(args: list[str], **kwargs: Any) -> Any:
+        class _Result:
+            returncode = 128
+            stdout = ""
+            stderr = "fatal: not a git repository"
+
+        return _Result()
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    ok, detail = main._run_git_check(["checkout", "nope"])
+    assert ok is False
+    assert "fatal" in detail
+
+
+def test_run_git_check_spawn_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_run(args: list[str], **kwargs: Any) -> Any:
+        message = "git not found"
+        raise FileNotFoundError(message)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    ok, detail = main._run_git_check(["rev-parse", "HEAD"])
+    assert ok is False
+    assert "git not found" in detail
+
+
+# --- _is_valid_ref_name (Issue #95) ------------------------------------------
+
+
+def test_is_valid_ref_name_accepts_git_refs() -> None:
+    # git の refname 規約で有効なブランチ名 (@ # + 等) を許可する (Gate 1 指摘対応)。
+    for name in [
+        "main",
+        "feature/foo",
+        "hotfix#123",
+        "release@1.0",
+        "feature/foo+bar",
+        "bug/fix-123",
+    ]:
+        assert main._is_valid_ref_name(name), name
+
+
+def test_is_valid_ref_name_rejects_unsafe() -> None:
+    for name in [
+        "",
+        "@",
+        "-foo",
+        ".foo",
+        "/foo",
+        "foo bar",
+        "foo\tbar",
+        "foo..bar",
+        "foo//bar",
+        "foo\\bar",
+        "foo/",
+        "foo.lock",
+        "foo@{bar",
+        "foo~bar",
+        "foo^bar",
+        "foo:bar",
+        "foo?bar",
+        "foo*bar",
+        "foo[bar",
+        "foo;rm",
+        "foo$(cmd)",
+    ]:
+        assert not main._is_valid_ref_name(name), name

@@ -224,6 +224,16 @@ def _resolve_timeout() -> float:
     return timeout
 
 
+def resolve_timeout() -> float:
+    """親プロセス (main/reply) が子プロセスへ渡すタイムアウトを返す (Issue #94).
+
+    ``_resolve_timeout`` と同一の解決ロジックを公開し、main.py / reply.py の
+    ``subprocess.run`` タイムアウトに反映させる。ハードコード 600 のままだと
+    ``REVIEW_TIMEOUT_SECONDS`` 設定が無意味になるため共通化する。
+    """
+    return _resolve_timeout()
+
+
 def resolve_settings(role: str) -> dict[str, Any]:
     if role not in _ROLE_MODEL_KEY:
         sys.exit(f"[engine] Invalid role: {role!r}. Choose from: review, reply")

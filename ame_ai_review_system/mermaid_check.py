@@ -76,6 +76,10 @@ def _check_line(path: str, line_num: int, line: str) -> list[Issue]:
     for match in _NODE_SQUARE.finditer(line):
         node_id = match.group(1)
         label = match.group(2)
+        # クォート済み (["text"]) は括弧を含んでも正しい形式のため対象外にする。
+        # _SUBGRAPH_BRACKET の already_quoted 判定と同基準 (Issue #96)。
+        if label.startswith('"') and label.endswith('"'):
+            continue
         if _str_contains("()", label):
             issues.append(
                 Issue(
@@ -89,6 +93,11 @@ def _check_line(path: str, line_num: int, line: str) -> list[Issue]:
     for match in _NODE_BRACE.finditer(line):
         node_id = match.group(1)
         label = match.group(2)
+        # クォート済み ({"text"}) は波括弧を含んでも正しい形式のため対象外にする。
+        # ``[^}]*`` は内部の ``}`` で切れるため、末尾クォートは判定せず先頭のみ見る
+        # (Issue #96)。
+        if label.startswith('"'):
+            continue
         if _str_contains("{", label):
             issues.append(
                 Issue(
