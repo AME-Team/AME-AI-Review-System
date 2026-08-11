@@ -57,9 +57,9 @@
 - `reviewer_logins`
   が 401 を恒久失敗としてキャッシュする際に警告を一度だけ出力し、PAT の誤設定が無言で `[bot]`
   固定照合へ退行するのを検知可能にする。
-- `_is_valid_ref_name` にコンポーネント単位の規約 (先頭ドット `feature/.bar` / `.lock` 終端
-  `feature/foo.lock`) と先頭ハイフン (オプション注入対策) の明示的な拒否を追加し、
-  `git check-ref-format` との乖離を縮小。
+- `_is_valid_ref_name` にコンポーネント単位の規約 (`feature/.bar` /
+  `feature/foo.lock`) と先頭ハイフン (オプション注入対策) の明示的な拒否を追加し、`git check-ref-format`
+  との乖離を縮小。全体の先頭ドットは既存の先頭文字検査に一本化して重複を除去。
 - `reviewer_logins` の各テストで一意のトークンを使い、共有キャッシュ由来の実行順依存を排除。
 
 ## [0.2.4] - 2026-08-10

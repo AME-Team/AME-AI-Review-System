@@ -178,9 +178,10 @@ def _is_valid_ref_name(name: str) -> bool:
         return False
     if "@{" in name:
         return False
-    # コンポーネント単位の規約: 先頭ドット (.foo / feature/.bar) と .lock 終端の
+    # コンポーネント単位の規約: 先頭ドット (feature/.bar) と .lock 終端の
     # コンポーネント (feature/foo.lock) は git check-ref-format で不正 (Gate 1 指摘対応)。
-    if "/." in name or name.startswith("."):
+    # 全体の先頭ドットは name.startswith(("-", ".", "/")) で既に拒否済み。
+    if "/." in name:
         return False
     if any(part.endswith(".lock") for part in name.split("/")):
         return False
