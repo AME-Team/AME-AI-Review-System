@@ -1,7 +1,7 @@
 ---
 # 再利用可能ワークフロー: インライン返信に対する LGTM/追加指摘の判断本体。
 # 配布先は薄いラッパ (templates/workflow/review-reply-wrapper.yml) から
-#   uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-reply.yml@<ref>
+#   uses: AME-Team/AME-AI-Review-System/.github/workflows/review-reply.yml@<ref>
 # で呼び出す。
 # 本リポジトリ自身は review_reply.yml (ラッパ) からローカル参照で呼ぶ。
 #
@@ -90,7 +90,7 @@ jobs:
         if: inputs.system_ref != ''
         uses: actions/checkout@v4
         with:
-          repository: tarminjapan/AME-AI-Review-System
+          repository: AME-Team/AME-AI-Review-System
           ref: ${{ inputs.system_ref }}
           path: ame-review-system
           fetch-depth: 1

@@ -46,7 +46,7 @@ PR に AI レビュアーからインラインレビューコメントが付い�
 ```text
 GitHub API : https://api.github.com
 GraphQL   : https://api.github.com/graphql
-リポジトリ : tarminjapan/AME-AI-Review-System
+リポジトリ : AME-Team/AME-AI-Review-System
 通常トークン : ~/.config/ame-ai-review-system/github.token（なければ環境変数 $GITHUB_PAT_TOKEN を使用）
 
 CI 上のレビュアートークン（GitHub App インストールトークンを actions/create-github-app-token で取得）:

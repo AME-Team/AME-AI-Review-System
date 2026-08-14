@@ -16,10 +16,10 @@ from ame_ai_review_system import github_client
 
 def test_resolve_env_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_API_URL", "https://api.github.com")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "tarminjapan/AME-AI-Review-System")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "AME-Team/AME-AI-Review-System")
     api_url, repo = github_client.resolve_env()
     assert api_url == "https://api.github.com"
-    assert repo == "tarminjapan/AME-AI-Review-System"
+    assert repo == "AME-Team/AME-AI-Review-System"
 
 
 def test_resolve_env_missing_repo_raises(monkeypatch: pytest.MonkeyPatch) -> None:

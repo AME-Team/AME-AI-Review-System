@@ -579,7 +579,7 @@ export default function App(): React.JSX.Element {
             <a
               href={
                 import.meta.env.VITE_GITHUB_URL ??
-                "https://github.com/tarminjapan/AME-AI-Review-System"
+                "https://github.com/AME-Team/AME-AI-Review-System"
               }
               target="_blank"
               rel="noopener noreferrer"
@@ -704,7 +704,7 @@ export default function App(): React.JSX.Element {
           </span>
           <div className="flex flex-col md:flex-row items-center gap-2 text-xs text-gray-500">
             <a
-              href="https://github.com/tarminjapan/AME-AI-Review-System/blob/main/ame_ai_review_system/docs/instructions.md"
+              href="https://github.com/AME-Team/AME-AI-Review-System/blob/main/ame_ai_review_system/docs/instructions.md"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-primary transition-colors duration-150"
@@ -713,7 +713,7 @@ export default function App(): React.JSX.Element {
             </a>
             <span className="hidden md:inline">·</span>
             <a
-              href="https://github.com/tarminjapan/AME-AI-Review-System/blob/main/ame_ai_review_system/docs/troubleshooting.md"
+              href="https://github.com/AME-Team/AME-AI-Review-System/blob/main/ame_ai_review_system/docs/troubleshooting.md"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-primary transition-colors duration-150"

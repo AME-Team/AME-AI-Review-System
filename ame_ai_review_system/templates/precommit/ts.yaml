@@ -55,8 +55,10 @@ repos:
         name: prettier (format check)
         entry: ./node_modules/.bin/prettier --check
         language: system
-        types_or: [ts, tsx, js, jsx, json, css, scss, yaml, markdown]
+        types_or: [ts, tsx, javascript, jsx, json, css, scss, yaml, markdown]
         # Issue #69: lockfile は整形規則と一致しないため除外。
+        # identify のタグは .js が `javascript` (js ではない) のため、pre-commit
+        # validate-config が通り続けるよう types_or は js ではなく javascript を使う。
         exclude: "(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$"
         pass_filenames: true
 

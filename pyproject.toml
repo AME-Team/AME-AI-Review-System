@@ -53,9 +53,9 @@ antigravity = ["google-antigravity"]
 all = ["claude-agent-sdk", "google-antigravity"]
 
 [project.urls]
-Homepage = "https://github.com/tarminjapan/AME-AI-Review-System"
-Repository = "https://github.com/tarminjapan/AME-AI-Review-System"
-Issues = "https://github.com/tarminjapan/AME-AI-Review-System/issues"
+Homepage = "https://github.com/AME-Team/AME-AI-Review-System"
+Repository = "https://github.com/AME-Team/AME-AI-Review-System"
+Issues = "https://github.com/AME-Team/AME-AI-Review-System/issues"
 
 # ---------------------------------------------------------------------------
 # Console scripts (CLI entry point)

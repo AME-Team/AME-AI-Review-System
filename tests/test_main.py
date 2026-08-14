@@ -8,7 +8,7 @@ from ame_ai_review_system import github_client, main
 from ame_ai_review_system.main import SKIP_NOTICE_MARKER, skip_notice_already_posted
 
 _MARKER = f"{SKIP_NOTICE_MARKER}-pr38"
-_ISSUE_URL = "https://api.github.com/repos/tarminjapan/AME-AI-Review-System/issues/38"
+_ISSUE_URL = "https://api.github.com/repos/AME-Team/AME-AI-Review-System/issues/38"
 
 
 # --- _reviewer_author_login (Issue #55 B5) -----------------------------------
@@ -69,7 +69,7 @@ def test_skip_notice_already_posted_true_when_present() -> None:
 
 
 def test_skip_notice_already_posted_ignores_other_prs() -> None:
-    other_url = "https://api.github.com/repos/tarminjapan/AME-AI-Review-System/issues/1"
+    other_url = "https://api.github.com/repos/AME-Team/AME-AI-Review-System/issues/1"
     comments = [
         {"body": f"<!-- {_MARKER} -->", "issue_url": other_url},
     ]

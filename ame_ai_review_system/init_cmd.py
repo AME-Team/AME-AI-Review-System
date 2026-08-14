@@ -50,6 +50,16 @@ _AI_HOOK_ENTRY = "__AI_HOOK_ENTRY__"
 _AI_LANGUAGE = "__AI_LANGUAGE__"
 _AI_ADDEPS = "__AI_ADDEPS__"
 
+# 配布元リポジトリの正規オーナー (旧個人アカウントから移転済み, Issue #100)。
+_REPO_OWNER = "AME-Team"
+_REPO_NAME = "AME-AI-Review-System"
+
+# ワークフローテンプレート内のリポジトリ参照 (Issue #100)。
+# オーナー移転時の更新漏れを防ぐため、URL にオーナーを直接書かず
+# __REPO__ プレースホルダを init 生成時に _REPO_OWNER/_REPO_NAME で置換する。
+_REPO_PLACEHOLDER = "__REPO__"
+_REPO_FQN = f"{_REPO_OWNER}/{_REPO_NAME}"
+
 # ``language: system`` 時に additional_dependencies の代わりに置く説明コメント。
 _SYSTEM_ADDEPS_COMMENT = (
     "# オフライン: language: system は init --python で指定した"
@@ -108,7 +118,7 @@ def _resolve_version(args: argparse.Namespace) -> str:
 def _wheel_url(version: str) -> str:
     """バージョンに対応する配布 wheel のダウンロード URL を返す (Issue #79/#84)."""
     return (
-        "https://github.com/tarminjapan/AME-AI-Review-System/releases/download/"
+        f"https://github.com/{_REPO_OWNER}/{_REPO_NAME}/releases/download/"
         f"v{version}/ame_ai_review_system-{version}-py3-none-any.whl"
     )
 
@@ -120,7 +130,7 @@ def _resolve_wheel_sha256(version: str) -> str | None:
     呼び出し側で ``#sha256=`` なしの URL にフォールバックする。
     """
     api_url = (
-        "https://api.github.com/repos/tarminjapan/AME-AI-Review-System/releases/"
+        f"https://api.github.com/repos/{_REPO_OWNER}/{_REPO_NAME}/releases/"
         f"tags/v{version}"
     )
     try:
@@ -348,7 +358,12 @@ def cmd_init(args: argparse.Namespace) -> int:
             if not src.exists():
                 print(f"ERROR: workflow template not found: {src}", file=sys.stderr)
                 return 1
-            content = src.read_text(encoding="utf-8").replace("__REF__", args.ref)
+            content = (
+                src
+                .read_text(encoding="utf-8")
+                .replace("__REF__", args.ref)
+                .replace(_REPO_PLACEHOLDER, _REPO_FQN)
+            )
             _write(workflows_dir / out_name, content, force=args.force)
 
     # engines-ts の展開 + npm install (オプション)。

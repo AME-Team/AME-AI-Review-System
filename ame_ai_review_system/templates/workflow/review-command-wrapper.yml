@@ -42,7 +42,7 @@ jobs:
        (startsWith(github.event.comment.body, '/request-review') ||
         github.event.comment.body == '/review' ||
         startsWith(github.event.comment.body, '/review ')))
-    uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-command.yml@__REF__
+    uses: __REPO__/.github/workflows/review-command.yml@__REF__
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
       # Issue #71: workflow_dispatch 時は github.event.comment が無く command が空になる。

@@ -102,8 +102,8 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
 
 左サイドバーのナビゲーションから、使い方・設定・アーキテクチャ・トラブルシューティングを閲覧できます。
 
-公開サイト: <https://tarminjapan.github.io/AME-AI-Review-System/> （`main`
-ブランチへの push で GitHub Pages に自動デプロイされます）
+公開サイト: <https://ame-team.github.io/AME-AI-Review-System/> （`main` ブランチへの push で GitHub
+Pages に自動デプロイされます）
 
 ### 起動・ビルドコマンド
 
@@ -188,23 +188,23 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    **方式 A: wheel インストール（推奨）**
 
    ```bash
-   pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
+   pip install https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
    ```
 
    `uv` を使う場合（pipx と同等の CLI ツール管理）も利用できる。
 
    ```bash
    # 導入
-   uv tool install "ame-ai-review-system @ https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+   uv tool install "ame-ai-review-system @ https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
 
    # アップグレード
-   uv tool upgrade "ame-ai-review-system" --from "https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+   uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
    ```
 
    > [!NOTE] pipx と uv はどちらも `~/.local/bin`
    > に同一バイナリ（`ame-ai-reviewer`）を配置するため共存できません。切り替え時は一方を uninstall してください。
 
-   URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
+   URL の `v0.1.0` は例。[Releases](https://github.com/AME-Team/AME-AI-Review-System/releases)
    ページの最新バージョンに置き換えること。
 
    `ame-ai-reviewer init` で設定・ワークフローを生成する。TS エンジン (opencode /
@@ -244,6 +244,18 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 
    CI は reusable workflow を呼ぶ薄いラッパ。更新は `--ref` の差し替えのみ。
 
+   > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
+   > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /
+   > pull_request 時に走る静的解析 CI は含まれない**。PR レビュー（Gate 2）の Circuit Breaker（ruff
+   > / mypy / semgrep の先行静的解析）は、PR コメントで `/request-review`
+   > を入力したタイミングでのみ実行される。
+   >
+   > ブランチへの push 時にも静的解析を回したい場合は、wheel に同梱の
+   > `ame_ai_review_system/templates/workflow/ci.yml` （`init --preset` 相当の静的解析ジョブ）を
+   > `.github/workflows/ci.yml` として配置すること。AI レビューフックは `/request-review`
+   > 側で実行されるため、このテンプレートではスキップする（[セットアップガイド](ame_ai_review_system/docs/setup.md)
+   > の「配布先向け静的解析 CI」を参照）。
+
    LLM エンジン SDK は個別に導入する（オプション）。
 
    ```bash
@@ -269,7 +281,7 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 
      ```bash
      mkdir -p .claude/skills/review-round
-     curl -fsSL https://raw.githubusercontent.com/tarminjapan/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
+     curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
        -o .claude/skills/review-round/SKILL.md
      ```
 
