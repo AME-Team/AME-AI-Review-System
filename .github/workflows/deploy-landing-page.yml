@@ -2,7 +2,7 @@
 # GitHub Pages デプロイワークフロー — ランディングページ
 #
 # main ブランチへ push された際、landing-page/ をビルドして
-# GitHub Pages (https://tarminjapan.github.io/AME-AI-Review-System/) に公開する。
+# GitHub Pages (https://ame-team.github.io/AME-AI-Review-System/) に公開する。
 #
 # 参考: GitHub 公式の Pages Actions (configure-pages / upload-pages-artifact /
 # deploy-pages) を使用し、ビルド成果物のみをアーティファクト経由でデプロイする

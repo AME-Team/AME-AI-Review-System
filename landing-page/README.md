@@ -103,7 +103,7 @@ npm run preview
 
 本ランディングページは GitHub Pages で公開されています。
 
-- **公開URL**: <https://tarminjapan.github.io/AME-AI-Review-System/>
+- **公開URL**: <https://ame-team.github.io/AME-AI-Review-System/>
 - **デプロイワークフロー**: `.github/workflows/deploy-landing-page.yml`
 
 ### デプロイの仕組み

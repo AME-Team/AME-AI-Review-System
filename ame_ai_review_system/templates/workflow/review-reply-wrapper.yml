@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   reply:
-    uses: tarminjapan/AME-AI-Review-System/.github/workflows/review-reply.yml@__REF__
+    uses: __REPO__/.github/workflows/review-reply.yml@__REF__
     with:
       pr_number: ${{ github.event.pull_request.number }}
       comment_id: ${{ github.event.comment.id }}

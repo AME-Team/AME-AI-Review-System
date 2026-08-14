@@ -540,7 +540,7 @@ const QuickStartPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ 
           {l("方式 A: wheel インストール（推奨）", "Option A: wheel install (recommended)")}
         </DocH3>
         <DocPre>
-          {`pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl`}
+          {`pip install https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl`}
         </DocPre>
         <DocP>
           {l(
@@ -550,10 +550,10 @@ const QuickStartPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ 
         </DocP>
         <DocPre>
           {`# 導入
-uv tool install "ame-ai-review-system @ https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+uv tool install "ame-ai-review-system @ https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
 
 # アップグレード
-uv tool upgrade "ame-ai-review-system" --from "https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"`}
+uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"`}
         </DocPre>
         <DocWarning>
           {l(
@@ -635,6 +635,12 @@ uv tool upgrade "ame-ai-review-system" --from "https://github.com/tarminjapan/AM
 .github/workflows/review_command.yml
 .github/workflows/review_reply.yml`}
         </DocPre>
+        <DocWarning>
+          {l(
+            "Gate 2 の静的解析は /request-review 実行時のみです。init が生成するのは上記ラッパのみで、push / pull_request 時に走る静的解析 CI は含まれません。ブランチへの push 時にも静的解析を回したい場合は、wheel 同梱の ame_ai_review_system/templates/workflow/ci.yml を .github/workflows/ci.yml として配置してください。",
+            "Gate 2 static analysis runs only when /request-review is invoked. init only generates the wrappers above; no push / pull_request static-analysis CI is included. To also run static analysis on branch push, copy the bundled ame_ai_review_system/templates/workflow/ci.yml to .github/workflows/ci.yml."
+          )}
+        </DocWarning>
         <DocP>
           {l(
             "LLM エンジン SDK は個別に導入します（オプション）。",
@@ -678,7 +684,7 @@ cp -r ame_ai_review_system/ /path/to/your-repo/`}
         </DocP>
         <DocPre>
           {`mkdir -p .claude/skills/review-round
-curl -fsSL https://raw.githubusercontent.com/tarminjapan/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \\
+curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \\
   -o .claude/skills/review-round/SKILL.md`}
         </DocPre>
       </Section>

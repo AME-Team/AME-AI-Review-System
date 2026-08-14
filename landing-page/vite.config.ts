@@ -8,7 +8,7 @@ interface ViteConfig extends UserConfig {
   test?: InlineConfig;
 }
 
-// GitHub Pages のプロジェクトサイト (https://tarminjapan.github.io/AME-AI-Review-System/)
+// GitHub Pages のプロジェクトサイト (https://ame-team.github.io/AME-AI-Review-System/)
 // にデプロイするため、本番ビルド (vite build) 時は base path にリポジトリ名を付与する。
 // 開発サーバー (vite dev) とテスト (vitest) ではルート "/" を使用する。
 const config = ({ command }: { command: string }): ViteConfig => ({

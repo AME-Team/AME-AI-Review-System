@@ -76,6 +76,18 @@ def test_init_ref_replacement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert "__REF__" not in wf
 
 
+def test_init_workflow_repo_placeholder_replaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #100: __REPO__ が正規オーナー FQN に置換され、残らないこと。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(ref="v1.2.3")) == 0
+    for name in ("review_command.yml", "review_reply.yml"):
+        wf = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert "__REPO__" not in wf
+        assert init_cmd._REPO_FQN in wf
+
+
 def test_init_no_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _init_in(tmp_path, monkeypatch)
     assert init_cmd.cmd_init(_make_args(no_workflow=True)) == 0
@@ -284,3 +296,26 @@ def test_workflow_and_template_command_conditions_match() -> None:
     )
     assert _comment_match_lines(real) == _comment_match_lines(tmpl)
     assert _command_lines(real) == _command_lines(tmpl)
+
+
+def test_ci_template_skip_matches_ai_hook_ids() -> None:
+    # ci.yml (配布先向け静的解析 CI) の SKIP 一覧が precommit テンプレートの
+    # AI レビューフック ID と一致することを機械的に検証する (Issue #101)。
+    # 手動同期の更新漏れを防ぐための回帰テスト。
+    skip_line = next(
+        ln.strip()
+        for ln in _read_lines("ame_ai_review_system/templates/workflow/ci.yml")
+        if ln.strip().startswith("SKIP:")
+    )
+    skip_ids = set(skip_line.split("SKIP:")[1].strip().split(","))
+
+    ai_ids: set[str] = set()
+    for preset in ("full", "minimal", "python", "text", "ts"):
+        for ln in _read_lines(
+            f"ame_ai_review_system/templates/precommit/{preset}.yaml"
+        ):
+            line = ln.strip()
+            if line.startswith("- id: ai-"):
+                ai_ids.add(line.split(":", 1)[1].strip())
+    assert ai_ids, "AI フック ID が precommit テンプレートから検出できません"
+    assert skip_ids == ai_ids

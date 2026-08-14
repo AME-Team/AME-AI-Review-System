@@ -1,0 +1,71 @@
+---
+# AME AI Review System — 配布先向け静的解析 CI (任意、init では生成しない)
+# `ame-ai-reviewer init --preset <preset>` が生成した .pre-commit-config.yaml の
+# 静的解析フックを push / pull_request 時に実行するためのテンプレート。
+#
+# このテンプレートは wheel に同梱されている。導入先に追加する場合は
+#   1. パッケージ内の ame_ai_review_system/templates/workflow/ci.yml を
+#      .github/workflows/ci.yml として配置
+#   2. 必要に応じて preset やツールチェーンを調整
+# する (README / docs/setup.md 参照)。
+#
+# NOTE: Gate 2 (PR レビュー) の静的解析 Circuit Breaker は /request-review 実行時のみ。
+# ここで実行するのはローカル (Gate 1) と同じ静的解析ゲートの CI 版であり、
+# push / PR 時に常に走らせたい場合に追加する (省略可)。
+# AI レビューフック (ai-skip-guard / ai-precommit-review / ai-review-state-reset) は
+# 認証情報を持たないため SKIP する。AI レビューは /request-review 側で実行される。
+
+name: Static Analysis
+
+"on":
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# push (全ブランチ) と pull_request の両方で発火するため、PR ブランチへの push で
+# 二重実行・積み重なりが生じる。同一 ref の実行はキャンセルして重複を防ぐ。
+concurrency:
+  group: static-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-analysis:
+    name: Static Analysis (pre-commit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js (ts/text preset の system フック用)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # eslint / prettier / stylelint / markdownlint-cli2 / textlint など
+      # language: system のフックは node_modules/.bin を直接起動するため、
+      # .pre-commit-config.yaml がそうしたフックを含む場合のみ依存を導入する
+      # (python preset 等では不要な install を避ける)。
+      - name: Install Node dependencies (system hooks only)
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          if grep -q '\./node_modules/\.bin' .pre-commit-config.yaml; then
+            npm install
+          fi
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run static analysis hooks
+        env:
+          # AI レビューフックは /request-review 側で実行されるため CI ではスキップする。
+          # 下記の ID 一覧は ame_ai_review_system/templates/precommit/*.yaml の
+          # AI フック ID (ai-skip-guard / ai-precommit-review / ai-review-state-reset) と
+          # 常に一致させること。フック ID を変更したら本 SKIP も同時に更新する。
+          SKIP: ai-skip-guard,ai-precommit-review,ai-review-state-reset
+        run: pre-commit run --all-files

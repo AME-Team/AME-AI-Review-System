@@ -130,7 +130,7 @@ bash scripts/install-hooks.sh
 > [!IMPORTANT] **`scripts/install-hooks.sh` を実行すると `core.hooksPath=githooks`
 > が設定されます**。これにより `SKIP=ai-precommit-review` による Gate1 AI レビューのバイパスを、AI
 > Agent が勝手に行えないよう強制ブロックします（ネイティブフックが pre-commit フレームワークの SKIP 制御の及ばないレイヤで検査）。バックグラウンドは
-> [Issue #26](https://github.com/tarminjapan/AME-AI-Review-System/issues/26) を参照。
+> [Issue #26](https://github.com/AME-Team/AME-AI-Review-System/issues/26) を参照。
 
 ---
 
@@ -145,19 +145,19 @@ bash scripts/install-hooks.sh
 最新 Release の wheel を `pip install` する。
 
 ```bash
-pip install https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
+pip install https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl
 ```
 
 `uv` を使う場合（pipx と同等の CLI ツール管理）も利用できます。
 
 ```bash
-uv tool install "ame-ai-review-system @ https://github.com/tarminjapan/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
+uv tool install "ame-ai-review-system @ https://github.com/AME-Team/AME-AI-Review-System/releases/download/v0.1.0/ame_ai_review_system-0.1.0-py3-none-any.whl"
 ```
 
 > [!NOTE] pipx と uv はどちらも `~/.local/bin`
 > に同一バイナリ（`ame-ai-reviewer`）を配置するため共存できません。切り替え時は一方を uninstall してください。
 
-URL の `v0.1.0` は例。[Releases](https://github.com/tarminjapan/AME-AI-Review-System/releases)
+URL の `v0.1.0` は例。[Releases](https://github.com/AME-Team/AME-AI-Review-System/releases)
 ページの最新バージョンに置き換えること。
 
 `ame-ai-reviewer init` で設定・ワークフローを生成する。TS エンジン (opencode /
@@ -195,6 +195,31 @@ ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
 
 CI は reusable workflow を呼ぶ薄いラッパ。更新は `--ref` の差し替えのみ。
 
+> [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
+> `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /
+> pull_request 時に走る静的解析 CI は含まれません**。PR レビュー（Gate 2）の Circuit Breaker（ruff /
+> mypy / semgrep の先行静的解析）は、PR コメントで `/request-review`
+> を入力したタイミングでのみ実行されます。
+
+##### 配布先向け静的解析 CI（任意）
+
+push / PR 時にも静的解析したい場合は、wheel 同梱のテンプレートを配置する。配置元:
+`ame_ai_review_system/templates/workflow/ci.yml`（pip インストール先の site-packages 配下）。配置先:
+`.github/workflows/ci.yml`。
+
+```bash
+# site-packages 内のテンプレート位置を解決して配置する
+TMPL=$(python -c "import ame_ai_review_system, os; print(os.path.join(os.path.dirname(ame_ai_review_system.__file__), 'templates', 'workflow', 'ci.yml'))")
+mkdir -p .github/workflows
+cp "$TMPL" .github/workflows/ci.yml
+```
+
+このテンプレートは `pre-commit run --all-files`
+で静的解析フックを回す。AI レビューフック 3 種（`ai-skip-guard` ほか）は `/request-review`
+側で実行されるため `SKIP` する。 `ts` / `text` preset の system フックは `node_modules/.bin`
+を直接起動する（eslint / prettier / markdownlint-cli2 等）。`package.json` があれば `npm install`
+が自動実行される。
+
 使用する LLM エンジンの SDK を追加（オプション）。PyPI 非公開のため、extras ではなく個別パッケージとして導入する。
 
 ```bash
@@ -231,7 +256,7 @@ Gate 1（pre-commit）と Gate
 
 ```bash
 mkdir -p .claude/skills/review-round
-curl -fsSL https://raw.githubusercontent.com/tarminjapan/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
+curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
   -o .claude/skills/review-round/SKILL.md
 ```
 
