@@ -19,8 +19,11 @@ name: AI Code Review (Reusable Command)
 "on":
   workflow_call:
     inputs:
+      # Issue #104: workflow_dispatch の inputs は常に文字列のため、ラッパが
+      # fromJSON に依存しなくても動作するよう type: string で受け取り、内部の
+      # CLI (argparse type=int / int()) で数値へキャストする。
       pr_number:
-        type: number
+        type: string
         required: true
       command:
         type: string

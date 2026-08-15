@@ -14,11 +14,14 @@ name: AI Review Reply (Reusable)
 "on":
   workflow_call:
     inputs:
+      # Issue #104: pr_number / comment_id は文字列で受け取り、内部の CLI
+      # (argparse type=int / reply.py の int()) で数値へキャストする。
+      # 型を string に統一し、将来 dispatch 等の経路が増えても fromJSON 依存を防ぐ。
       pr_number:
-        type: number
+        type: string
         required: true
       comment_id:
-        type: number
+        type: string
         required: true
       comment_body:
         type: string

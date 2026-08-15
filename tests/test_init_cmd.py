@@ -298,6 +298,74 @@ def test_workflow_and_template_command_conditions_match() -> None:
     assert _command_lines(real) == _command_lines(tmpl)
 
 
+def _input_type(lines: list[str], name: str) -> str:
+    """Reusable workflow の inputs 宣言から指定入力の type を抽出する (Issue #104)."""
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == f"{name}:")
+    for ln in lines[start + 1 :]:
+        stripped = ln.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("type:"):
+            return stripped.split(":", 1)[1].strip()
+        if stripped.startswith(("required:", "default:")):
+            continue
+    msg = f"input '{name}' に type が見つかりません"
+    raise AssertionError(msg)
+
+
+def test_reusable_workflows_accept_string_pr_number() -> None:
+    # Issue #104: workflow_dispatch の inputs は常に文字列のため、reusable workflow の
+    # pr_number / comment_id は type: string で受け取る。type: number だと配布先
+    # ラッパが fromJSON() に依存しないと「Unexpected value '9'」で失敗する。
+    for rel in (
+        ".github/workflows/review-command.yml",
+        ".github/workflows/review-reply.yml",
+    ):
+        lines = _read_lines(rel)
+        assert _input_type(lines, "pr_number") == "string"
+    assert (
+        _input_type(_read_lines(".github/workflows/review-reply.yml"), "comment_id")
+        == "string"
+    )
+
+
+def test_wrappers_pass_pr_number_without_fromjson() -> None:
+    # Issue #104: 配布先ラッパ (テンプレート) と本リポジトリのラッパは pr_number を
+    # そのまま渡す。fromJSON() に依存させないことで workflow_dispatch / issue_comment
+    # の両経路で同一の渡し方になる (reusable 側が string で受けるため不要)。
+    # 式の書式ではなく契約 (fromJSON 不使用 + 両経路のフォールバック由来) を検証する。
+    sources = ("inputs.pr_number", "github.event.issue.number")
+    for rel in (
+        "ame_ai_review_system/templates/workflow/review-command-wrapper.yml",
+        ".github/workflows/review_command.yml",
+    ):
+        expr = next(
+            ln.strip() for ln in _read_lines(rel) if "pr_number:" in ln and "${{" in ln
+        )
+        assert "fromJSON" not in expr
+        assert all(src in expr for src in sources)
+
+
+def test_reply_wrappers_pass_ids_without_fromjson() -> None:
+    # Issue #104: review-reply.yml の pr_number / comment_id が string 化された
+    # ことを踏まえ、本リポジトリと配布先テンプレートの reply ラッパが各 ID を
+    # fromJSON 非依存でそのまま渡すことを検証する。式の書式ではなく契約
+    # (fromJSON 不使用 + 正しいイベント由来) に着目してドリフトを防ぐ。
+    sources = {
+        "pr_number": "github.event.pull_request.number",
+        "comment_id": "github.event.comment.id",
+    }
+    for rel in (
+        "ame_ai_review_system/templates/workflow/review-reply-wrapper.yml",
+        ".github/workflows/review_reply.yml",
+    ):
+        lines = _read_lines(rel)
+        for name, src in sources.items():
+            expr = next(ln.strip() for ln in lines if f"{name}:" in ln and "${{" in ln)
+            assert "fromJSON" not in expr
+            assert src in expr
+
+
 def test_ci_template_skip_matches_ai_hook_ids() -> None:
     # ci.yml (配布先向け静的解析 CI) の SKIP 一覧が precommit テンプレートの
     # AI レビューフック ID と一致することを機械的に検証する (Issue #101)。
