@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-15
+
 ### Fixed
 
 - CI 側 Gate 2 レビューが org 移転後の reusable workflow 参照解決と `workflow_dispatch` の
@@ -14,6 +16,11 @@
   workflow_dispatch の両経路で動作するよう修正 (Issue
   #104)。あわせて旧 org 名 (`tarminjapan/`) の残存参照を棚卸しし、ソース上の残り 1 箇所（`.claude/skills/review-round/SKILL.md`）を
   `AME-Team` に修正。setup.md に両経路の動作検証手順と不正入力時の挙動を追記。
+
+## [0.2.5] - 2026-08-14
+
+### Fixed
+
 - `reply.py`
   が PAT 運用でレビュアー自身の返信を認識できず、スレッドが pending のまま重複 LGTM が投稿される可能性。`github_client.reviewer_logins()`
   で実投稿者 login を解決し、bot login との和集合で照合するよう修正 (Issue #92)。
