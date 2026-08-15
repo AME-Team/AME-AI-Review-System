@@ -84,7 +84,7 @@ CRITICAL/HIGH/MIDDLE がなく、LOW のみの指摘が **2 回連続** した�
 ```text
 GitHub API   : https://api.github.com
 GraphQL      : https://api.github.com/graphql
-リポジトリ    : tarminjapan/AME-AI-Review-System
+リポジトリ    : AME-Team/AME-AI-Review-System
 
 トークン取得（優先順位）:
   CI (GitHub Actions):

@@ -45,6 +45,8 @@ jobs:
         startsWith(github.event.comment.body, '/review ')))
     uses: ./.github/workflows/review-command.yml
     with:
+      # Issue #104: reusable 側が type: string で受け取るため fromJSON 不要。
+      # workflow_dispatch の inputs.pr_number (文字列) もそのまま渡せる。
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
       # Issue #71: workflow_dispatch 時は github.event.comment が無く command が空になる。
       # 空文字は || で /request-review へフォールバックし、手動実行でも判定を通す。

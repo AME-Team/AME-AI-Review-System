@@ -400,6 +400,11 @@ env:
 
 ### 3-2. CI/CD環境での動作確認（Gate 2: PR ゲート）
 
+> [!NOTE] **Gate 2 の起動経路は 2 通り**。reusable workflow の `pr_number` 入力は `type: string`
+> で受け取るため、issue_comment（PR コメント）・workflow_dispatch（手動実行）のどちらでも配布先ラッパは
+> `fromJSON()` に依存せずそのまま渡せる (Issue #104)。内部の CLI（`argparse type=int` /
+> `int()`）が数値へキャストする。
+
 1. **静的解析 Circuit Breaker の検証**
    - 静的解析エラー（Linter警告や型エラー）を含んだコードを、`SKIP`
      変数を用いてコミットし、プッシュして PR を作成する。
@@ -427,6 +432,17 @@ env:
      または追加指摘が返答されることを確認する（1 返信 = 1 LGTM）。
    - `LGTM` が届いたスレッドを「Resolve（解決済み）」に変更し、全スレッド Resolve 後に再度
      `/request-review` で再レビューを依頼する。
+4. **手動実行（workflow_dispatch）経由の検証** — Issue #104
+   - Actions タブで `AI Code Review (Command)` を選択し **[Run workflow]** をクリックする。
+   - `pr_number` 入力欄に任意の PR 番号（例: `9`）を入力して実行する。
+   - `workflow_dispatch` の inputs は常に文字列になる。しかし reusable workflow が `type: string`
+     で受け取るため、ジョブ生成前の型検証で失敗しないこと（旧: `Unexpected value '9'`）を確認する。
+   - 数字以外（例:
+     `abc`）を渡した場合は、ジョブ生成時の型検証の代わりに実行時の CLI（`argparse type=int`）がエラー終了する。`pr_number`
+     には数値のみ指定すること。
+   - レビューが正常に投稿されるまで確認する（issue_comment 経由と同一の処理パス）。
+   - 手動実行時は `github.event.comment` が無いため、コマンドは既定の `/request-review`
+     として扱われて判定が通る (Issue #71)。
 
 ### 3-3. ランディングページの起動確認
 
