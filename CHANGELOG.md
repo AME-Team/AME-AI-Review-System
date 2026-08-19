@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-08-20
+
 ### Fixed
 
 - Gate 1 (pre-commit) の AI レビューが既定 `thinking=high`
