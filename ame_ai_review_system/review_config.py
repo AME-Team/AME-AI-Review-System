@@ -60,8 +60,11 @@ _DEFAULTS: dict[str, Any] = {
     "model": None,
     "review_model": None,
     "reply_model": "haiku",
-    "thinking": "high",
-    "review_thinking": "high",
+    # Issue #107: 大きな diff で reasoning 予算 (例: opencode の一部モデルで 32000) を
+    # 使い切り finish=length で空応答 → fail-closed に陥るのを防ぐため、Gate 1/2 とも
+    # 既定を low に引き下げる。
+    "thinking": "low",
+    "review_thinking": "low",
     "reply_thinking": "low",
     "review_budget_usd": 2.00,
     "reply_budget_usd": 0.20,

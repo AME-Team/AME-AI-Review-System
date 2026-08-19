@@ -54,7 +54,8 @@ def test_load_config_default_disabled() -> None:
     # Issue #55 I3: model 既定は None (claude は engine.py 側で sonnet にフォールバック)。
     assert cfg["model"] is None
     assert cfg["review_model"] is None
-    assert cfg["thinking"] == "high"
+    # Issue #107: 既定 thinking は reasoning 予算枯渇を避けるため low。
+    assert cfg["thinking"] == "low"
     assert cfg["review_budget_usd"] == pytest.approx(2.0)
     assert cfg["reply_budget_usd"] == pytest.approx(0.2)
     # Issue #40: エンジン情報バナーは既定で表示。
