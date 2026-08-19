@@ -79,7 +79,8 @@ def test_resolve_settings_defaults(
     settings = resolve_settings("review")
     assert settings["engine"] == "claude"
     assert settings["model"] == "sonnet"
-    assert settings["thinking"] == "high"
+    # Issue #107: 既定 thinking は reasoning 予算枯渇を避けるため low。
+    assert settings["thinking"] == "low"
     assert settings["budget"] == pytest.approx(2.0)
     assert settings["sdk_lang"] == "python"
     assert settings["timeout"] == pytest.approx(600.0)

@@ -107,7 +107,8 @@ def resolve_engine_settings(
         env.get("PRECOMMIT_REVIEW_THINKING")
         or _str_config(config, "precommit_thinking")
         or _str_config(config, "thinking")
-        or "high"
+        # Issue #107: config が空でも reasoning 予算を枯渇させにくい low を既定にする。
+        or "low"
     )
 
     budget = (

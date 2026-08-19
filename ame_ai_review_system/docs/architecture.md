@@ -233,7 +233,7 @@ SDK または TypeScript サイドカー）を呼び出す。**エンジン本�
   "engine": "claude",
   "sdk_lang": "python",
   "model": "sonnet",
-  "thinking": "high",
+  "thinking": "low",
   "review_budget_usd": 2.0,
   "reply_budget_usd": 0.2,
   "show_engine_info_gate1": true,

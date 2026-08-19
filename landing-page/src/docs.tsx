@@ -1014,7 +1014,7 @@ const Gate2Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
             ],
             [
               <DocInline key="rt">review_thinking</DocInline>,
-              "high",
+              "low",
               l("レビュー時の思考量", "Review-time thinking effort"),
             ],
             [
@@ -1206,8 +1206,8 @@ const ConfigJsonPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ 
             ],
             ["review_model", "null", l("レビュー時のモデル", "Review-time model")],
             ["reply_model", "haiku", l("返信判定時のモデル", "Reply-judgement model")],
-            ["thinking", "high", l("既定の思考量", "Default thinking effort")],
-            ["review_thinking", "high", l("レビュー時の思考量", "Review-time thinking effort")],
+            ["thinking", "low", l("既定の思考量", "Default thinking effort")],
+            ["review_thinking", "low", l("レビュー時の思考量", "Review-time thinking effort")],
             ["reply_thinking", "low", l("返信判定時の思考量", "Reply-judgement thinking effort")],
             [
               "review_budget_usd",
@@ -1470,8 +1470,8 @@ const ConfigExamplesPage: React.FC<{ t: TranslationResource; locale: Locale }> =
   "model": null,
   "review_model": null,
   "reply_model": "haiku",
-  "thinking": "high",
-  "review_thinking": "high",
+  "thinking": "low",
+  "review_thinking": "low",
   "reply_thinking": "low",
   "show_engine_info_gate1": true,
   "show_engine_info_gate2": true,
