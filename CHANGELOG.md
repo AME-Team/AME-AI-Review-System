@@ -5,10 +5,12 @@
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-08-20
+
 ### Fixed
 
 - Gate 1 (pre-commit) の AI レビューが既定 `thinking=high`
-  で動作する問題。差分の大きいコミットでモデルの reasoning 予算を使い切り、`finish=length`
+  で動作する問題を修正。差分の大きいコミットでモデルの reasoning 予算を使い切り、`finish=length`
   の空応答となって fail-closed でコミットがブロックされていた。Gate 1 (`thinking`) と Gate
   2 レビュー (`review_thinking`) の既定値を `low` に引き下げた。返信判定の `reply_thinking` は元々
   `low` のため変更なし。これにより reasoning 予算の枯渇を起こしにくくした (Issue #107)。
