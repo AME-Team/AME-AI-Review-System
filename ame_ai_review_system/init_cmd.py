@@ -84,7 +84,7 @@ _ENGINE_SDK_SYSTEM_COMMENTS: dict[str, str] = {
     ),
 }
 
-# Issue #114: 指定可能なエンジンの正本 (main.py の --engine choices と共通)。
+# Issue #114: 指定可能なエンジン一覧の単一情報源 (main.py の --engine choices と共通)。
 ENGINE_CHOICES = ("auto", "claude", "opencode", "antigravity")
 
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
