@@ -21,9 +21,30 @@ from pathlib import Path
 
 _AME_REVIEW_DIR_NAME = ".ame-review"
 
+# ユーザー単位のグローバル設定ディレクトリ (skip_guard のトークンと同一)。XDG 未導入でも
+# 安定して参照できるよう ~/.config 直下に固定する。
+_GLOBAL_CONFIG_DIR_NAME = "ame-ai-review-system"
+
 
 def package_dir() -> Path:
     return Path(__file__).resolve().parent
+
+
+def global_config_dir() -> Path:
+    """ユーザー単位のグローバル設定ディレクトリを返す (``~/.config/ame-ai-review-system``)."""
+    return Path.home() / ".config" / _GLOBAL_CONFIG_DIR_NAME
+
+
+def global_config_path() -> Path:
+    """グローバル設定ファイル (``config.json``) のパスを返す (Issue #120).
+
+    環境変数 ``AME_REVIEW_GLOBAL_CONFIG`` で上書きできる。既定は
+    ``~/.config/ame-ai-review-system/config.json``。
+    """
+    override = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    if override:
+        return Path(override)
+    return global_config_dir() / "config.json"
 
 
 def project_root() -> Path:

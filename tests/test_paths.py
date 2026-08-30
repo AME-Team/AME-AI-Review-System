@@ -16,8 +16,26 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "AME_REVIEW_PROJECT_ROOT",
         "AME_REVIEW_CONFIG",
         "AME_REVIEW_USER_CONFIG",
+        "AME_REVIEW_GLOBAL_CONFIG",
     ):
         monkeypatch.delenv(key, raising=False)
+
+
+def test_global_config_path_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Issue #120: 既定は ~/.config/ame-ai-review-system/config.json。
+    monkeypatch.delenv("AME_REVIEW_GLOBAL_CONFIG", raising=False)
+    assert paths.global_config_path() == (
+        Path.home() / ".config" / "ame-ai-review-system" / "config.json"
+    )
+
+
+def test_global_config_path_env_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #120: AME_REVIEW_GLOBAL_CONFIG でパスを上書きできる。
+    pinned = tmp_path / "global.json"
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(pinned))
+    assert paths.global_config_path() == pinned
 
 
 def test_project_root_ame_review_marker(

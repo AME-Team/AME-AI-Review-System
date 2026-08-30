@@ -10,6 +10,10 @@
 設定ファイルのパスは環境変数 ``AME_REVIEW_CONFIG`` で上書き可能。
 ユーザー固有の上書きは ``config.user.json``（環境変数 ``AME_REVIEW_USER_CONFIG`` でパス変更可能）に記述する。
 ``config.user.json`` は Git 管理対象外であり、存在しない場合は無視される。
+
+グローバル設定 (Issue #120): ユーザーフォルダ (``~/.config/ame-ai-review-system/config.json``)
+に配置するユーザー単位の設定。優先順位は 環境変数 > リポジトリ設定 > グローバル設定 >
+継承 (動作中の AI ツールを自動検出)。パスは環境変数 ``AME_REVIEW_GLOBAL_CONFIG`` で上書きできる。
 """
 
 from __future__ import annotations
@@ -83,6 +87,9 @@ _REVIEW_COMMANDS = ("/request-review", "/review")
 
 _MIN_ARGS = 2
 
+# グローバル設定から取り込むキーのスコープ (Gate 1 の precommit_* のみ)。Issue #120。
+_GLOBAL_SCOPE_PREFIX = "precommit_"
+
 
 def _config_path() -> Path:
     override = os.environ.get("AME_REVIEW_CONFIG")
@@ -98,16 +105,73 @@ def _user_config_path() -> Path:
     return paths.user_config_path()
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
+def _read_json_with_error(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """JSON を読み、成功時は (dict, None)、失敗時は (None, エラー種別) を返す.
+
+    エラー種別は ``"missing"`` (不存在・デコード不可) / ``"malformed"`` (構文エラー) /
+    ``"not-object"`` (JSON オブジェクトでない)。_read_json とグローバル設定の判別
+    警告で共通利用する (Issue #120)。
+    """
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return cast("dict[str, Any]", data) if isinstance(data, dict) else None
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None, "missing"
+    try:
+        data: object = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, "malformed"
+    if not isinstance(data, dict):
+        return None, "not-object"
+    return cast("dict[str, Any]", data), None
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    data, _err = _read_json_with_error(path)
+    return data
+
+
+def load_global_config() -> dict[str, Any]:
+    """ユーザー単位のグローバル設定を生の dict で返す (Issue #120).
+
+    ファイルが存在しない場合は空 dict (黙って無視)。JSON が壊れている / オブジェクト
+    でない場合は警告を出力して空 dict を返す (新規ユーザー設定の誤設定切り分けのため)。
+    パスは paths.global_config_path() (AME_REVIEW_GLOBAL_CONFIG で上書き可)。
+    なお load_config() 側で Gate 1 (precommit_*) キーに絞り込んでマージする。
+    """
+    path = paths.global_config_path()
+    data, err = _read_json_with_error(path)
+    if data is not None:
+        return data
+    if err == "malformed":
+        print(
+            f"WARNING: グローバル設定 {path} の JSON が壊れているため無視します"
+            " (Issue #120)。",
+            file=sys.stderr,
+        )
+    elif err == "not-object":
+        print(
+            f"WARNING: グローバル設定 {path} が JSON オブジェクトでないため無視します"
+            " (Issue #120)。",
+            file=sys.stderr,
+        )
+    return {}
 
 
 def load_config() -> dict[str, Any]:
+    # 優先順位 (後勝ち): 組み込み既定 < グローバル設定 < リポジトリ config.json
+    # < リポジトリ config.user.json。グローバル設定はユーザーフォルダ由来のため、
+    # リポジトリ設定 (版管理対象 + プロジェクト固有) が優先される (Issue #120)。
     config: dict[str, Any] = dict(_DEFAULTS)
+    # Issue #120: グローバル設定は Gate 1 (precommit_*) に限定する。precommit_* 以外の
+    # キー (model / review_budget_usd 等) をグローバルに置くと Gate 2 (PR レビュー) の
+    # 挙動へリポジトリ横断で波及して意図しない副作用を生むため、ここで絞り込む。
+    config.update(
+        {
+            key: value
+            for key, value in load_global_config().items()
+            if key.startswith(_GLOBAL_SCOPE_PREFIX)
+        },
+    )
     data: dict[str, object] | None = _read_json(_config_path())
     if data is not None:
         config.update(data)

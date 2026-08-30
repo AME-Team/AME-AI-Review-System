@@ -412,6 +412,26 @@ env:
 
 > [!TIP] 環境変数 `AME_REVIEW_USER_CONFIG` で `config.user.json` のパスを変更できます。
 
+### Step 7: グローバル設定（`~/.config/ame-ai-review-system/config.json`・任意）
+
+複数リポジトリに共通する Gate
+1 のエンジン・モデル・思考量は、ユーザー単位のグローバル設定で指定できます (Issue #120)。
+
+```json
+{
+  "precommit_engine": "claude",
+  "precommit_model": "sonnet",
+  "precommit_thinking": "medium"
+}
+```
+
+- 配置先: `~/.config/ame-ai-review-system/config.json`
+- パスは環境変数 `AME_REVIEW_GLOBAL_CONFIG` で変更できる。
+- 取り込まれるのは Gate 1 の `precommit_*` キーのみである。
+- 優先順位は **環境変数 > リポジトリ設定 > グローバル設定 > 継承（自動検出）** である。
+
+> [!NOTE] 詳細は [カスタマイズガイド §5-2](customization.md) を参照してください。
+
 ---
 
 ## 3. 動作確認
