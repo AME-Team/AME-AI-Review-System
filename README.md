@@ -303,8 +303,10 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    `Issues: Read & Write`。CI ワークフローは `actions/create-github-app-token@v2`
    で都度インストールトークンを取得する。
 
-4. **プロンプトの調整**: `ame_ai_review_system/review_prompt.txt`
-   をプロジェクトの規約や観点に合わせてカスタマイズする。
+4. **プロンプトの調整**: `.ame-review/review_prompt.txt`（`init` 生成物）を編集する。
+   `paths.prompt_path()`
+   はこのパスを優先する。init 生成時はパッケージ既定と一致するが、編集後は生成物がプロジェクトのカスタマイズ単位となる (Issue
+   #111)。
 5. **レビュー依頼**: PR を作成したら、PR コメントで `/request-review` を入力してレビューを依頼する。
 
 > [!NOTE] **エンジン別の SDK**: 既定の `opencode` エンジンはワークフローが TypeScript

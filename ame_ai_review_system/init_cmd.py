@@ -269,11 +269,30 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # .ame-review/ へ既定ファイルを配置 (ユーザー固有設定は config.user.json で上書き)。
     ame_dir = paths.ame_review_dir()
+    # Issue #111: パッケージデータ同梱の欠落 (wheel ビルド設定の変更等) で生成物が
+    # 無言でスキップされ、弱いプロンプトのまま運用されるのを防ぐ。コピー開始前に
+    # 存在を検証して fail-fast する。空ディレクトリを含む部分的な init 状態を残さない
+    # ため、mkdir は検証の後に行う。
+    prompt_src = paths.package_dir() / "review_prompt.txt"
+    if not prompt_src.exists():
+        print(
+            f"ERROR: {prompt_src} が存在しません。wheel ビルドで review_prompt.txt が"
+            " パッケージデータとして同梱されているか確認してください (Issue #111)。",
+            file=sys.stderr,
+        )
+        return 1
     ame_dir.mkdir(parents=True, exist_ok=True)
     for name in _AME_REVIEW_FILES:
-        src = _templates_dir() / "ame-review" / name
-        if not src.exists():
-            continue
+        if name == "review_prompt.txt":
+            # Issue #111: プロンプトはパッケージ同梱の review_prompt.txt を単一情報源とする。
+            # templates/ame-review/ に旧版を持たせると init 生成物が弱い出力契約になり、
+            # paths.prompt_path() が .ame-review/ を優先するため Gate 1/2 が弱い
+            # プロンプトで実行される。生成物と既定のドリフトを防ぐためテンプレートは持たない。
+            src = prompt_src
+        else:
+            src = _templates_dir() / "ame-review" / name
+            if not src.exists():
+                continue
         _copy_template(src, ame_dir / name, force=args.force)
 
     # .pre-commit-config.yaml を preset から生成。

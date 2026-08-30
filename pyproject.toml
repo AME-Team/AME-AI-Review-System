@@ -83,6 +83,10 @@ exclude = ["ame_ai_review_system/engines/ts/node_modules"]
 # packages 指定で ame_ai_review_system/ 以下の全ファイルが自動的に wheel に含まれる。
 # .py 以外も（.semgrep/rules.yml, config.json, review_prompt.txt, docs/, engines/ts/,
 # templates/ 等）含まれるため、force-include は不要。
+#
+# Issue #111: review_prompt.txt は init が .ame-review/ へコピーする単一情報源。
+# wheel に同梱されないと init が fail-fast (exit 1) するため、収録は必須。
+# 同梱を保証するため、将来 packages 指定を変更する場合は必ず以下を維持すること。
 
 [tool.hatch.build.targets.sdist]
 # CI は uv / npm のキャッシュをワークスペース直下 .cache/ に置く。

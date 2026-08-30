@@ -14,7 +14,7 @@ pre-commit>=4.0
 pre-commit-hooks
 pyright
 pytest
-ruff
+ruff==0.16.1
 semgrep
 sqlfluff
 types-PyYAML
