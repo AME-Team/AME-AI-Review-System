@@ -972,11 +972,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_init.add_argument(
         "--engine",
-        default="auto",
-        choices=["auto", "claude", "opencode", "antigravity"],
+        default=None,
+        choices=init_cmd.ENGINE_CHOICES,
         help="Gate 1 の既定 LLM エンジン。claude/antigravity は additional_dependencies "
         "へ Python SDK を追加して pre-commit の隔離 venv で利用可能にする (Issue #114)。"
-        "default: auto (自動検出)",
+        "未指定時は AME_INIT_ENGINE → auto (自動検出)",
     )
     p_init.add_argument(
         "--version",

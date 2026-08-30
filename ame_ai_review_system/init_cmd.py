@@ -84,7 +84,8 @@ _ENGINE_SDK_SYSTEM_COMMENTS: dict[str, str] = {
     ),
 }
 
-_ENGINE_CHOICES = "auto|claude|opencode|antigravity"
+# Issue #114: 指定可能なエンジンの正本 (main.py の --engine choices と共通)。
+ENGINE_CHOICES = ("auto", "claude", "opencode", "antigravity")
 
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
 _AME_REVIEW_FILES = (
@@ -126,15 +127,17 @@ def _use_system_language(args: argparse.Namespace) -> bool:
 def _resolve_engine(args: argparse.Namespace) -> str:
     """Gate 1 の既定エンジンを解決する (``--engine`` / ``AME_INIT_ENGINE``).
 
-    既定は ``auto`` (実行時にプロセスツリーから自動検出)。``claude`` /
-    ``antigravity`` は SDK 依存を追加する対象。不正値は fail-fast。
+    優先順位: ``--engine`` フラグ → ``AME_INIT_ENGINE`` 環境変数 → ``auto``。
+    ``--engine`` の argparse 既定は ``None`` のため、未指定時のみ環境変数を参照する
+    (既定を ``"auto"`` にすると環境変数が到達不能になる対策、Issue #114)。
+    ``claude`` / ``antigravity`` は SDK 依存を追加する対象。不正値は fail-fast。
     """
-    raw = getattr(args, "engine", None) or os.environ.get("AME_INIT_ENGINE") or "auto"
+    explicit = getattr(args, "engine", None)
+    raw = explicit or os.environ.get("AME_INIT_ENGINE") or "auto"
     engine = str(raw).strip().lower()
-    allowed = {"auto", "claude", "opencode", "antigravity"}
-    if engine not in allowed:
+    if engine not in ENGINE_CHOICES:
         print(
-            f"ERROR: invalid engine {engine!r}. Choose from: {sorted(allowed)}",
+            f"ERROR: invalid engine {engine!r}. Choose from: {list(ENGINE_CHOICES)}",
             file=sys.stderr,
         )
         raise SystemExit(1)
