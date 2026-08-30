@@ -61,6 +61,22 @@ SDK は `pip install 'ame-ai-review-system[claude]'` / `[antigravity]`
 でサーバを起動すること。エンジンは `config.json` の `engine` または環境変数 `REVIEW_ENGINE`
 で選択します。
 
+#### OpenCode サーバーがヘッダータイムアウト (UND_ERR_HEADERS_TIMEOUT) で失敗する場合 (Issue #113)
+
+ローカル Gate 1 で `[opencode.mjs] attempt ... failed` や `UND_ERR_HEADERS_TIMEOUT`
+と表示されます。原因はモデルのコールドスタートやサーバー側の一時的な無応答です。最初の応答が SDK のヘッダータイムアウトを超えています。
+
+- **自動回復**: `opencode.mjs` は最大 3 回リトライする。Python アダプタはサーバー未起動時に
+  `opencode serve --port 4096` を自動起動する。これだけで回復することが多い。
+- **手動回復**: それでも失敗する場合はサーバーを再起動して再コミットする。
+
+  ```bash
+  opencode serve --port 4096   # 別ターミナルで起動 (起動済みなら再起動)
+  ```
+
+- **リモート (CI)**: CI は reusable workflow が `opencode serve`
+  を明示起動する。Python アダプタは自動スポーンしない (localhost かつ非 CI のみ対象)。
+
 #### OpenCode サーバを Basic 認証付きで起動している場合
 
 `opencode serve` を `OPENCODE_SERVER_PASSWORD` で Basic 認証起動している環境では、`opencode.mjs`

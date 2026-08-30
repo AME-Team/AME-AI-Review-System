@@ -46,6 +46,16 @@ opencode providers login
 > プロバイダーを選択し、API キーを入力します。認証情報は `~/.local/share/opencode/auth.json`
 > に保存されます。
 
+> [!NOTE] **ローカル Gate 1 の OpenCode サーバー (Issue #113)**: pre-commit
+> AI レビュー (opencode エンジン) は OpenCode サーバーへ接続する。未起動の場合はアダプタが
+> `opencode serve --port 4096` を自動起動する。手動で起動する場合は以下を実行すること。
+>
+> ```bash
+> opencode serve --port 4096
+> ```
+>
+> サーバーが無応答 (ヘッダータイムアウト等) になった場合は再起動すること。
+
 **OpenCode + OpenRouter の場合（API Key 認証）:**
 
 OpenCode は OpenRouter を公式プロバイダーとしてサポートしている。OpenRouter 経由で外部モデル（例:

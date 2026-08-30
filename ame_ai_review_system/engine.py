@@ -18,7 +18,13 @@ import sys
 from typing import Any
 
 from . import review_config
-from .engines import ENGINES, SDK_LANGS, available_sdk_langs, get_adapter
+from .engines import (
+    ENGINES,
+    SDK_LANGS,
+    FatalEngineError,
+    available_sdk_langs,
+    get_adapter,
+)
 
 _DEFAULT_TIMEOUT_SECONDS = 600.0
 
@@ -277,7 +283,11 @@ def run_engine(settings: dict[str, Any], prompt: str) -> int:
         )
 
     adapter = get_adapter(engine, sdk_lang)
-    output = adapter.run(prompt, settings)
+    try:
+        output = adapter.run(prompt, settings)
+    except FatalEngineError as exc:
+        # Issue #113: エンジンの起動・接続エラーは明示メッセージで終了する。
+        sys.exit(str(exc))
     if not output.strip():
         sys.exit(f"[engine] {engine} produced empty output.")
     sys.stdout.write(output)
