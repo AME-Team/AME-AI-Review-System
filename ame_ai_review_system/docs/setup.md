@@ -176,6 +176,12 @@ ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
 - `--version`: Gate 1 (pre-commit
   AI フック) が参照する wheel のバージョン。省略時はインストール済みパッケージの
   `__version__`。release の wheel を `#sha256=` で内容固定して参照する (Issue #84)。
+- `--engine`: Gate 1 (pre-commit AI フック) の既定エンジン (`auto` / `claude` / `opencode` /
+  `antigravity`)。
+- `claude` / `antigravity` 指定時は SDK を `additional_dependencies` へ追加する。
+- SDK 名: `claude-agent-sdk` / `google-antigravity` (Issue #114)。
+- これにより pre-commit の隔離 venv で該当エンジンを起動できる。
+- `auto` (既定) は実行時にプロセスツリーから自動検出する。SDK は追加しない。
 - `--python`: オフライン環境向け。指定すると Gate 1 フックを `language: system`
   で生成し、指定した Python インタープリタパスを埋め込む。省略時は wheel 方式 (`language: python`) で生成され、絶対パスを埋め込まないため生成物を共有・コミットしても他環境/CI で動作する (Issue
   #79)。`AME_INIT_PYTHON` 環境変数でも同様に system 方式へ切り替わる (Issue #66)。

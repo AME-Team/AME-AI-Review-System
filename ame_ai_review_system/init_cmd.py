@@ -66,6 +66,26 @@ _SYSTEM_ADDEPS_COMMENT = (
     " Python の ame_ai_review_system を使用"
 )
 
+# Issue #114: エンジン別に追加する Python SDK (additional_dependencies へ)。
+# claude のみ pre-commit の隔離 venv (language: python) に SDK が入らず
+# ImportError で起動失敗する問題の対策。opencode は TS サイドカーで
+# Python 依存が不要なためここには含めない。
+_ENGINE_SDK_DEPS: dict[str, str] = {
+    "claude": "claude-agent-sdk",
+    "antigravity": "google-antigravity",
+}
+
+# system 方式で SDK が必要なエンジン向けのコメント注記 (Issue #114)。
+_ENGINE_SDK_SYSTEM_COMMENTS: dict[str, str] = {
+    "claude": "# 注意: claude エンジン利用時はこの Python に claude-agent-sdk を導入しておくこと",
+    "antigravity": (
+        "# 注意: antigravity エンジン利用時はこの Python に google-antigravity を"
+        " 導入しておくこと"
+    ),
+}
+
+_ENGINE_CHOICES = "auto|claude|opencode|antigravity"
+
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
 _AME_REVIEW_FILES = (
     "config.json",
@@ -101,6 +121,24 @@ def _resolve_python_bin(args: argparse.Namespace) -> str:
 def _use_system_language(args: argparse.Namespace) -> bool:
     """``language: system`` 方式を使うか (``--python`` / ``AME_INIT_PYTHON`` 指定時)."""
     return bool(getattr(args, "python", None) or os.environ.get("AME_INIT_PYTHON"))
+
+
+def _resolve_engine(args: argparse.Namespace) -> str:
+    """Gate 1 の既定エンジンを解決する (``--engine`` / ``AME_INIT_ENGINE``).
+
+    既定は ``auto`` (実行時にプロセスツリーから自動検出)。``claude`` /
+    ``antigravity`` は SDK 依存を追加する対象。不正値は fail-fast。
+    """
+    raw = getattr(args, "engine", None) or os.environ.get("AME_INIT_ENGINE") or "auto"
+    engine = str(raw).strip().lower()
+    allowed = {"auto", "claude", "opencode", "antigravity"}
+    if engine not in allowed:
+        print(
+            f"ERROR: invalid engine {engine!r}. Choose from: {sorted(allowed)}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    return engine
 
 
 def _resolve_version(args: argparse.Namespace) -> str:
@@ -303,11 +341,17 @@ def cmd_init(args: argparse.Namespace) -> int:
             # 有用なため警告しつつ書き出す (Issue #66)。
             if args.python:
                 return 1
+        # Issue #114: system 方式でも SDK がエンジンで必要な場合はコメントで注記する。
+        gate1_engine = _resolve_engine(args)
+        sdk_comment = _ENGINE_SDK_SYSTEM_COMMENTS.get(gate1_engine)
+        system_addeps = _SYSTEM_ADDEPS_COMMENT
+        if sdk_comment:
+            system_addeps = f"{system_addeps}\n    {sdk_comment}"
         preset_content = _render_preset(
             preset_content,
             language="system",
             entry_prefix=f"{python_bin} -m ",
-            addeps=_SYSTEM_ADDEPS_COMMENT,
+            addeps=system_addeps,
         )
     else:
         # 既定: language: python + wheel (絶対パス非依存、各環境で venv 自動作成)。
@@ -327,12 +371,23 @@ def cmd_init(args: argparse.Namespace) -> int:
             )
         # 指摘対応: フックの削除/並べ替えで YAML アンカー (undefined alias) が破綻しないよう、
         # 各フックに同一の additional_dependencies を直接記述する。
+        # Issue #114: engine=claude/antigravity 指定時は SDK を追加し、
+        # pre-commit の隔離 venv でエンジンを起動可能にする。
+        gate1_engine = _resolve_engine(args)
+        sdk_dep = _ENGINE_SDK_DEPS.get(gate1_engine)
+        addeps_line = f"          - {dep}"
+        if sdk_dep:
+            addeps_line += f"\n          - {sdk_dep}"
         preset_content = _render_preset(
             preset_content,
             language="python",
             entry_prefix="python -m ",
-            addeps=f"additional_dependencies:\n          - {dep}",
+            addeps=f"additional_dependencies:\n{addeps_line}",
         )
+        if sdk_dep:
+            print(
+                f"  Gate 1: engine={gate1_engine} → additional_dependencies に {sdk_dep} を追加しました。"
+            )
         print(
             f"  Gate 1: language: python + wheel v{version}"
             f"{' (sha256 固定)' if sha256 else ''} で生成しました。"

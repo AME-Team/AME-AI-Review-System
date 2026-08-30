@@ -18,6 +18,7 @@ def _make_args(**kwargs: object) -> argparse.Namespace:
         "force": False,
         "python": None,
         "version": None,
+        "engine": "auto",
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -202,6 +203,62 @@ def test_init_default_python_mode_embeds_pinned_wheel(
     wheel = f"ame_ai_review_system-{__version__}-py3-none-any.whl"
     assert f"{wheel}#sha256=aaaaaaaaaaaaaaaa" in cfg
     assert "ame-wheel-dep" not in cfg
+
+
+def test_init_engine_claude_adds_claude_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #114: --engine claude 時は additional_dependencies へ claude-agent-sdk を追加し、
+    # pre-commit の隔離 venv で claude エンジンを起動可能にする。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(engine="claude")) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert cfg.count("claude-agent-sdk") == 3  # 3 フックすべてに追加
+    assert "google-antigravity" not in cfg
+
+
+def test_init_engine_antigravity_adds_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #114: --engine antigravity 時は google-antigravity を追加する。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(engine="antigravity")) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert cfg.count("google-antigravity") == 3
+    assert "claude-agent-sdk" not in cfg
+
+
+def test_init_engine_auto_and_opencode_no_python_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #114: auto/opencode は Python SDK を追加しない (opencode は TS サイドカー)。
+    for i, engine in enumerate(("auto", "opencode")):
+        root = tmp_path / f"case{i}"
+        root.mkdir()
+        _init_in(root, monkeypatch)
+        assert init_cmd.cmd_init(_make_args(engine=engine)) == 0
+        cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        assert "claude-agent-sdk" not in cfg
+        assert "google-antigravity" not in cfg
+
+
+def test_init_engine_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Issue #114: AME_INIT_ENGINE 環境変数でも engine を指定できる。
+    monkeypatch.setenv("AME_INIT_ENGINE", "claude")
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(engine=None)) == 0
+    cfg = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert cfg.count("claude-agent-sdk") == 3
+
+
+def test_init_invalid_engine_fails_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #114: 不正な engine は fail-fast する。
+    root = _init_in(tmp_path, monkeypatch)
+    with pytest.raises(SystemExit):
+        init_cmd.cmd_init(_make_args(engine="gemini"))
+    assert not (root / ".pre-commit-config.yaml").exists()
 
 
 def test_init_default_python_mode_all_hooks_self_contained(
