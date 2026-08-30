@@ -254,10 +254,9 @@ def test_init_engine_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_init_invalid_engine_fails_fast(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Issue #114: 不正な engine は fail-fast する。
+    # Issue #114: 不正な engine は fail-fast する (return 1)。
     root = _init_in(tmp_path, monkeypatch)
-    with pytest.raises(SystemExit):
-        init_cmd.cmd_init(_make_args(engine="gemini"))
+    assert init_cmd.cmd_init(_make_args(engine="gemini")) == 1
     assert not (root / ".pre-commit-config.yaml").exists()
 
 

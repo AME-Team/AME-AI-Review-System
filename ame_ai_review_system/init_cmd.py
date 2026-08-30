@@ -67,9 +67,9 @@ _SYSTEM_ADDEPS_COMMENT = (
 )
 
 # Issue #114: エンジン別に追加する Python SDK (additional_dependencies へ)。
-# claude のみ pre-commit の隔離 venv (language: python) に SDK が入らず
-# ImportError で起動失敗する問題の対策。opencode は TS サイドカーで
-# Python 依存が不要なためここには含めない。
+# pre-commit の隔離 venv (language: python) には wheel のみが入るため、
+# SDK を個別に追加しておかないと claude / antigravity は ImportError で
+# 起動失敗する。opencode は TS サイドカーで Python 依存が不要なためここには含めない。
 _ENGINE_SDK_DEPS: dict[str, str] = {
     "claude": "claude-agent-sdk",
     "antigravity": "google-antigravity",
@@ -124,13 +124,14 @@ def _use_system_language(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "python", None) or os.environ.get("AME_INIT_PYTHON"))
 
 
-def _resolve_engine(args: argparse.Namespace) -> str:
+def _resolve_engine(args: argparse.Namespace) -> str | None:
     """Gate 1 の既定エンジンを解決する (``--engine`` / ``AME_INIT_ENGINE``).
 
     優先順位: ``--engine`` フラグ → ``AME_INIT_ENGINE`` 環境変数 → ``auto``。
     ``--engine`` の argparse 既定は ``None`` のため、未指定時のみ環境変数を参照する
     (既定を ``"auto"`` にすると環境変数が到達不能になる対策、Issue #114)。
-    ``claude`` / ``antigravity`` は SDK 依存を追加する対象。不正値は fail-fast。
+    ``claude`` / ``antigravity`` は SDK 依存を追加する対象。不正値は ``None`` を返し、
+    呼び出し側 (cmd_init) が ``return 1`` で fail-fast する (他の検証と同一方針)。
     """
     explicit = getattr(args, "engine", None)
     raw = explicit or os.environ.get("AME_INIT_ENGINE") or "auto"
@@ -140,7 +141,7 @@ def _resolve_engine(args: argparse.Namespace) -> str:
             f"ERROR: invalid engine {engine!r}. Choose from: {list(ENGINE_CHOICES)}",
             file=sys.stderr,
         )
-        raise SystemExit(1)
+        return None
     return engine
 
 
@@ -346,6 +347,8 @@ def cmd_init(args: argparse.Namespace) -> int:
                 return 1
         # Issue #114: system 方式でも SDK がエンジンで必要な場合はコメントで注記する。
         gate1_engine = _resolve_engine(args)
+        if gate1_engine is None:
+            return 1
         sdk_comment = _ENGINE_SDK_SYSTEM_COMMENTS.get(gate1_engine)
         system_addeps = _SYSTEM_ADDEPS_COMMENT
         if sdk_comment:
@@ -377,6 +380,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         # Issue #114: engine=claude/antigravity 指定時は SDK を追加し、
         # pre-commit の隔離 venv でエンジンを起動可能にする。
         gate1_engine = _resolve_engine(args)
+        if gate1_engine is None:
+            return 1
         sdk_dep = _ENGINE_SDK_DEPS.get(gate1_engine)
         addeps_line = f"          - {dep}"
         if sdk_dep:
