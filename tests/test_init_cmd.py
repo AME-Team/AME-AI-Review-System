@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from ame_ai_review_system import __version__, init_cmd
+from ame_ai_review_system import __version__, init_cmd, paths
 
 
 def _make_args(**kwargs: object) -> argparse.Namespace:
@@ -45,6 +45,43 @@ def test_init_creates_expected_files(
     assert (root / ".pre-commit-config.yaml").exists()
     assert (root / ".github" / "workflows" / "review_command.yml").exists()
     assert (root / ".github" / "workflows" / "review_reply.yml").exists()
+
+
+def test_init_review_prompt_matches_package_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #111: init が生成する .ame-review/review_prompt.txt はパッケージ同梱の
+    # review_prompt.txt と同一であること。templates/ に旧版が残ると
+    # paths.prompt_path() が .ame-review/ を優先するため、弱い出力契約で
+    # Gate 1/2 が実行されてしまう。生成物と既定のドリフトを防ぐ。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(no_workflow=True)) == 0
+    generated = (root / ".ame-review" / "review_prompt.txt").read_text(
+        encoding="utf-8",
+    )
+    package_default = (
+        paths
+        .package_dir()
+        .joinpath("review_prompt.txt")
+        .read_text(
+            encoding="utf-8",
+        )
+    )
+    assert generated == package_default
+    assert "JSON オブジェクト 1 つのみ" in generated
+
+
+def test_init_review_prompt_fails_fast_when_package_data_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #111: パッケージデータとして review_prompt.txt が同梱されていない場合、
+    # 無言でスキップせず fail-fast する。弱いプロンプトのまま運用されるのを防ぐ。
+    root = _init_in(tmp_path, monkeypatch)
+    empty_pkg = tmp_path / "empty-pkg"
+    empty_pkg.mkdir()
+    monkeypatch.setattr(paths, "package_dir", lambda: empty_pkg)
+    assert init_cmd.cmd_init(_make_args(no_workflow=True)) == 1
+    assert not (root / ".ame-review" / "review_prompt.txt").exists()
 
 
 def test_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
