@@ -5,6 +5,40 @@
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-30
+
+### Added
+
+- Gate 1
+  (pre-commit) のエンジン・モデル・思考量をユーザー単位のグローバル設定で指定可能にした (Issue
+  #120)。
+- 設定ファイル:
+  `~/.config/ame-ai-review-system/config.json`。優先順位は 環境変数 > リポジトリ設定 > グローバル設定 > 継承 (自動検出)。
+- `ame-ai-reviewer init --engine claude|antigravity` で Python SDK を自動追加する (Issue #114)。
+- 対象は pre-commit の `additional_dependencies`。`claude` なら `claude-agent-sdk`、 `antigravity`
+  なら `google-antigravity` を追加する。
+
+### Fixed
+
+- `init` 生成の `review_prompt.txt` をパッケージ同梱版へ一元化した。旧版テンプレートが残ると
+  `paths.prompt_path()` が弱い出力契約の生成物を優先する問題があった (Issue #111)。
+- コードフェンスのサニタイズを、視覚的に似た U+201E から非リテラル風トークン `<FENCE>`
+  へ変更した (Issue #112)。LLM レビュアーの false positive (実ファイルの誤検出) を防止する。
+- opencode エンジンのローカル Gate
+  1 で、serve 未起動やタイムアウトによりコミットがブロックされる問題を解消した (Issue #113)。
+- `OPENCODE_URL`
+  が localhost なら serve を自動起動する。接続エラー時はバックオフ付きでリトライする。
+- `requirements-dev.txt`
+  の ruff を 0.16.1 にピンし、CI の preview ルールドリフトによる既存コードの検出失敗を解消。
+
+### Docs
+
+- 返信ワークフローへの `concurrency` 設定禁止と対策を明記 (Issue #115)。
+- CI ワークフロー差し替え時の chicken-and-egg 対策を明記した (Issue #116)。
+- `issue_comment` は default ブランチ、`pull_request_review_comment`
+  は PR ヘッドブランチの workflow が実行される。この非対称性への対策を追記した。
+- 対策: ブートストラップ PR、`workflow_dispatch --ref` での明示起動。
+
 ## [0.2.7] - 2026-08-20
 
 ### Fixed
