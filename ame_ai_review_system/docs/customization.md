@@ -298,8 +298,8 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 
 ## 5. pre-commit AI レビューのカスタマイズ
 
-ローカルコミット時に動作する `Gate 1 (pre-commit)` は、`config.json` / `config.user.json`
-または環境変数で挙動を変更できる。
+ローカルコミット時に動作する `Gate 1 (pre-commit)` は、`config.json` /
+`config.user.json`、グローバル設定、または環境変数で挙動を変更できる。
 
 ### 5-1. `config.json` / `config.user.json` によるカスタマイズ
 
@@ -333,7 +333,30 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 > }
 > ```
 
-### 5-2. 環境変数による一時的な上書き
+### 5-2. グローバル設定（ユーザー単位）によるカスタマイズ (Issue #120)
+
+複数リポジトリに共通する Gate
+1 のエンジン・モデル・思考量を、ユーザー単位のグローバル設定で指定できます。設定ファイルは
+`~/.config/ame-ai-review-system/config.json` に配置します。
+
+```json
+{
+  "precommit_engine": "claude",
+  "precommit_model": "sonnet",
+  "precommit_thinking": "medium"
+}
+```
+
+- パスは環境変数 `AME_REVIEW_GLOBAL_CONFIG` で変更できる。
+- グローバル設定から取り込まれるのは Gate 1 の `precommit_*` キーのみである。
+- 例: `precommit_engine` / `precommit_model` / `precommit_thinking`。
+- 優先順位は **環境変数 > リポジトリ設定 > グローバル設定 > 継承（自動検出）** である。
+- 環境変数 (`PRECOMMIT_REVIEW_*`) が最上位の一時上書きとして最優先される。
+- リポジトリの `config.json` / `config.user.json` で `precommit_*`
+  が指定されていればそれがグローバル設定より優先される。
+- どちらも無ければグローバル設定、それも無ければ動作中の AI ツールを自動検出する。
+
+### 5-3. 環境変数による一時的な上書き
 
 コミット実行時に一時的に設定を上書きしたい場合、以下の環境変数を利用できます。
 

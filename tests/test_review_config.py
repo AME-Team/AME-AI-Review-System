@@ -19,6 +19,7 @@ from ame_ai_review_system.review_config import (
     filter_review_targets,
     is_review_command,
     load_config,
+    load_global_config,
     package_dir_rel,
     user_overrides,
 )
@@ -126,6 +127,134 @@ def test_user_config_overrides_default_config() -> None:
     assert cfg["engine"] == "opencode"
     assert cfg["thinking"] == "high"
     assert cfg["review_budget_usd"] == pytest.approx(3.0)
+
+
+def test_load_global_config_missing_returns_empty() -> None:
+    old_global = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    nonexistent = Path(tempfile.gettempdir()) / "nonexistent_global_config.json"
+    try:
+        os.environ["AME_REVIEW_GLOBAL_CONFIG"] = str(nonexistent)
+        assert load_global_config() == {}
+    finally:
+        _restore_env("AME_REVIEW_GLOBAL_CONFIG", old_global)
+
+
+def test_load_global_config_warns_on_malformed_json(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #120: グローバル設定の JSON が壊れている場合は警告しつつ空 dict を返す。
+    old_global = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    fd, name = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("{broken json")
+        os.environ["AME_REVIEW_GLOBAL_CONFIG"] = name
+        assert load_global_config() == {}
+    finally:
+        _restore_env("AME_REVIEW_GLOBAL_CONFIG", old_global)
+        Path(name).unlink(missing_ok=True)
+    assert "JSON が壊れている" in capsys.readouterr().err
+
+
+def test_load_global_config_warns_on_non_object(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #120: グローバル設定が配列等の非オブジェクトも警告して無視する。
+    old_global = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    fd, name = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("[1, 2, 3]")
+        os.environ["AME_REVIEW_GLOBAL_CONFIG"] = name
+        assert load_global_config() == {}
+    finally:
+        _restore_env("AME_REVIEW_GLOBAL_CONFIG", old_global)
+        Path(name).unlink(missing_ok=True)
+    assert "JSON オブジェクトでない" in capsys.readouterr().err
+
+
+def test_load_config_applies_global_when_no_repo() -> None:
+    # Issue #120: リポジトリ設定が無ければグローバル設定が適用される。
+    old_global = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    old_conf = os.environ.get("AME_REVIEW_CONFIG")
+    old_user = os.environ.get("AME_REVIEW_USER_CONFIG")
+    fd, name_global = tempfile.mkstemp(suffix=".json")
+    nonexistent = Path(tempfile.gettempdir()) / "nonexistent_repo_config.json"
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(
+                '{"precommit_engine": "claude", "precommit_model": "sonnet",'
+                ' "precommit_thinking": "medium"}',
+            )
+        os.environ["AME_REVIEW_GLOBAL_CONFIG"] = name_global
+        os.environ["AME_REVIEW_CONFIG"] = str(nonexistent)
+        os.environ["AME_REVIEW_USER_CONFIG"] = str(nonexistent)
+        cfg = load_config()
+    finally:
+        _restore_env("AME_REVIEW_GLOBAL_CONFIG", old_global)
+        _restore_env("AME_REVIEW_CONFIG", old_conf)
+        _restore_env("AME_REVIEW_USER_CONFIG", old_user)
+        Path(name_global).unlink(missing_ok=True)
+    assert cfg["precommit_engine"] == "claude"
+    assert cfg["precommit_model"] == "sonnet"
+    assert cfg["precommit_thinking"] == "medium"
+
+
+def test_load_config_repo_overrides_global() -> None:
+    # Issue #120: 優先順位は リポジトリ設定 > グローバル設定。
+    old_global = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    old_conf = os.environ.get("AME_REVIEW_CONFIG")
+    old_user = os.environ.get("AME_REVIEW_USER_CONFIG")
+    fd_global, name_global = tempfile.mkstemp(suffix=".json")
+    fd_conf, name_conf = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd_global, "w", encoding="utf-8") as fh:
+            fh.write('{"precommit_engine": "claude", "precommit_thinking": "low"}')
+        with os.fdopen(fd_conf, "w", encoding="utf-8") as fh:
+            fh.write('{"precommit_engine": "opencode"}')
+        os.environ["AME_REVIEW_GLOBAL_CONFIG"] = name_global
+        os.environ["AME_REVIEW_CONFIG"] = name_conf
+        os.environ["AME_REVIEW_USER_CONFIG"] = str(
+            Path(tempfile.gettempdir()) / "nonexistent_user_config.json"
+        )
+        cfg = load_config()
+    finally:
+        _restore_env("AME_REVIEW_GLOBAL_CONFIG", old_global)
+        _restore_env("AME_REVIEW_CONFIG", old_conf)
+        _restore_env("AME_REVIEW_USER_CONFIG", old_user)
+        Path(name_global).unlink(missing_ok=True)
+        Path(name_conf).unlink(missing_ok=True)
+    assert cfg["precommit_engine"] == "opencode"
+    # thinking はグローバル値が残る (リポジトリは engine のみ上書き)。
+    assert cfg["precommit_thinking"] == "low"
+
+
+def test_load_config_global_ignores_non_precommit_keys() -> None:
+    # Issue #120: グローバル設定は Gate 1 (precommit_*) に限定され、
+    # model 等の Gate 2 キーは波及しない。
+    old_global = os.environ.get("AME_REVIEW_GLOBAL_CONFIG")
+    old_conf = os.environ.get("AME_REVIEW_CONFIG")
+    old_user = os.environ.get("AME_REVIEW_USER_CONFIG")
+    fd, name_global = tempfile.mkstemp(suffix=".json")
+    nonexistent = Path(tempfile.gettempdir()) / "nonexistent_repo_config.json"
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(
+                '{"precommit_engine": "claude", "model": "sonnet",'
+                ' "review_budget_usd": 9.9}',
+            )
+        os.environ["AME_REVIEW_GLOBAL_CONFIG"] = name_global
+        os.environ["AME_REVIEW_CONFIG"] = str(nonexistent)
+        os.environ["AME_REVIEW_USER_CONFIG"] = str(nonexistent)
+        cfg = load_config()
+    finally:
+        _restore_env("AME_REVIEW_GLOBAL_CONFIG", old_global)
+        _restore_env("AME_REVIEW_CONFIG", old_conf)
+        _restore_env("AME_REVIEW_USER_CONFIG", old_user)
+        Path(name_global).unlink(missing_ok=True)
+    assert cfg["precommit_engine"] == "claude"
+    assert cfg["model"] is None  # グローバルの model は取り込まれない
+    assert cfg["review_budget_usd"] == pytest.approx(2.0)  # 既定値のまま
 
 
 def test_user_overrides_includes_user_config() -> None:

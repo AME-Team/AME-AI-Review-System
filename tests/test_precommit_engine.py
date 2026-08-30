@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from ame_ai_review_system import precommit_engine
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pytest
 
 
@@ -269,6 +271,27 @@ def test_resolve_ignores_empty_string_config_values() -> None:
         env={},
     )
     assert settings["engine"] == "claude"
+
+
+def test_resolve_uses_global_config_when_no_repo(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #120: リポジトリ設定が無い場合はグローバル設定が使われ、
+    # 継承 (プロセスツリー検出) には倒れない。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "claude", "precommit_model": "sonnet"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "claude"
+    assert settings["model"] == "sonnet"
 
 
 # ---------------------------

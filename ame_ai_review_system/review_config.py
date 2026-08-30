@@ -10,6 +10,10 @@
 設定ファイルのパスは環境変数 ``AME_REVIEW_CONFIG`` で上書き可能。
 ユーザー固有の上書きは ``config.user.json``（環境変数 ``AME_REVIEW_USER_CONFIG`` でパス変更可能）に記述する。
 ``config.user.json`` は Git 管理対象外であり、存在しない場合は無視される。
+
+グローバル設定 (Issue #120): ユーザーフォルダ (``~/.config/ame-ai-review-system/config.json``)
+に配置するユーザー単位の設定。優先順位は 環境変数 > リポジトリ設定 > グローバル設定 >
+継承 (動作中の AI ツールを自動検出)。パスは環境変数 ``AME_REVIEW_GLOBAL_CONFIG`` で上書きできる。
 """
 
 from __future__ import annotations
@@ -83,6 +87,9 @@ _REVIEW_COMMANDS = ("/request-review", "/review")
 
 _MIN_ARGS = 2
 
+# グローバル設定から取り込むキーのスコープ (Gate 1 の precommit_* のみ)。Issue #120。
+_GLOBAL_SCOPE_PREFIX = "precommit_"
+
 
 def _config_path() -> Path:
     override = os.environ.get("AME_REVIEW_CONFIG")
@@ -106,8 +113,53 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return cast("dict[str, Any]", data) if isinstance(data, dict) else None
 
 
+def load_global_config() -> dict[str, Any]:
+    """ユーザー単位のグローバル設定を生の dict で返す (Issue #120).
+
+    ファイルが存在しない場合は空 dict (黙って無視)。JSON が壊れている / オブジェクト
+    でない場合は警告を出力して空 dict を返す (新規ユーザー設定の誤設定切り分けのため)。
+    パスは paths.global_config_path() (AME_REVIEW_GLOBAL_CONFIG で上書き可)。
+    なお load_config() 側で Gate 1 (precommit_*) キーに絞り込んでマージする。
+    """
+    path = paths.global_config_path()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        print(
+            f"WARNING: グローバル設定 {path} の JSON が壊れているため無視します"
+            " (Issue #120)。",
+            file=sys.stderr,
+        )
+        return {}
+    if not isinstance(data, dict):
+        print(
+            f"WARNING: グローバル設定 {path} が JSON オブジェクトでないため無視します"
+            " (Issue #120)。",
+            file=sys.stderr,
+        )
+        return {}
+    return cast("dict[str, Any]", data)
+
+
 def load_config() -> dict[str, Any]:
+    # 優先順位 (後勝ち): 組み込み既定 < グローバル設定 < リポジトリ config.json
+    # < リポジトリ config.user.json。グローバル設定はユーザーフォルダ由来のため、
+    # リポジトリ設定 (版管理対象 + プロジェクト固有) が優先される (Issue #120)。
     config: dict[str, Any] = dict(_DEFAULTS)
+    # Issue #120: グローバル設定は Gate 1 (precommit_*) に限定する。precommit_* 以外の
+    # キー (model / review_budget_usd 等) をグローバルに置くと Gate 2 (PR レビュー) の
+    # 挙動へリポジトリ横断で波及して意図しない副作用を生むため、ここで絞り込む。
+    config.update(
+        {
+            key: value
+            for key, value in load_global_config().items()
+            if key.startswith(_GLOBAL_SCOPE_PREFIX)
+        },
+    )
     data: dict[str, object] | None = _read_json(_config_path())
     if data is not None:
         config.update(data)
