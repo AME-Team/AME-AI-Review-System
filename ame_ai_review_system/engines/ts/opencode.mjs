@@ -9,6 +9,10 @@
 // npm install で @opencode-ai/sdk を導入する (ESM 解決のため隣接 node_modules が必要)。
 // モデルは provider/model 形式 (例: anthropic/claude-sonnet-4) を指定すること。
 // レビュー完了後は作成したセッションを削除し、サーバ側へのセッション蓄積を防ぐ。
+//
+// 接続安定性 (Issue #113): サーバー未起動 (ECONNREFUSED) やコールドスタート時の
+// ヘッダータイムアウト (UND_ERR_HEADERS_TIMEOUT) は retry で回復を試みる。サーバー
+// 自体の自動起動は Python 側アダプタ (opencode_ts.py) が行う。
 
 import { createOpencodeClient } from "@opencode-ai/sdk";
 
@@ -19,6 +23,28 @@ class EngineError extends Error {
     super(message);
     this.name = "EngineError";
   }
+}
+
+// Issue #113: 一時的な接続・ヘッダータイムアウトは retry で回復できる。
+const MAX_PROMPT_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 5000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableError(err) {
+  if (!err) return false;
+  const code = err.code || (err.cause && err.cause.code) || "";
+  const message = String(err.message || "").toLowerCase();
+  return (
+    code === "ECONNREFUSED" ||
+    code === "UND_ERR_HEADERS_TIMEOUT" ||
+    code === "UND_ERR_SOCKET" ||
+    message.includes("headers timeout") ||
+    message.includes("fetch failed") ||
+    message.includes("econnrefused")
+  );
 }
 
 function parseArgs() {
@@ -59,6 +85,56 @@ function splitModel(model) {
   return { providerID: model.slice(0, idx), modelID: model.slice(idx + 1) };
 }
 
+// 1 回分の「セッション作成 → プロンプト → セッション削除」を実行し、結果テキストを返す。
+// finally で必ずセッションを削除するため、retry の各試行は独立したセッションで行う。
+async function runPromptOnce(client, prompt, opts) {
+  let sessionId = null;
+  try {
+    const session = await client.session.create({ body: { title: "ame-review" } });
+    // session.create の応答は SDK バージョンにより { data: {...} } と生値の両方の
+    // 契約があり得るため、両方へ対応する。
+    sessionId = session?.data?.id || session?.id;
+    if (!sessionId) {
+      // sessionId 不明のため finally でも削除不可。throw して外面の catch へ。
+      throw new EngineError("failed to obtain session id from create response");
+    }
+    const result = await client.session.prompt({
+      path: { id: sessionId },
+      body: {
+        parts: [{ type: "text", text: prompt }],
+        tools: opts.toolsOff,
+        system: opts.system,
+        ...(opts.model ? { model: opts.model } : {}),
+      },
+    });
+
+    // process.exit は finally を迂回してセッション削除をスキップするため throw で抜ける。
+    if (result && result.error) {
+      throw new EngineError(`server error: ${JSON.stringify(result.error)}`);
+    }
+
+    // SDK は responseStyle により { data } ラップと生値の両方の契約があり得るため、
+    // 両方に対応する (data 優先)。空の場合はペイロードを出力して契約ミスマッチを検知可能にする。
+    const payload = result && (result.data || result.response);
+    const text = extractText(payload);
+    if (!text.trim()) {
+      const dump = JSON.stringify(payload ?? null).slice(0, 500);
+      throw new EngineError(`could not extract text from response: ${dump}`);
+    }
+    return text;
+  } finally {
+    // pre-commit / PR レビューで繰り返し実行されるため、セッションを削除して蓄積を防ぐ。
+    // finally 内の削除失敗はレビュー結果へ影響させないよう警告のみで握り潰す。
+    if (sessionId) {
+      try {
+        await client.session.delete({ path: { id: sessionId } });
+      } catch (err) {
+        console.error("[opencode.mjs] failed to delete session:", err);
+      }
+    }
+  }
+}
+
 async function main() {
   const prompt = await readStdin();
   if (!prompt.trim()) {
@@ -84,78 +160,59 @@ async function main() {
     directory: process.cwd(),
   });
 
-  // finally で必ずセッションを削除するため、外枠で宣言する。
-  let sessionId = null;
-  try {
-    const session = await client.session.create({ body: { title: "ame-review" } });
-    // session.create の応答は SDK バージョンにより { data: {...} } と生値の両方の
-    // 契約があり得るため、prompt 側と同様に両方へ対応する。
-    sessionId = session?.data?.id || session?.id;
-    if (!sessionId) {
-      // sessionId 不明のため finally でも削除不可。throw して外面の catch へ。
-      throw new EngineError("failed to obtain session id from create response");
-    }
-    const model = splitModel(opts.model);
-    // レビューは diff がプロンプトに埋め込まれているためツールは不要。
-    // build agent が bash / 外部ディレクトリ読取等で権限確認 (external_directory: ask) に
-    // ハングするのを防ぐため、ツールを明示的に全て無効化する。
-    const toolsOff = {
-      bash: false,
-      edit: false,
-      write: false,
-      read: false,
-      glob: false,
-      grep: false,
-      patch: false,
-      webfetch: false,
-      task: false,
-      todowrite: false,
-      application_launcher: false,
-      question: false,
-      skill: false,
-    };
-    // 弱いモデルはツール無効化下でもツール呼び出し構文 (</tool_calls> 等) を出力して
-    // JSON を壊すことがある。system でツール禁止を強制する (OPENCODE_SYSTEM で上書き可)。
-    const system =
-      process.env.OPENCODE_SYSTEM ||
-      "You are a code review assistant. You MUST NOT call any tools and MUST NOT emit any " +
-        "tool-call syntax. Respond ONLY with a single valid JSON object matching the requested " +
-        "schema. Do not include any other text.";
-    const result = await client.session.prompt({
-      path: { id: sessionId },
-      body: {
-        parts: [{ type: "text", text: prompt }],
-        tools: toolsOff,
+  const model = splitModel(opts.model);
+  // レビューは diff がプロンプトに埋め込まれているためツールは不要。
+  // build agent が bash / 外部ディレクトリ読取等で権限確認 (external_directory: ask) に
+  // ハングするのを防ぐため、ツールを明示的に全て無効化する。
+  const toolsOff = {
+    bash: false,
+    edit: false,
+    write: false,
+    read: false,
+    glob: false,
+    grep: false,
+    patch: false,
+    webfetch: false,
+    task: false,
+    todowrite: false,
+    application_launcher: false,
+    question: false,
+    skill: false,
+  };
+  // 弱いモデルはツール無効化下でもツール呼び出し構文 (</tool_calls> 等) を出力して
+  // JSON を壊すことがある。system でツール禁止を強制する (OPENCODE_SYSTEM で上書き可)。
+  const system =
+    process.env.OPENCODE_SYSTEM ||
+    "You are a code review assistant. You MUST NOT call any tools and MUST NOT emit any " +
+      "tool-call syntax. Respond ONLY with a single valid JSON object matching the requested " +
+      "schema. Do not include any other text.";
+
+  // Issue #113: 接続エラー・ヘッダータイムアウトは一時的な場合が多いため、
+  // バックオフ付きで retry する。業務エラー (EngineError) は即時中断する。
+  let lastErr = null;
+  for (let attempt = 1; attempt <= MAX_PROMPT_ATTEMPTS; attempt++) {
+    try {
+      const text = await runPromptOnce(client, prompt, {
+        model,
+        toolsOff,
         system,
-        ...(model ? { model } : {}),
-      },
-    });
-
-    // process.exit は finally を迂回してセッション削除をスキップするため throw で抜ける。
-    if (result && result.error) {
-      throw new EngineError(`server error: ${JSON.stringify(result.error)}`);
-    }
-
-    // SDK は responseStyle により { data } ラップと生値の両方の契約があり得るため、
-    // 両方に対応する (data 優先)。空の場合はペイロードを出力して契約ミスマッチを検知可能にする。
-    const payload = result && (result.data || result.response);
-    const text = extractText(payload);
-    if (!text.trim()) {
-      const dump = JSON.stringify(payload ?? null).slice(0, 500);
-      throw new EngineError(`could not extract text from response: ${dump}`);
-    }
-    process.stdout.write(text);
-  } finally {
-    // pre-commit / PR レビューで繰り返し実行されるため、セッションを削除して蓄積を防ぐ。
-    // finally 内の削除失敗はレビュー結果へ影響させないよう警告のみで握り潰す。
-    if (sessionId) {
-      try {
-        await client.session.delete({ path: { id: sessionId } });
-      } catch (err) {
-        console.error("[opencode.mjs] failed to delete session:", err);
+      });
+      process.stdout.write(text);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableError(err) || attempt === MAX_PROMPT_ATTEMPTS) {
+        throw err;
       }
+      const delay = RETRY_BASE_DELAY_MS * attempt;
+      console.error(
+        `[opencode.mjs] attempt ${attempt}/${MAX_PROMPT_ATTEMPTS} failed ` +
+          `(${err.message}); retrying in ${delay}ms...`
+      );
+      await sleep(delay);
     }
   }
+  throw lastErr;
 }
 
 main().catch((err) => {

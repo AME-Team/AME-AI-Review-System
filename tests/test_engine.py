@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -387,6 +388,8 @@ def test_opencode_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
         return "RESULT"
 
     monkeypatch.setattr(ts_runner, "run_sidecar", fake_sidecar)
+    # Issue #113: 自動スポーンはテスト対象外のため、素通しにしておく。
+    monkeypatch.setattr(opencode_ts, "ensure_opencode_server", lambda: None)
     opencode_ts.OpencodeTsAdapter.run(
         "PROMPT",
         {
@@ -402,6 +405,132 @@ def test_opencode_ts_adapter_args(monkeypatch: pytest.MonkeyPatch) -> None:
         captured["args"][captured["args"].index("--model") + 1]
         == "anthropic/claude-sonnet-4"
     )
+
+
+def test_opencode_localhost_is_localhost() -> None:
+    from ame_ai_review_system.engines import opencode_ts
+
+    assert opencode_ts._is_localhost("127.0.0.1")
+    assert opencode_ts._is_localhost("localhost")
+    assert opencode_ts._is_localhost("::1")
+    assert not opencode_ts._is_localhost("example.com")
+
+
+def test_ensure_opencode_server_skips_remote_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: リモートの OPENCODE_URL は自動スポーン対象外 (CI の起動済み serve 等)。
+    # CI ランナーでは GITHUB_ACTIONS が設定されるため明示的に除去して検証する。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    from ame_ai_review_system.engines import opencode_ts
+
+    monkeypatch.setenv("OPENCODE_URL", "http://opencode.example.com:4096")
+    spawned: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        opencode_ts, "_spawn_server", lambda h, p: spawned.append((h, p))
+    )
+    opencode_ts.ensure_opencode_server()
+    assert spawned == []
+
+
+def test_ensure_opencode_server_skips_when_reachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: サーバーが起動済みなら自動スポーンしない。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    from ame_ai_review_system.engines import opencode_ts
+
+    monkeypatch.setenv("OPENCODE_URL", "http://127.0.0.1:4096")
+    monkeypatch.setattr(opencode_ts, "_server_reachable", lambda _h, _p: True)
+    spawned: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        opencode_ts, "_spawn_server", lambda h, p: spawned.append((h, p))
+    )
+    opencode_ts.ensure_opencode_server()
+    assert spawned == []
+
+
+def test_ensure_opencode_server_spawns_when_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: localhost で未起動なら opencode serve を自動スポーンする。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    from ame_ai_review_system.engines import opencode_ts
+
+    monkeypatch.setenv("OPENCODE_URL", "http://127.0.0.1:4096")
+    monkeypatch.setattr(opencode_ts, "_server_reachable", lambda _h, _p: False)
+    spawned: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        opencode_ts, "_spawn_server", lambda h, p: spawned.append((h, p))
+    )
+    opencode_ts.ensure_opencode_server()
+    assert spawned == [("127.0.0.1", 4096)]
+
+
+def test_ensure_opencode_server_skips_in_ci(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: CI は reusable workflow が serve を明示起動するため、自動スポーンしない
+    # (二重起動によるポート競合を防ぐ)。
+    from ame_ai_review_system.engines import opencode_ts
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("OPENCODE_URL", "http://127.0.0.1:4096")
+    monkeypatch.setattr(opencode_ts, "_server_reachable", lambda _h, _p: False)
+    spawned: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        opencode_ts, "_spawn_server", lambda h, p: spawned.append((h, p))
+    )
+    opencode_ts.ensure_opencode_server()
+    assert spawned == []
+
+
+def test_spawn_server_fails_fast_without_opencode_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: opencode CLI が無い環境では分かりやすいエラーで終了する。
+    from ame_ai_review_system.engines import opencode_ts
+
+    monkeypatch.setattr(opencode_ts, "_find_opencode_bin", lambda: None)
+    with pytest.raises(opencode_ts.OpencodeServerError, match="opencode CLI not found"):
+        opencode_ts._spawn_server("127.0.0.1", 4096)
+
+
+def test_spawn_server_accepts_preexisting_server_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: 起動プロセスの失敗や一時的な未応答でも、既存サーバーが立ち上がって
+    # いればそれを利用して失敗判定しない (再プローブで回復)。
+    from ame_ai_review_system.engines import opencode_ts
+
+    monkeypatch.setattr(opencode_ts, "_find_opencode_bin", lambda: "/usr/bin/opencode")
+    calls = 0
+
+    def _flaky_reachable(_h: str, _p: int) -> bool:
+        # 起動直後は False (未応答) でも、ループ後の再プローブでは True に回復する。
+        nonlocal calls
+        calls += 1
+        return calls > 1
+
+    monkeypatch.setattr(opencode_ts, "_server_reachable", _flaky_reachable)
+    terminates: list[str] = []
+
+    class _FakePopen:
+        @staticmethod
+        def poll() -> int | None:
+            return 1  # 即退出 (EADDRINUSE 相当)
+
+        @staticmethod
+        def terminate() -> None:
+            terminates.append("terminate")
+
+    def _fake_popen(*_args: object, **_kwargs: object) -> Any:
+        return _FakePopen()
+
+    monkeypatch.setattr("subprocess.Popen", _fake_popen)
+    # ここで例外が出ないこと = 再プローブで既存サーバーを採用した証。
+    opencode_ts._spawn_server("127.0.0.1", 4096)
+    assert terminates == []
 
 
 def test_claude_python_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -491,6 +620,39 @@ def test_run_engine_rejects_empty_output(monkeypatch: pytest.MonkeyPatch) -> Non
                 "thinking": "high",
                 "budget": 2.0,
                 "sdk_lang": "python",
+                "timeout": 600.0,
+                "role": "review",
+            },
+            "PROMPT",
+        )
+
+
+def test_run_engine_converts_fatal_engine_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #113: アダプタ固有の致命的エラー (FatalEngineError) は CLI 境界で
+    # sys.exit に変換され、明示メッセージで終了する。
+    from ame_ai_review_system.engines.errors import FatalEngineError
+
+    class _FatalAdapter:
+        @staticmethod
+        def run(_prompt: str, _settings: dict[str, Any]) -> str:
+            msg = "[engine] opencode serve に接続できません"
+            raise FatalEngineError(msg)
+
+    monkeypatch.setattr(
+        engine,
+        "get_adapter",
+        lambda _engine, _lang=None: _FatalAdapter(),
+    )
+    with pytest.raises(SystemExit, match="opencode serve に接続できません"):
+        run_engine(
+            {
+                "engine": "opencode",
+                "model": "zai/glm",
+                "thinking": "low",
+                "budget": 1.0,
+                "sdk_lang": "typescript",
                 "timeout": 600.0,
                 "role": "review",
             },
