@@ -66,6 +66,27 @@ _SYSTEM_ADDEPS_COMMENT = (
     " Python の ame_ai_review_system を使用"
 )
 
+# Issue #114: エンジン別に追加する Python SDK (additional_dependencies へ)。
+# pre-commit の隔離 venv (language: python) には wheel のみが入るため、
+# SDK を個別に追加しておかないと claude / antigravity は ImportError で
+# 起動失敗する。opencode は TS サイドカーで Python 依存が不要なためここには含めない。
+_ENGINE_SDK_DEPS: dict[str, str] = {
+    "claude": "claude-agent-sdk",
+    "antigravity": "google-antigravity",
+}
+
+# system 方式で SDK が必要なエンジン向けのコメント注記 (Issue #114)。
+_ENGINE_SDK_SYSTEM_COMMENTS: dict[str, str] = {
+    "claude": "# 注意: claude エンジン利用時はこの Python に claude-agent-sdk を導入しておくこと",
+    "antigravity": (
+        "# 注意: antigravity エンジン利用時はこの Python に google-antigravity を"
+        " 導入しておくこと"
+    ),
+}
+
+# Issue #114: 指定可能なエンジン一覧の単一情報源 (main.py の --engine choices と共通)。
+ENGINE_CHOICES = ("auto", "claude", "opencode", "antigravity")
+
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
 _AME_REVIEW_FILES = (
     "config.json",
@@ -101,6 +122,27 @@ def _resolve_python_bin(args: argparse.Namespace) -> str:
 def _use_system_language(args: argparse.Namespace) -> bool:
     """``language: system`` 方式を使うか (``--python`` / ``AME_INIT_PYTHON`` 指定時)."""
     return bool(getattr(args, "python", None) or os.environ.get("AME_INIT_PYTHON"))
+
+
+def _resolve_engine(args: argparse.Namespace) -> str | None:
+    """Gate 1 の既定エンジンを解決する (``--engine`` / ``AME_INIT_ENGINE``).
+
+    優先順位: ``--engine`` フラグ → ``AME_INIT_ENGINE`` 環境変数 → ``auto``。
+    ``--engine`` の argparse 既定は ``None`` のため、未指定時のみ環境変数を参照する
+    (既定を ``"auto"`` にすると環境変数が到達不能になる対策、Issue #114)。
+    ``claude`` / ``antigravity`` は SDK 依存を追加する対象。不正値は ``None`` を返し、
+    呼び出し側 (cmd_init) が ``return 1`` で fail-fast する (他の検証と同一方針)。
+    """
+    explicit = getattr(args, "engine", None)
+    raw = explicit or os.environ.get("AME_INIT_ENGINE") or "auto"
+    engine = str(raw).strip().lower()
+    if engine not in ENGINE_CHOICES:
+        print(
+            f"ERROR: invalid engine {engine!r}. Choose from: {list(ENGINE_CHOICES)}",
+            file=sys.stderr,
+        )
+        return None
+    return engine
 
 
 def _resolve_version(args: argparse.Namespace) -> str:
@@ -322,11 +364,19 @@ def cmd_init(args: argparse.Namespace) -> int:
             # 有用なため警告しつつ書き出す (Issue #66)。
             if args.python:
                 return 1
+        # Issue #114: system 方式でも SDK がエンジンで必要な場合はコメントで注記する。
+        gate1_engine = _resolve_engine(args)
+        if gate1_engine is None:
+            return 1
+        sdk_comment = _ENGINE_SDK_SYSTEM_COMMENTS.get(gate1_engine)
+        system_addeps = _SYSTEM_ADDEPS_COMMENT
+        if sdk_comment:
+            system_addeps = f"{system_addeps}\n    {sdk_comment}"
         preset_content = _render_preset(
             preset_content,
             language="system",
             entry_prefix=f"{python_bin} -m ",
-            addeps=_SYSTEM_ADDEPS_COMMENT,
+            addeps=system_addeps,
         )
     else:
         # 既定: language: python + wheel (絶対パス非依存、各環境で venv 自動作成)。
@@ -346,12 +396,25 @@ def cmd_init(args: argparse.Namespace) -> int:
             )
         # 指摘対応: フックの削除/並べ替えで YAML アンカー (undefined alias) が破綻しないよう、
         # 各フックに同一の additional_dependencies を直接記述する。
+        # Issue #114: engine=claude/antigravity 指定時は SDK を追加し、
+        # pre-commit の隔離 venv でエンジンを起動可能にする。
+        gate1_engine = _resolve_engine(args)
+        if gate1_engine is None:
+            return 1
+        sdk_dep = _ENGINE_SDK_DEPS.get(gate1_engine)
+        addeps_line = f"          - {dep}"
+        if sdk_dep:
+            addeps_line += f"\n          - {sdk_dep}"
         preset_content = _render_preset(
             preset_content,
             language="python",
             entry_prefix="python -m ",
-            addeps=f"additional_dependencies:\n          - {dep}",
+            addeps=f"additional_dependencies:\n{addeps_line}",
         )
+        if sdk_dep:
+            print(
+                f"  Gate 1: engine={gate1_engine} → additional_dependencies に {sdk_dep} を追加しました。"
+            )
         print(
             f"  Gate 1: language: python + wheel v{version}"
             f"{' (sha256 固定)' if sha256 else ''} で生成しました。"
