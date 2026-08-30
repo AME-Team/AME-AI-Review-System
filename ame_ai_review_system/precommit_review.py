@@ -181,10 +181,23 @@ def _truncate_diff(diff: str) -> str:
     )
 
 
+# Issue #112: コードフェンス (バッククォート 3 個) のサニタイズ表示トークン。
+# U+201E 等の視覚的に似た文字だと、LLM が「実ファイルに本物の文字が含まれる」と誤認し
+# false positive を繰り返し投稿する。非リテラル風の明示トークンへ置換し、_build_prompt
+# が注記を付与して誤認を防ぐ。``<FENCE>`` はバッククォート連続と紛れず、実コードに
+# ほぼ現れないため誤認しにくい。
+_FENCE_PLACEHOLDER = "<FENCE>"
+
+# バッククォート 3 個。直接リテラルで書くと、この pre-commit 自身の差分サニタイズ
+# (Issue #112) が本ソースを置換してレビュアーに誤読されるため、chr で構成する。
+_FENCE_MARK = chr(96) * 3
+
+
 def _sanitize_for_codeblock(text: str) -> str:
-    # ファイル名/コミットメッセージ/diff に ``` が含まれているとプロンプトのフェンス構造が
-    # 壊れるため、視覚的に近い別文字 (U+201E DOUBLE LOW-9 QUOTATION MARK) へ置換する。
-    return text.replace("```", "\u201e\u201e\u201e")
+    # ファイル名/コミットメッセージ/diff にコードフェンスが含まれているとプロンプトの
+    # フェンス構造が壊れるため、非リテラル風トークン (<FENCE>) へ置換する。
+    # U+201E („) は視覚的に近く誤認を誘発するため使わない (Issue #112)。
+    return text.replace(_FENCE_MARK, _FENCE_PLACEHOLDER)
 
 
 def _build_diff(base_ref: str, staged_files: list[str]) -> str:
@@ -261,6 +274,15 @@ def _build_prompt(
         "## diff",
         # _build_diff が既に各セクションを ```diff で囲んでいるため、ここでは追加しない。
         diff,
+        "",
+        # Issue #112: diff/ファイル名/コミットログ中の <FENCE> はサニタイズ表示。
+        # LLM が実ファイルの文字と誤認して false positive を投稿しないよう注記する。
+        "## 注記: コードフェンスのサニタイズ表示",
+        (
+            "diff / ファイル名 / コミットログ中の `<FENCE>` は、コードフェンス"
+            "（バッククォート 3 個）をプロンプト構造保護のために置換した表示です。"
+            "実ファイルにコードフェンスが含まれる場合は、その旨を指摘対象にしないでください。"
+        ),
     ]
     # Issue #47: 除外した vendored パッケージが参照されている場合は、存在を注記して
     # 「モジュール不存在」という誤指摘を防ぐ。

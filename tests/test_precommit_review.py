@@ -398,6 +398,33 @@ def test_build_prompt_contains_required_sections() -> None:
     assert "diff content" in prompt
 
 
+def test_sanitize_replaces_fence_with_explicit_token() -> None:
+    # Issue #112: コードフェンスは視覚的に似た U+201E („) ではなく、非リテラル風の
+    # 明示トークンへ置換する。LLM が「実ファイルに „ が含まれる」と誤認しないように。
+    # 差分サニタイズによる自己置換を避けるため、フェンスは chr で構成する。
+    fence = chr(96) * 3
+    sanitized = precommit_review._sanitize_for_codeblock(f"{fence}json\n{fence}")
+    assert fence not in sanitized
+    assert sanitized == "<FENCE>json\n<FENCE>"
+    assert "„" not in sanitized
+
+
+def test_build_prompt_adds_fence_sanitize_note() -> None:
+    # Issue #112: プロンプトに「<FENCE> はサニタイズ表示」の注記が含まれ、
+    # diff 内の置換トークンを実ファイルの文字と誤認しないこと。
+    fence = chr(96) * 3
+    prompt = build_prompt(
+        "main",
+        "feature/x",
+        ["SKILL.md"],
+        f"{fence}json\n<FENCE>json",
+        "BASE PROMPT",
+    )
+    assert "<FENCE>" in prompt
+    assert "コードフェンスのサニタイズ表示" in prompt
+    assert "指摘対象にしないでください" in prompt
+
+
 def test_build_prompt_adds_reference_note_for_excluded_package(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
