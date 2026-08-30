@@ -420,6 +420,8 @@ def test_ensure_opencode_server_skips_remote_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Issue #113: リモートの OPENCODE_URL は自動スポーン対象外 (CI の起動済み serve 等)。
+    # CI ランナーでは GITHUB_ACTIONS が設定されるため明示的に除去して検証する。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     from ame_ai_review_system.engines import opencode_ts
 
     monkeypatch.setenv("OPENCODE_URL", "http://opencode.example.com:4096")
@@ -435,6 +437,7 @@ def test_ensure_opencode_server_skips_when_reachable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Issue #113: サーバーが起動済みなら自動スポーンしない。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     from ame_ai_review_system.engines import opencode_ts
 
     monkeypatch.setenv("OPENCODE_URL", "http://127.0.0.1:4096")
@@ -451,6 +454,7 @@ def test_ensure_opencode_server_spawns_when_unreachable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Issue #113: localhost で未起動なら opencode serve を自動スポーンする。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     from ame_ai_review_system.engines import opencode_ts
 
     monkeypatch.setenv("OPENCODE_URL", "http://127.0.0.1:4096")
