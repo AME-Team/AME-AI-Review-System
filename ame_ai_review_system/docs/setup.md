@@ -258,6 +258,25 @@ cp -r .github/ <your-repo>/
 cp -r ame_ai_review_system/ <your-repo>/
 ```
 
+##### CI ワークフロー差し替え時の chicken-and-egg 対策 (Issue #116)
+
+GitHub Actions のイベントごとに実行する workflow ファイルの取得元は非対称です。
+
+- `issue_comment`（`/request-review` のトリガー）→ **default ブランチ** の workflow が実行される
+- `pull_request_review_comment`（インライン返信のトリガー）→ **PR ヘッドブランチ**
+  の workflow が実行される
+
+そのため、workflow 差し替えの移行 PR 中は `/request-review`
+が main の旧 workflow を呼び失敗することがあります。例: vendored パッケージ削除と組み合わせた移行で
+`No module named ame_ai_review_system`。対策は以下のいずれかです。
+
+1. **ブートストラップ PR**: 最初に workflow 変更のみを main へ取り込む独立した PR を作る。main に新 workflow が入ってから、機能変更の PR を進める。
+2. **`workflow_dispatch` で明示起動**: `--ref` に PR ブランチを指定して新ラッパを実行する。
+
+       gh workflow run "AI Code Review (Command)" --ref <PRブランチ> -f pr_number=<N>
+
+3. **返信経由のレビューで回避**: インライン返信は PR ヘッドブランチの workflow が実行されるため、移行 PR では返信判定（`AI Review Reply`）だけ先に検証できる。
+
 ### Step 2: AI エージェント用スキル（review-round）の導入（推奨）
 
 専用スキルを `.claude/skills/review-round/SKILL.md` に配置します。これにより OpenCode / Claude
