@@ -58,6 +58,10 @@ PR 上で実行する品質ゲートです。以下のループを未解決ス�
 7. **スレッド返信** — 各スレッドに `@ame-ai-reviewer[bot]` メンション付きで対応内容を返信
    - API: `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
    - 本文例: `@ame-ai-reviewer[bot] 指摘された例外処理を追加し、ログ出力を修正しました。`
+   - 複数スレッドへ返信する場合、返信ワークフロー (`review_reply.yml`) に
+     **concurrency が設定されていないことを確認する**。concurrency が PR 単位で設定されて
+     いると並列返信の後続 run が cancel / skip され、LGTM が一部のスレッドへ届かない
+     (Issue #115)。設定されている場合や不安定な場合は、返信を 1 スレッドずつ順次投稿する。
 8. **LGTM 待ち** — `ame-ai-reviewer[bot]` がスレッドに返信
    - LGTM: `対応確認しました。LGTM ✅ Resolve してください。`
    - 追加指摘 → Step 6 に戻る
