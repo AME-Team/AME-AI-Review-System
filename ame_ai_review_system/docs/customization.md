@@ -6,7 +6,10 @@
 
 AI が指摘する観点や規約を変更するには、以下のファイルを修正します。
 
-- **`ame_ai_review_system/review_prompt.txt`**
+- **`.ame-review/review_prompt.txt`**: `ame-ai-reviewer init` の生成物である。 `paths.prompt_path()`
+  がこのパスを優先する。既定はパッケージ同梱の `ame_ai_review_system/review_prompt.txt`
+  と同一である (Issue #111)。
+- **`ame_ai_review_system/review_prompt.txt`**: パッケージ同梱の既定である。vendored 運用時はこのパスを直接編集する。
 
 ### カスタマイズのヒント
 
