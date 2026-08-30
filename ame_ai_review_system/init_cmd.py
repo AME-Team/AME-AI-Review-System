@@ -269,10 +269,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # .ame-review/ へ既定ファイルを配置 (ユーザー固有設定は config.user.json で上書き)。
     ame_dir = paths.ame_review_dir()
-    ame_dir.mkdir(parents=True, exist_ok=True)
     # Issue #111: パッケージデータ同梱の欠落 (wheel ビルド設定の変更等) で生成物が
     # 無言でスキップされ、弱いプロンプトのまま運用されるのを防ぐ。コピー開始前に
-    # 存在を検証して fail-fast することで、部分的な init 状態を残さない。
+    # 存在を検証して fail-fast する。空ディレクトリを含む部分的な init 状態を残さない
+    # ため、mkdir は検証の後に行う。
     prompt_src = paths.package_dir() / "review_prompt.txt"
     if not prompt_src.exists():
         print(
@@ -281,6 +281,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    ame_dir.mkdir(parents=True, exist_ok=True)
     for name in _AME_REVIEW_FILES:
         if name == "review_prompt.txt":
             # Issue #111: プロンプトはパッケージ同梱の review_prompt.txt を単一情報源とする。
