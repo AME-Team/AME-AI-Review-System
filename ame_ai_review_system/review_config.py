@@ -105,12 +105,29 @@ def _user_config_path() -> Path:
     return paths.user_config_path()
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
+def _read_json_with_error(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """JSON を読み、成功時は (dict, None)、失敗時は (None, エラー種別) を返す.
+
+    エラー種別は ``"missing"`` (不存在・デコード不可) / ``"malformed"`` (構文エラー) /
+    ``"not-object"`` (JSON オブジェクトでない)。_read_json とグローバル設定の判別
+    警告で共通利用する (Issue #120)。
+    """
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return cast("dict[str, Any]", data) if isinstance(data, dict) else None
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None, "missing"
+    try:
+        data: object = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, "malformed"
+    if not isinstance(data, dict):
+        return None, "not-object"
+    return cast("dict[str, Any]", data), None
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    data, _err = _read_json_with_error(path)
+    return data
 
 
 def load_global_config() -> dict[str, Any]:
@@ -122,27 +139,22 @@ def load_global_config() -> dict[str, Any]:
     なお load_config() 側で Gate 1 (precommit_*) キーに絞り込んでマージする。
     """
     path = paths.global_config_path()
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return {}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
+    data, err = _read_json_with_error(path)
+    if data is not None:
+        return data
+    if err == "malformed":
         print(
             f"WARNING: グローバル設定 {path} の JSON が壊れているため無視します"
             " (Issue #120)。",
             file=sys.stderr,
         )
-        return {}
-    if not isinstance(data, dict):
+    elif err == "not-object":
         print(
             f"WARNING: グローバル設定 {path} が JSON オブジェクトでないため無視します"
             " (Issue #120)。",
             file=sys.stderr,
         )
-        return {}
-    return cast("dict[str, Any]", data)
+    return {}
 
 
 def load_config() -> dict[str, Any]:
