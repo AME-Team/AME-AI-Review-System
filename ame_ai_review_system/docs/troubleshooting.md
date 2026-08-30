@@ -267,3 +267,30 @@ GitHub Actions の該当ワークフローログ（`general-review-command`
   `OPENCODE_SERVER_PASSWORD` / `OPENCODE_URL` / `OPENCODE_SYSTEM` 等。
 - **パッケージ側を直す**: バグ修正・機能追加はパッケージ本体 (`ame_ai_review_system/engines/ts/*.mjs`) に対して行い、リリースで配布すること。
 - **再展開を一時的に止めたい**: パッケージ側へ同一修正を入れ、両者が一致する状態にする。これで比較が一致し再展開は走らなくなる。バージョン管理上はパッケージ側を正とすること。
+
+---
+
+## 11. `/request-review` が CI ワークフロー差し替え中に失敗する (chicken-and-egg)
+
+### 症状: ワークフロー移行 PR で `/request-review` が旧 workflow を実行する
+
+`review_command.yml` / `review_reply.yml` を差し替える移行 PR を出した後、 `/request-review`
+を投稿しても失敗することがあります。例:
+`No module named ame_ai_review_system`。一方、インライン返信（`AI Review Reply`）は成功する。
+
+### 原因: イベントごとに実行される workflow の取得元が非対称
+
+- `issue_comment`（`/request-review`）は **default ブランチ**（通常
+  `main`）の workflow を実行する。移行 PR 中は main に旧 workflow が残っているため、旧 workflow が実行され失敗する。
+- `pull_request_review_comment`（インライン返信）は **PR ヘッドブランチ**
+  の workflow を実行する。新 workflow が実行され成功する。
+
+### 対策 (Issue #116)
+
+- **ブートストラップ PR**: 最初に workflow 変更のみを main へ取り込む独立 PR を作る。main に新 workflow が入ってから機能変更 PR を進める。
+- **`workflow_dispatch` で明示起動**: PR ブランチの新ラッパを強制実行する。
+
+      gh workflow run "AI Code Review (Command)" --ref <PRブランチ> -f pr_number=<N>
+
+- 詳細は [セットアップガイド](setup.md)
+  の「CI ワークフロー差し替え時の chicken-and-egg 対策」を参照すること。
