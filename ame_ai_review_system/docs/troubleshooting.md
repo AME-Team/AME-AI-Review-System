@@ -2,7 +2,30 @@
 
 システム運用中によく発生する問題と、その解決方法についてまとめています。
 
-## 1. AI の返信コメントが無限ループする
+## 1. 複数スレッドへ同時に返信したのに LGTM が届かない
+
+### 症状: 並列返信の一部で bot が反応しない
+
+複数のインライン返信（`@ame-ai-reviewer[bot]`
+メンション付き）を短時間に投稿すると、一部のスレッドに LGTM 応答が届かない。残りのスレッドに再投稿すると反応することもある。
+
+### 原因: 返信ワークフローの concurrency による run の cancel / skip
+
+`review_reply.yml` に `concurrency.group`
+が設定されていると、同一グループ内の後続のワークフロー run がキャンセルされます。`pull_request_review_comment`
+イベントは返信ごとに個別の run を生成するため、短時間の並列返信で LGTM 応答が失われます (Issue
+#115)。
+
+### 対策: concurrency を設定しない、または順次返信する
+
+- `review_reply.yml`（テンプレート含む）のワークフロー定義から `concurrency`
+  ブロックを削除すること。`reply.py` は `TRIGGER_COMMENT_ID`
+  で対象スレッドを絞り込み、投稿前に再チェックして並走実行の重複 LGTM を防ぐ設計のため、直列化は不要。
+- 既に concurrency が設定されている配布先で不安定な場合は、返信を 1 スレッドずつ順次投稿するか、設定を削除すること。
+
+---
+
+## 2. AI の返信コメントが無限ループする
 
 ### 症状: コメントが無限に連鎖する
 
@@ -32,7 +55,7 @@ if: >-
 
 ---
 
-## 2. LLM エンジンの SDK / サーバ接続エラーが発生する
+## 3. LLM エンジンの SDK / サーバ接続エラーが発生する
 
 ### 症状: エンジン呼び出し失敗
 
@@ -91,7 +114,7 @@ SDK は `pip install 'ame-ai-review-system[claude]'` / `[antigravity]`
 
 ---
 
-## 3. レビューが実行されない（スキップされる）
+## 4. レビューが実行されない（スキップされる）
 
 ### 症状: レビューが起動しない
 
@@ -122,7 +145,7 @@ PR をプッシュ、またはコメントでメンションしたにもかか�
 
 ---
 
-## 4. pre-commit 時に静的解析エラーでコミットできない
+## 5. pre-commit 時に静的解析エラーでコミットできない
 
 ### 症状: コミットが途中でブロックされる
 
@@ -141,7 +164,7 @@ PR をプッシュ、またはコメントでメンションしたにもかか�
 
 ---
 
-## 5. pre-commit AI レビューでエラーが発生する / 非常に遅い
+## 6. pre-commit AI レビューでエラーが発生する / 非常に遅い
 
 ### 症状: コミットが AI 呼び出しで止まる、または API エラーで失敗する
 
@@ -176,7 +199,7 @@ OpenCode 等）の認証切れ、タイムアウトなどが考えられます�
 
 ---
 
-## 6. コミット成功したのに streak カウンタ（連続LOW指摘回数）がリセットされない
+## 7. コミット成功したのに streak カウンタ（連続LOW指摘回数）がリセットされない
 
 ### 症状: 軽微な指摘（LOW）が累積し、その後のコミットが即座に PASS してしまう
 
@@ -198,7 +221,7 @@ pre-commit install --install-hooks -t pre-commit -t commit-msg -t pre-push -t po
 
 ---
 
-## 7. PR コメントで `/request-review` を投稿したが、「Skipping AI review」と表示されレビューされない
+## 8. PR コメントで `/request-review` を投稿したが、「Skipping AI review」と表示されレビューされない
 
 ### 症状: AI レビュアーが何も指摘せず、Actions ログに「Static analysis failed. Skipping AI review.」が出力される
 
@@ -218,7 +241,7 @@ GitHub Actions の該当ワークフローログ（`general-review-command`
 
 ---
 
-## 8. ユーザー固有設定 (`config.user.json`) が反映されない
+## 9. ユーザー固有設定 (`config.user.json`) が反映されない
 
 ### 症状: `config.user.json` を編集したのに挙動が変わらない
 
@@ -238,7 +261,7 @@ GitHub Actions の該当ワークフローログ（`general-review-command`
 
 ---
 
-## 9. vendored パッケージが「モジュール不存在」と誤指摘されコミットがブロックされる
+## 10. vendored パッケージが「モジュール不存在」と誤指摘されコミットがブロックされる
 
 ### 症状: `ame_ai_review_system` が存在しないという HIGH / MIDDLE 指摘が出る
 
@@ -261,7 +284,7 @@ GitHub Actions の該当ワークフローログ（`general-review-command`
 
 ---
 
-## 10. `.ame-review/engines-ts/` の手修正が消える / `ai-precommit-review` が "files were modified" でブロックする
+## 11. `.ame-review/engines-ts/` の手修正が消える / `ai-precommit-review` が "files were modified" でブロックする
 
 ### 症状: opencode.mjs 等の手修正が勝手に元に戻る、またはコミットが毎回ブロックされる
 

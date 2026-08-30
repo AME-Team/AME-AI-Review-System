@@ -3,6 +3,13 @@
 # 実処理は再利用可能ワークフロー review-reply.yml に委譲する (ローカル参照)。
 # 1 投稿に対して LGTM は「そのスレッドだけ」に投稿する (Issue #39)。
 # secrets 登録のエンジン情報 (Issue #40) も引き継ぐ。
+#
+# 注意 (Issue #115): 本ワークフローに concurrency を設定しないこと。
+#   pull_request_review_comment イベントは返信ごとに個別の run を生成する。
+#   これを concurrency.group で PR 単位にまとめると、並列投稿された後続 run が
+#   cancel/skip され、bot の LGTM 応答が一部のスレッドに届かなくなる。
+#   reply.py は TRIGGER_COMMENT_ID で対象スレッドを絞り込み、投稿前に再チェックして
+#   並走実行の重複 LGTM を防ぐ設計のため直列化は不要である。
 
 name: AI Review Reply
 
