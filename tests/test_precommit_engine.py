@@ -135,7 +135,7 @@ def test_resolve_auto_detects_opencode(
         lambda **_kw: "opencode",
     )
     settings = precommit_engine.resolve_engine_settings(
-        config={"precommit_engine": "auto", "engine": "claude", "model": "sonnet"},
+        config={"precommit_engine": "auto"},
         env={},
     )
     assert settings["engine"] == "opencode"
@@ -148,7 +148,7 @@ def test_resolve_auto_falls_back_to_pr_engine_when_detection_fails(
 ) -> None:
     monkeypatch.setattr(precommit_engine, "detect_active_engine", lambda **_kw: None)
     settings = precommit_engine.resolve_engine_settings(
-        config={"precommit_engine": "auto", "engine": "claude", "model": "sonnet"},
+        config={"precommit_engine": "auto"},
         env={},
     )
     assert settings["engine"] == "claude"
@@ -186,14 +186,75 @@ def test_resolve_env_model_overrides_config() -> None:
     assert settings["model"] == "glm-5.2"
 
 
-def test_resolve_falls_back_to_pr_engine_when_no_precommit_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(precommit_engine, "detect_active_engine", lambda **_kw: None)
+def test_resolve_falls_back_to_pr_engine_when_no_precommit_key() -> None:
+    # config 引数のレガシー engine キーはリポジトリ層として自動検出より優先される。
     settings = precommit_engine.resolve_engine_settings(
         config={"engine": "claude"},
         env={},
     )
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_direct_dict_legacy_engine_overrides_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #126 / PR review: config 引数のレガシー engine キーは自動検出より優先される。
+    # 検出が opencode を返しても config の claude が採用される。
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(
+        config={"engine": "claude"},
+        env={},
+    )
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_merged_repo_precommit_wins(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126 / PR review: 本番経路 (config=None) ではリポジトリ層を
+    # user_overrides() (config.json) から取得し、グローバル設定・自動検出より優先する。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "opencode"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "repo.json"))
+    (tmp_path / "repo.json").write_text(
+        '{"precommit_engine": "claude"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_merged_user_config_legacy_engine_wins(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126 / PR review: 本番経路 (config=None) で config.user.json の
+    # レガシー engine キーが自動検出・グローバル設定より優先される。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "opencode"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "user.json"))
+    (tmp_path / "user.json").write_text(
+        '{"engine": "claude"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
     assert settings["engine"] == "claude"
 
 
@@ -267,11 +328,8 @@ def test_resolve_budget_override_via_env() -> None:
     assert settings["budget"] == "0.5"
 
 
-def test_resolve_ignores_empty_string_config_values(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # 空文字列は未指定扱い。
-    monkeypatch.setattr(precommit_engine, "detect_active_engine", lambda **_kw: None)
+def test_resolve_ignores_empty_string_config_values() -> None:
+    # 空文字列は未指定扱い。レガシー engine キー (claude) がリポジトリ層として採用される。
     settings = precommit_engine.resolve_engine_settings(
         config={"precommit_engine": "", "engine": "claude"},
         env={},

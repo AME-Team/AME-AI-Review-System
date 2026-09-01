@@ -94,24 +94,31 @@ def resolve_engine_settings(
     config: Mapping[str, Any] | None = None,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    """解決済みエンジン設定を返す.
+
+    ``config`` 引数はリポジトリ層の設定を表す直接 dict (単体テスト等) であり、その
+    ``precommit_engine`` / ``engine`` がそのままリポジトリ層として使われる。``config=None``
+    (本番: precommit_review) では merged 設定 (load_config) を model 等に、リポジトリ層の
+    明示値はファイル設定 user_overrides() から取得する。いずれでも既定値 engine="claude" が
+    自動検出を覆わないよう、リポジトリ層は「明示されたキーのみ」を参照する (Issue #126)。
+    """
+    config_provided = config is not None
     if config is None:
         config = review_config.load_config()
     if env is None:
         env = dict(os.environ)
 
     # Issue #126: エンジンは 環境変数 > リポジトリ設定 > グローバル設定 > 自動検出 の順で
-    # 解決する。リポジトリの precommit_engine="auto" は「未指定」としてグローバル設定の
-    # 具体値を覆わず (従来は検出へ直行し、グローバル由来の precommit_model と分裂した
-    # 無効な組み合わせで engine.py へ渡っていた)、どのレイヤにも具体エンジンが無い場合
-    # のみプロセスツリー検出へ進む。env の "auto" は最上位レイヤの明示指示として、
-    # 下層の具体エンジンを覆って検出する (旧実装と同じ挙動を維持)。
-    # レガシー engine キーは既定値 (claude) が自動検出を覆わないよう、明示された場合のみ
-    # 各レイヤの具体エンジンとして採用する (user_overrides / load_global_config で判別)。
-    repo_overrides = review_config.user_overrides()
+    # 解決する。precommit_engine="auto" は「未指定」として下層の具体値を覆わず
+    # (従来は検出へ直行し、グローバル由来の precommit_model と分裂した無効な組み合わせで
+    # engine.py へ渡っていた)、レガシー engine キーは「明示された場合」のみ自動検出より
+    # 優先する。user_overrides() は config.json (版管理対象) と config.user.json の
+    # 明示キーをマージで返すため、リポジトリ側の設定は漏れなく参照される。
+    repo_layer = config if config_provided else review_config.user_overrides()
     global_cfg = review_config.load_global_config()
     env_engine = _concrete_engine(env.get("PRECOMMIT_REVIEW_ENGINE"))
-    repo_engine = _concrete_engine(config.get("precommit_engine"))
-    repo_legacy_engine = _concrete_engine(repo_overrides.get("engine"))
+    repo_engine = _concrete_engine(repo_layer.get("precommit_engine"))
+    repo_legacy_engine = _concrete_engine(repo_layer.get("engine"))
     global_engine = _concrete_engine(
         global_cfg.get("precommit_engine"),
     ) or _concrete_engine(global_cfg.get("engine"))
