@@ -679,8 +679,9 @@ def main(argv: list[str] | None = None) -> int:
 
     prompt = _build_prompt(args.base_ref, branch, staged_files, diff, prompt_text)
 
-    # cfg を再利用して二重読み込みを回避。
-    engine_settings = precommit_engine.resolve_engine_settings(config=cfg)
+    # config 引数を渡さず config=None で呼ぶことで、リポジトリ層の明示値はファイル設定
+    # (config.json / config.user.json) から解決される (Issue #126)。
+    engine_settings = precommit_engine.resolve_engine_settings()
     # Issue #40: エンジン情報 (engine/model/thinking) のバナーは
     # show_engine_info_gate1 が true のときのみ出力する (既定=表示)。
     if engine_settings.get("show_info", True):

@@ -135,7 +135,7 @@ def test_resolve_auto_detects_opencode(
         lambda **_kw: "opencode",
     )
     settings = precommit_engine.resolve_engine_settings(
-        config={"precommit_engine": "auto", "engine": "claude", "model": "sonnet"},
+        config={"precommit_engine": "auto"},
         env={},
     )
     assert settings["engine"] == "opencode"
@@ -148,7 +148,7 @@ def test_resolve_auto_falls_back_to_pr_engine_when_detection_fails(
 ) -> None:
     monkeypatch.setattr(precommit_engine, "detect_active_engine", lambda **_kw: None)
     settings = precommit_engine.resolve_engine_settings(
-        config={"precommit_engine": "auto", "engine": "claude", "model": "sonnet"},
+        config={"precommit_engine": "auto"},
         env={},
     )
     assert settings["engine"] == "claude"
@@ -187,10 +187,74 @@ def test_resolve_env_model_overrides_config() -> None:
 
 
 def test_resolve_falls_back_to_pr_engine_when_no_precommit_key() -> None:
+    # config 引数のレガシー engine キーはリポジトリ層として自動検出より優先される。
     settings = precommit_engine.resolve_engine_settings(
         config={"engine": "claude"},
         env={},
     )
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_direct_dict_legacy_engine_overrides_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #126 / PR review: config 引数のレガシー engine キーは自動検出より優先される。
+    # 検出が opencode を返しても config の claude が採用される。
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(
+        config={"engine": "claude"},
+        env={},
+    )
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_merged_repo_precommit_wins(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126 / PR review: 本番経路 (config=None) ではリポジトリ層を
+    # user_overrides() (config.json) から取得し、グローバル設定・自動検出より優先する。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "opencode"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "repo.json"))
+    (tmp_path / "repo.json").write_text(
+        '{"precommit_engine": "claude"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_merged_user_config_legacy_engine_wins(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126 / PR review: 本番経路 (config=None) で config.user.json の
+    # レガシー engine キーが自動検出・グローバル設定より優先される。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "opencode"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "user.json"))
+    (tmp_path / "user.json").write_text(
+        '{"engine": "claude"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
     assert settings["engine"] == "claude"
 
 
@@ -265,7 +329,7 @@ def test_resolve_budget_override_via_env() -> None:
 
 
 def test_resolve_ignores_empty_string_config_values() -> None:
-    # 空文字列は未指定扱い。
+    # 空文字列は未指定扱い。レガシー engine キー (claude) がリポジトリ層として採用される。
     settings = precommit_engine.resolve_engine_settings(
         config={"precommit_engine": "", "engine": "claude"},
         env={},
@@ -292,6 +356,141 @@ def test_resolve_uses_global_config_when_no_repo(
     settings = precommit_engine.resolve_engine_settings(config=None, env={})
     assert settings["engine"] == "claude"
     assert settings["model"] == "sonnet"
+
+
+def test_resolve_auto_defers_to_global_engine(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126: リポジトリの precommit_engine="auto" を config 引数で直接渡し、
+    # _concrete_engine が "auto"→None へ変換してグローバル設定の具体エンジン (opencode)
+    # へフォールバックする経路を検証する。プロセス検出 (claude) が食い違っても
+    # グローバル設定のエンジンが採用される。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "opencode",'
+        ' "precommit_model": "opencode-go/deepseek-v4-flash"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    # Claude Code セッションからのコミットを想定 (検出が claude を返す)。
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "claude"
+    )
+    settings = precommit_engine.resolve_engine_settings(
+        config={"precommit_engine": "auto"},
+        env={},
+    )
+    assert settings["engine"] == "opencode"
+
+
+def test_resolve_repo_concrete_engine_overrides_global(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126: リポジトリが具体エンジンを明示すればグローバル設定より優先される。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "opencode",'
+        ' "precommit_model": "opencode-go/deepseek-v4-flash"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "repo.json"))
+    (tmp_path / "repo.json").write_text(
+        '{"precommit_engine": "claude"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "claude"
+
+
+def test_resolve_auto_still_detects_when_global_engine_auto(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126: グローバル設定の precommit_engine="auto" にも具体エンジンが無ければ
+    # 従来どおりプロセスツリー検出へ進む。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"precommit_engine": "auto"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "repo.json"))
+    (tmp_path / "repo.json").write_text(
+        '{"precommit_engine": "auto"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "opencode"
+
+
+def test_resolve_env_auto_triggers_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #126: env の PRECOMMIT_REVIEW_ENGINE="auto" は最上位レイヤの明示指示として、
+    # 下層 (リポジトリ) の具体エンジンを覆って自動検出を優先する (旧実装と同じ挙動)。
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(
+        config={"precommit_engine": "claude"},
+        env={"PRECOMMIT_REVIEW_ENGINE": "auto"},
+    )
+    assert settings["engine"] == "opencode"
+
+
+def test_resolve_global_legacy_engine_key_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126: グローバル設定がレガシー engine キーで具体エンジンを指定している場合も
+    # 尊重し、グローバル由来の precommit_model との不整合を防ぐ。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "global.json"))
+    (tmp_path / "global.json").write_text(
+        '{"engine": "opencode", "precommit_model": "opencode-go/deepseek-v4-flash"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "repo.json"))
+    (tmp_path / "repo.json").write_text(
+        '{"precommit_engine": "auto"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "claude"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "opencode"
+    assert settings["model"] == "opencode-go/deepseek-v4-flash"
+
+
+def test_resolve_repo_legacy_engine_overrides_detection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Issue #126: リポジトリ設定がレガシー engine キーで具体エンジンを明示していれば、
+    # 自動検出 (opencode) より優先される (docs の「リポジトリ設定 > 自動検出」に対応)。
+    monkeypatch.setenv("AME_REVIEW_GLOBAL_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setenv("AME_REVIEW_CONFIG", str(tmp_path / "repo.json"))
+    (tmp_path / "repo.json").write_text(
+        '{"engine": "claude"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AME_REVIEW_USER_CONFIG", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setattr(
+        precommit_engine, "detect_active_engine", lambda **_kw: "opencode"
+    )
+    settings = precommit_engine.resolve_engine_settings(config=None, env={})
+    assert settings["engine"] == "claude"
 
 
 # ---------------------------

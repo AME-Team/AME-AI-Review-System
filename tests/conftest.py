@@ -2,10 +2,40 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_machine_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """開発マシンの設定ファイルをテストへ漏れ出させない (Issue #126).
+
+    resolve_engine_settings が review_config.user_overrides() /
+    load_global_config() を直接読むため、実ユーザーのグローバル設定
+    (``~/.config/ame-ai-review-system/config.json``) やリポジトリの
+    ``.ame-review/config.json`` / ``config.user.json`` に依存してテストが環境依存に
+    ならないよう、3 つの設定パスを存在しない一時パスへ差し替える。環境変数名は
+    review_config の ``_config_path`` / ``_user_config_path`` / paths の
+    ``global_config_path`` が参照するものと一致している (Issue #126)。
+    """
+    monkeypatch.setenv(
+        "AME_REVIEW_GLOBAL_CONFIG",
+        str(tmp_path / "nonexistent_global_config.json"),
+    )
+    monkeypatch.setenv(
+        "AME_REVIEW_CONFIG",
+        str(tmp_path / "nonexistent_repo_config.json"),
+    )
+    monkeypatch.setenv(
+        "AME_REVIEW_USER_CONFIG",
+        str(tmp_path / "nonexistent_user_config.json"),
+    )
 
 
 @pytest.fixture(autouse=True)

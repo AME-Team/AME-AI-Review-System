@@ -75,25 +75,72 @@ def _str_config(config: Mapping[str, Any], key: str) -> str | None:
     return text or None
 
 
+def _concrete_engine(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if not text or text == "auto":
+        return None
+    return text
+
+
+def _is_auto(raw: Any) -> bool:
+    if raw is None:
+        return False
+    return str(raw).strip().lower() == "auto"
+
+
 def resolve_engine_settings(
     config: Mapping[str, Any] | None = None,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    """解決済みエンジン設定を返す.
+
+    ``config`` 引数はリポジトリ層の設定を表す直接 dict (単体テスト等) であり、その
+    ``precommit_engine`` / ``engine`` がそのままリポジトリ層として使われる。``config=None``
+    (本番: precommit_review) では merged 設定 (load_config) を model 等に、リポジトリ層の
+    明示値はファイル設定 user_overrides() から取得する。いずれでも既定値 engine="claude" が
+    自動検出を覆わないよう、リポジトリ層は「明示されたキーのみ」を参照する (Issue #126)。
+    """
+    config_provided = config is not None
     if config is None:
         config = review_config.load_config()
     if env is None:
         env = dict(os.environ)
 
-    engine_raw = (
-        env.get("PRECOMMIT_REVIEW_ENGINE")
-        or _str_config(config, "precommit_engine")
-        or _str_config(config, "engine")
-        or "claude"
-    )
-    engine = engine_raw.lower()
-    if engine == "auto":
-        detected = detect_active_engine()
-        engine = detected or _str_config(config, "engine") or "claude"
+    # Issue #126: エンジンは 環境変数 > リポジトリ設定 > グローバル設定 > 自動検出 の順で
+    # 解決する。precommit_engine="auto" は「未指定」として下層の具体値を覆わず
+    # (従来は検出へ直行し、グローバル由来の precommit_model と分裂した無効な組み合わせで
+    # engine.py へ渡っていた)、レガシー engine キーは「明示された場合」のみ自動検出より
+    # 優先する。user_overrides() は config.json (版管理対象) と config.user.json の
+    # 明示キーをマージで返すため、リポジトリ側の設定は漏れなく参照される。
+    repo_layer = config if config_provided else review_config.user_overrides()
+    global_cfg = review_config.load_global_config()
+    env_engine = _concrete_engine(env.get("PRECOMMIT_REVIEW_ENGINE"))
+    repo_engine = _concrete_engine(repo_layer.get("precommit_engine"))
+    repo_legacy_engine = _concrete_engine(repo_layer.get("engine"))
+    global_engine = _concrete_engine(
+        global_cfg.get("precommit_engine"),
+    ) or _concrete_engine(global_cfg.get("engine"))
+
+    engine: str | None = None
+    if env_engine is not None:
+        engine = env_engine
+    elif _is_auto(env.get("PRECOMMIT_REVIEW_ENGINE")):
+        # env の "auto" は最上位レイヤの明示指示として下層の具体エンジンを覆って検出する。
+        engine = detect_active_engine()
+    elif repo_engine is not None:
+        engine = repo_engine
+    elif repo_legacy_engine is not None:
+        engine = repo_legacy_engine
+    elif global_engine is not None:
+        engine = global_engine
+    else:
+        engine = detect_active_engine()
+
+    # 検出不能な環境 (プロセスツリーに AI ツールが無い・ps 不可) 向けの既定エンジン。
+    if engine is None:
+        engine = _concrete_engine(config.get("engine")) or "claude"
 
     model = env.get("PRECOMMIT_REVIEW_MODEL") or _str_config(
         config,

@@ -348,13 +348,20 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 ```
 
 - パスは環境変数 `AME_REVIEW_GLOBAL_CONFIG` で変更できる。
-- グローバル設定から取り込まれるのは Gate 1 の `precommit_*` キーのみである。
+- グローバル設定から取り込まれるのは Gate 1 の `precommit_*` キーに加え、エンジン解決用のレガシー
+  `engine` キーも対象である (Issue #126)。
 - 例: `precommit_engine` / `precommit_model` / `precommit_thinking`。
 - 優先順位は **環境変数 > リポジトリ設定 > グローバル設定 > 継承（自動検出）** である。
 - 環境変数 (`PRECOMMIT_REVIEW_*`) が最上位の一時上書きとして最優先される。
 - リポジトリの `config.json` / `config.user.json` で `precommit_*`
   が指定されていればそれがグローバル設定より優先される。
 - どちらも無ければグローバル設定、それも無ければ動作中の AI ツールを自動検出する。
+- エンジンもモデルと同じ優先順位で解決される (Issue #126)。リポジトリ設定の
+  `precommit_engine: "auto"` は「未指定」として扱われ、グローバル設定の具体エンジン (例:
+  `"opencode"`) を覆わない。グローバル設定にも具体エンジンが無い場合のみ自動検出に進むため、グローバル由来の
+  `precommit_model` とエンジンが食い違って無効な組み合わせになることはない。
+- レガシー `engine` キーがリポジトリ設定に明示されていれば、`precommit_engine: "auto"`
+  の「未指定」より優先される。既定 `claude` が自動検出の代わりに採用される。
 
 ### 5-3. 環境変数による一時的な上書き
 
