@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `precommit_engine: "auto"` がグローバル設定の具体エンジンを覆ってしまい、グローバル設定由来の
+  `precommit_model` と分裂した無効な組み合わせ（例: `engine=claude` +
+  `model=opencode-go/...`）で Gate 1 がクラッシュする問題を解消した (Issue
+  #126)。エンジンもモデルと同じ優先順位（リポジトリ設定 > グローバル設定 > 自動検出）で解決する。
+
 ## [0.2.8] - 2026-08-30
 
 ### Added
