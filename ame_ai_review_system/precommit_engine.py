@@ -105,23 +105,27 @@ def resolve_engine_settings(
     # 無効な組み合わせで engine.py へ渡っていた)、どのレイヤにも具体エンジンが無い場合
     # のみプロセスツリー検出へ進む。env の "auto" は最上位レイヤの明示指示として、
     # 下層の具体エンジンを覆って検出する (旧実装と同じ挙動を維持)。
+    # レガシー engine キーは既定値 (claude) が自動検出を覆わないよう、明示された場合のみ
+    # 各レイヤの具体エンジンとして採用する (user_overrides / load_global_config で判別)。
+    repo_overrides = review_config.user_overrides()
     global_cfg = review_config.load_global_config()
+    env_engine = _concrete_engine(env.get("PRECOMMIT_REVIEW_ENGINE"))
+    repo_engine = _concrete_engine(config.get("precommit_engine"))
+    repo_legacy_engine = _concrete_engine(repo_overrides.get("engine"))
     global_engine = _concrete_engine(
         global_cfg.get("precommit_engine"),
     ) or _concrete_engine(global_cfg.get("engine"))
-    env_engine = _concrete_engine(env.get("PRECOMMIT_REVIEW_ENGINE"))
-    precommit_engine_conf = _concrete_engine(config.get("precommit_engine"))
 
     engine: str | None = None
-    # env の "auto" は最上位レイヤの明示指示として下層の具体エンジンを覆って検出する。
-    # 一方 config の "auto" は「未指定」を意味し、下層 (グローバル設定) の具体値を優先
-    # する。この非対称性が Issue #126 の分裂 (repo auto + global model) の対策要件。
     if env_engine is not None:
         engine = env_engine
     elif _is_auto(env.get("PRECOMMIT_REVIEW_ENGINE")):
+        # env の "auto" は最上位レイヤの明示指示として下層の具体エンジンを覆って検出する。
         engine = detect_active_engine()
-    elif precommit_engine_conf is not None:
-        engine = precommit_engine_conf
+    elif repo_engine is not None:
+        engine = repo_engine
+    elif repo_legacy_engine is not None:
+        engine = repo_legacy_engine
     elif global_engine is not None:
         engine = global_engine
     else:
