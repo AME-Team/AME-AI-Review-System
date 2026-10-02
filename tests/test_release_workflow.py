@@ -42,12 +42,39 @@ def test_major_tag_move_runs_after_release_upload() -> None:
 
 
 def test_major_tag_move_derives_major_and_force_pushes() -> None:
-    # 移動先は push されたタグのメジャー成分 (例: v2.3.4 → v2)。付け替えは force push する。
-    # 対象は HEAD にする (浅い clone でも確実に解決でき、タグ ref の取得有無に依存しない)。
+    # 移動先は push されたタグのメジャー成分 (例: v2.3.4 → v2)。対象は HEAD にする
+    # (浅い clone でも確実に解決でき、タグ ref の取得有無に依存しない)。
     text = _release_text()
     assert 'MAJOR_TAG="v$(echo "${GITHUB_REF_NAME#v}" | cut -d. -f1)"' in text
     assert 'git tag -f "$MAJOR_TAG" HEAD' in text
-    assert 'git push origin "$MAJOR_TAG" --force' in text
+    assert "--force-with-lease=" in text
+
+
+def test_major_tag_move_is_a_compare_and_swap() -> None:
+    # 最新判定と push の間に別 run が先に付け替えても巻き戻さないよう、
+    # 観測値を lease にした compare-and-swap で push する (stale なら拒否される)。
+    text = _release_text()
+    assert (
+        'LEASE_RAW=$(git ls-remote --tags --refs origin "refs/tags/${MAJOR_TAG}")'
+        in text
+    )
+    assert "LEASE=$(printf '%s\\n' \"${LEASE_RAW}\" | cut -f1)" in text
+    assert '--force-with-lease="refs/tags/${MAJOR_TAG}:${LEASE}"' in text
+    # 判定から push までの窓を狭めるため、push のたびに最新を取り直す。
+    # 判定材料を取得できない場合は異常として扱う (空を正常終了で返すと誤スキップする)。
+    # 注釈はコマンド置換に飲み込まれるため関数内では出さず、呼び出し側で出す。
+    assert "if ! LATEST_TAG=$(latest_remote_tag); then" in text
+    assert "return 1" in text
+    # lease 敗北は有限回の再試行で巻き取る (古い run が先に勝っても最新 run が勝ち直す)。
+    assert "MAX_ATTEMPTS=" in text
+    assert "failed to move ${MAJOR_TAG} after ${MAX_ATTEMPTS} attempts." in text
+
+
+def test_latest_tag_pipeline_cannot_abort_the_step() -> None:
+    # 既定シェルが -eo pipefail の場合、grep が 0 件のパイプライン失敗で step が異常終了し、
+    # 空タグを検知する ::error:: 分岐が到達不能になる。`|| true` で保護し、
+    # 失敗時のメッセージを自作のものに一本化する (無言のスキップを残さない)。
+    assert "| sort -V | tail -1 || true" in _release_text()
 
 
 def test_release_workflow_does_not_serialize_runs() -> None:

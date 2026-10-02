@@ -29,7 +29,7 @@ permissions:
 # concurrency は意図的に設定しない。同一 group へ新しい run がキューされると、まだ開始して
 # いない pending の run が自動キャンセルされる。短時間に 3 本以上タグを push すると中間の
 # タグの Release とアセットが無言で欠落するため、直列化より各タグの独立性を優先する。
-# 移動タグの巻き戻りは付け替えステップ側で防ぐ (最新リリースのみが実行する)。
+# 移動タグの巻き戻りは付け替えステップ側で防ぐ (最新リリースのみが実行し、push は compare-and-swap)。
 
 jobs:
   build-and-release:
@@ -83,24 +83,55 @@ jobs:
       # 向く事故を防ぐ (添付に失敗した run はここへ到達しない)。
       - name: Move major tag to this release
         run: |
-          # 付け替えは最新リリースのみが行う。run は並走しうるため、古い run の再実行や
-          # 到着順の逆転で移動タグが巻き戻るのを防ぐ。判定はリモートのタグを直接読む。
-          # checkout 時点のローカルタグを使うと、自 run の開始後に push されたタグを
-          # 見落とし、古い run が自分を最新と誤認して巻き戻す余地が残る。
-          LATEST_TAG=$(git ls-remote --tags --refs origin 'refs/tags/v*' \
-            | awk -F'refs/tags/' '{print $NF}' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sort -V | tail -1)
-          if [ -z "${LATEST_TAG}" ]; then
-            echo "::error::could not resolve the latest release tag from origin."
-            exit 1
-          fi
-          if [ "${GITHUB_REF_NAME}" != "${LATEST_TAG}" ]; then
-            echo "::notice::${GITHUB_REF_NAME} is not the latest release; skipping tag move."
-            echo "  latest=${LATEST_TAG}"
-            exit 0
-          fi
+          # リモートのタグ一覧から最新リリースを求める。checkout 時点のローカルタグを使うと、
+          # 自 run の開始後に push されたタグを見落とし、古い run が自分を最新と誤認する。
+          # 解決できない場合は非 0 を返す。呼び出し側はコマンド置換で stdout を取り込むため、
+          # 注釈は関数内では出さない (飲み込まれる)。注釈は呼び出し側で出す。
+          latest_remote_tag() {
+            local latest
+            latest=$(git ls-remote --tags --refs origin 'refs/tags/v*' \
+              | awk -F'refs/tags/' '{print $NF}' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V | tail -1 || true)
+            if [ -z "${latest}" ]; then
+              return 1
+            fi
+            printf '%s\n' "${latest}"
+          }
           MAJOR_TAG="v$(echo "${GITHUB_REF_NAME#v}" | cut -d. -f1)"
           git tag -f "$MAJOR_TAG" HEAD
-          git push origin "$MAJOR_TAG" --force
-          echo "Moved ${MAJOR_TAG} -> ${GITHUB_REF_NAME}"
+          # 最新判定から push までの窓は lease で塞ぐ。lease 敗北は「別 run が先に付け替えた」
+          # ことを意味し、その run が自分より古いこともある (古い run が先に勝つ場合)。
+          # 勝者が古いままだと移動タグが古い版を指したままになるため、最新判定から
+          # やり直して再試行する。
+          ATTEMPT=0
+          MAX_ATTEMPTS=5
+          while :; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if ! LATEST_TAG=$(latest_remote_tag); then
+              echo "::error::could not resolve the latest release tag from origin."
+              exit 1
+            fi
+            if [ "${GITHUB_REF_NAME}" != "${LATEST_TAG}" ]; then
+              echo "::notice::${GITHUB_REF_NAME} is not the latest release; skipping tag move."
+              echo "  latest=${LATEST_TAG}"
+              exit 0
+            fi
+            # compare-and-swap: 観測した移動タグの値が変わっていれば push を拒否させる。
+            # 読み取り失敗を空のまま扱うと「タグは存在しない」と誤って主張するため区別する。
+            if ! LEASE_RAW=$(git ls-remote --tags --refs origin "refs/tags/${MAJOR_TAG}"); then
+              echo "::error::could not read refs/tags/${MAJOR_TAG} from origin."
+              exit 1
+            fi
+            LEASE=$(printf '%s\n' "${LEASE_RAW}" | cut -f1)
+            if git push origin --force-with-lease="refs/tags/${MAJOR_TAG}:${LEASE}" \
+              "refs/tags/${MAJOR_TAG}"; then
+              echo "Moved ${MAJOR_TAG} -> ${GITHUB_REF_NAME}"
+              exit 0
+            fi
+            if [ "${ATTEMPT}" -ge "${MAX_ATTEMPTS}" ]; then
+              echo "::error::failed to move ${MAJOR_TAG} after ${MAX_ATTEMPTS} attempts."
+              exit 1
+            fi
+            echo "::notice::retrying the tag move (attempt ${ATTEMPT})."
+          done
