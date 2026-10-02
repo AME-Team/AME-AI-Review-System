@@ -267,9 +267,9 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    workflow を呼ぶ薄いラッパである。参照先の既定は移動メジャータグのため、hub のリリースに自動追随し、更新作業は不要である。バージョン固定時のみ ref を書き換える。
 
    Gate 1 (pre-commit) が参照する wheel の版は `--version` で決まり、`#sha256=`
-   で固定される。hub の新版へ追随させるには `ame-ai-reviewer init --force`
-   を実行して管理ブロックを更新する。手順は [セットアップガイド](ame_ai_review_system/docs/setup.md)
-   の「更新(アップグレード)」を参照。
+   で固定される。hub の最新リリースへ追随させるには `ame-ai-reviewer sync`
+   を実行する。差分の確認のみなら `sync --check` を使う。手順は
+   [セットアップガイド](ame_ai_review_system/docs/setup.md) の「更新(アップグレード)」を参照。
 
    > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
    > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /

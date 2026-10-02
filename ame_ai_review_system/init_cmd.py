@@ -168,12 +168,37 @@ def _resolve_version(args: argparse.Namespace) -> str:
     return __version__
 
 
-def _wheel_url(version: str) -> str:
-    """バージョンに対応する配布 wheel のダウンロード URL を返す (Issue #79/#84)."""
+def repo_fqn() -> str:
+    """Hub の ``owner/name`` を返す (workflow の uses: と URL の単一情報源)."""
+    return _REPO_FQN
+
+
+def wheel_url(version: str) -> str:
+    """バージョンに対応する配布 wheel のダウンロード URL を返す (Issue #79/#84).
+
+    ``config_sync`` も同じ URL を生成するため公開する (表記が 2 箇所で分岐すると
+    同期判定が常に DRIFT になる)。
+    """
     return (
         f"https://github.com/{_REPO_OWNER}/{_REPO_NAME}/releases/download/"
         f"v{version}/ame_ai_review_system-{version}-py3-none-any.whl"
     )
+
+
+def wheel_asset_digest(release: dict[str, Any], version: str) -> str | None:
+    """Release のアセット一覧から wheel の sha256 ダイジェストを取り出す (Issue #84).
+
+    ``config_sync`` はリリース一覧 API の応答をそのまま渡すため、抽出だけを切り出して
+    単一情報源にする。
+    """
+    asset_name = f"ame_ai_review_system-{version}-py3-none-any.whl"
+    for asset in cast("list[dict[str, Any]]", release.get("assets", [])):
+        if asset.get("name") != asset_name:
+            continue
+        digest = asset.get("digest")
+        if isinstance(digest, str) and digest.startswith("sha256:"):
+            return digest[len("sha256:") :]
+    return None
 
 
 def _resolve_wheel_sha256(version: str) -> str | None:
@@ -198,15 +223,7 @@ def _resolve_wheel_sha256(version: str) -> str | None:
         return None
     if not isinstance(data, dict):
         return None
-    release_data = cast("dict[str, Any]", data)
-    asset_name = f"ame_ai_review_system-{version}-py3-none-any.whl"
-    for asset in cast("list[dict[str, Any]]", release_data.get("assets", [])):
-        if asset.get("name") != asset_name:
-            continue
-        digest = asset.get("digest")
-        if isinstance(digest, str) and digest.startswith("sha256:"):
-            return digest[len("sha256:") :]
-    return None
+    return wheel_asset_digest(cast("dict[str, Any]", data), version)
 
 
 def _render_preset(
@@ -393,7 +410,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         # 既定: language: python + wheel (絶対パス非依存、各環境で venv 自動作成)。
         # 供給チェーン対策として wheel は #sha256= で内容を固定する (Issue #79/#84)。
         version = _resolve_version(args)
-        dep = f"ame_ai_review_system @ {_wheel_url(version)}"
+        dep = f"ame_ai_review_system @ {wheel_url(version)}"
         sha256 = _resolve_wheel_sha256(version)
         if sha256:
             dep += f"#sha256={sha256}"

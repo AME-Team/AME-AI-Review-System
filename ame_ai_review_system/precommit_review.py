@@ -10,6 +10,7 @@ import tempfile
 from typing import Any, cast
 
 from . import (
+    config_sync,
     diff_base,
     diff_truncate,
     paths,
@@ -628,6 +629,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     prompt_path, engine_path = _resolve_paths()
+
+    # サービス化 Phase 2 (Issue #147): Gate 1 の wheel 参照が hub の最新リリースから遅れて
+    # いないかを警告する。load_config() より先に CI を判定してスキップし、失敗しても
+    # コミット可否を変えない (fail-open)。書き換えは `ame-ai-reviewer sync` のみが行う。
+    config_sync.warn_if_out_of_sync()
 
     cfg = review_config.load_config()
     if not cfg.get("precommit_review_enabled", True):

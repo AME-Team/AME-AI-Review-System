@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from . import (
+    config_sync,
     diff_truncate,
     external_ci,
     github_client,
@@ -1140,6 +1141,17 @@ def main(argv: list[str] | None = None) -> int:
     # setup
     subparsers.add_parser("setup", help="Install dependencies and configure hooks")
 
+    # sync (Issue #147): Gate 1 の wheel 参照を hub の最新リリースへ同期する。
+    p_sync = subparsers.add_parser(
+        "sync",
+        help="Sync the Gate 1 wheel reference to the latest hub release (Issue #147)",
+    )
+    p_sync.add_argument(
+        "--check",
+        action="store_true",
+        help="差分の検出のみ行い、設定を書き換えない (差分があれば exit 1)",
+    )
+
     # init
     p_init = subparsers.add_parser(
         "init",
@@ -1204,6 +1216,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_review(args)
     if args.command == "setup":
         return cmd_setup(args)
+    if args.command == "sync":
+        return config_sync.cmd_sync(args)
     if args.command == "init":
         return init_cmd.cmd_init(args)
     parser.print_help()
