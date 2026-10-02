@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     import argparse
     from pathlib import Path
 
-from . import init_cmd, paths
+from . import github_client, init_cmd, paths
 
 # 管理対象の参照行。``additional_dependencies`` のリスト項目のうち hub のリリース URL を指す
 # ``ame_ai_review_system @ ...`` だけを対象にする (engine SDK 等の他項目は触らない)。
@@ -47,6 +47,9 @@ _URL_VERSION_RE = re.compile(r"/download/v(?P<version>[^/]+)/")
 
 # 対象系列の抽出。``v<major>.<minor>.<patch>`` のリリースタグのみを候補にする。
 _RELEASE_TAG_TEMPLATE = r"^v{major}\.(\d+)\.(\d+)$"
+
+# 版の比較用。``x.y.z`` 以外 (prerelease 等) は比較しない。
+_VERSION_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 
 # hub のリリース一覧 API。系列で絞って最新を選ぶだけなので 1 ページで足りる。
 # per_page は上限 (100) にする。既定の 30 件では、別系列の新しいリリースが 30 件以上
@@ -76,6 +79,8 @@ class SyncStatus(StrEnum):
 
     IN_SYNC = "in-sync"
     DRIFT = "drift"
+    # 固定版が hub の最新より新しい (棚上げ)。対象外だが「参照行が無い」ABSENT とは区別する。
+    AHEAD = "ahead"
     ABSENT = "absent"
     UNKNOWN = "unknown"
 
@@ -90,6 +95,49 @@ class SyncResult:
     target_digest: str | None = None
     pinned_versions: tuple[str, ...] = ()
     detail: str = ""
+
+
+def _version_order(version: str) -> tuple[int, int, int] | None:
+    """``x.y.z`` を比較可能なタプルにする (解釈できない版は ``None``)."""
+    match = _VERSION_RE.match(version)
+    if match is None:
+        return None
+    return (
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+    )
+
+
+def _optional_token() -> str:
+    """トークンを既存規約の優先順位で解決する (見つからなければ空文字).
+
+    優先順位は ``github_client.get_token`` (トークンファイル → ``GITHUB_PAT_TOKEN``) をそのまま
+    使う。独自に ``GITHUB_TOKEN`` だけを見ると、この repo のローカル設定や CI (Actions が渡す
+    のは ``GITHUB_PAT_TOKEN``) ではトークンを拾えず、未認証 (60 req/時/IP) のままになる。
+    未認証でも同期は成立するため、解決失敗は空文字にして最後に Actions の ``GITHUB_TOKEN`` /
+    ``GH_TOKEN`` を見る。トークンの値はログにも例外メッセージにも出さない。
+    """
+    token_file = str(paths.global_config_dir() / "github.token")
+    try:
+        token = github_client.get_token(token_file).strip()
+    except RuntimeError:
+        # トークンが無いことは異常ではない (未認証でも読める公開リポジトリのリリース API)。
+        token = ""
+    if token:
+        return token
+    # 例外だけに頼らない。空文字を返す実装へ変わった場合もフォールバックが効くようにする。
+    fallback = os.environ.get("GITHUB_TOKEN", "").strip()
+    return fallback or os.environ.get("GH_TOKEN", "").strip()
+
+
+def _request_headers() -> dict[str, str]:
+    """リリース一覧 API のヘッダーを返す (トークンがあれば認証する)."""
+    headers = {"Accept": "application/vnd.github+json"}
+    token = _optional_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def _is_target_series(url: str, major: str) -> bool:
@@ -150,10 +198,7 @@ def _latest_release(
     """
     try:
         # API URL は固定の HTTPS ホストのみ。file:// 等のスキームは指定されない。
-        req = urllib.request.Request(
-            _RELEASES_API,
-            headers={"Accept": "application/vnd.github+json"},
-        )
+        req = urllib.request.Request(_RELEASES_API, headers=_request_headers())
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data: Any = json.loads(resp.read().decode("utf-8"))
     except (OSError, ValueError, http.client.HTTPException):
@@ -165,6 +210,11 @@ def _latest_release(
     tag_re = re.compile(_RELEASE_TAG_TEMPLATE.format(major=re.escape(major)))
     candidates: list[tuple[tuple[int, int], str, str]] = []
     for release in cast("list[dict[str, Any]]", data):
+        if release.get("prerelease") is True or release.get("draft") is True:
+            # prerelease は配布先へ配る対象ではない (素の ``v0.3.0`` タグでも pre-release に
+            # できるため、タグの形だけでは弾けない)。draft は未認証 API では見えないが、
+            # トークン付きの取得に切り替えると混ざる。
+            continue
         tag = release.get("tag_name")
         if not isinstance(tag, str):
             continue
@@ -297,6 +347,19 @@ def inspect(
             detail=f"v{major} 系列の最新リリースを解決できません",
         )
     version, digest = target
+    target_order = _version_order(version)
+    if target_order is not None and any(
+        (order := _version_order(pinned_version)) is None or order > target_order
+        for pinned_version in pinned
+    ):
+        # 固定版が解決結果より新しい (存在しない版・意図的な prerelease 固定など)。書き換えると
+        # 黙ってダウングレードするため対象外にする。
+        return SyncResult(
+            SyncStatus.AHEAD,
+            config_path,
+            pinned_versions=pinned,
+            detail=f"固定版が hub の最新 (v{version}) より新しいため対象外です",
+        )
     actual = [match.group(0) for match in matches]
     # 判定はバージョン比較ではなくテキスト完全一致にする (URL 表記や sha256 の差異を
     # 見逃さないため)。sha256 なしの生成物もここで DRIFT として拾える。
@@ -387,6 +450,7 @@ def warn_if_out_of_sync() -> None:
     """
     if os.environ.get("GITHUB_ACTIONS") == "true":
         return
+    # AHEAD (固定版が最新より新しい) は書き換えも警告も不要なため黙って戻る。
     result = inspect(
         paths.project_root() / ".pre-commit-config.yaml",
         use_cache=True,
@@ -406,6 +470,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     終了コードは drift (更新すべき) と解決不能 (要調査) を区別する。``--check`` は検出のみで、
     ドリフトがあれば exit 1、判定できなければ exit 2 を返す (CI のゲートで誤検知しないため)。
+    固定版が hub の最新より新しい場合は書き換えず、理由を stderr に出して exit 0 を返す。
     """
     config_path = paths.project_root() / ".pre-commit-config.yaml"
     result = sync(config_path, write=not args.check)
@@ -415,6 +480,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
         return 0
     if result.status is SyncStatus.ABSENT:
         print(f"{prefix} 同期対象なし ({result.detail})")
+        return 0
+    if result.status is SyncStatus.AHEAD:
+        # 更新も不要だが、黙って見逃さないよう理由を出す (存在しない版の固定など)。
+        print(f"{prefix} 対象外: {result.detail}", file=sys.stderr)
         return 0
     if result.status is SyncStatus.DRIFT:
         print(f"{prefix} 差分あり: {result.path} — {result.detail}", file=sys.stderr)

@@ -62,20 +62,34 @@ class _FakeResponse:
         return None
 
 
-def _release(tag: str, *, digest: str | None = _DIGEST) -> dict[str, object]:
+def _release(
+    tag: str,
+    *,
+    digest: str | None = _DIGEST,
+    prerelease: bool = False,
+    draft: bool = False,
+) -> dict[str, object]:
     version = tag.removeprefix("v")
     asset: dict[str, object] = {
         "name": f"ame_ai_review_system-{version}-py3-none-any.whl",
     }
     if digest is not None:
         asset["digest"] = f"sha256:{digest}"
-    return {"tag_name": tag, "assets": [asset]}
+    release: dict[str, object] = {"tag_name": tag, "assets": [asset]}
+    if prerelease:
+        release["prerelease"] = True
+    if draft:
+        release["draft"] = True
+    return release
 
 
 def _patch_releases(
-    monkeypatch: pytest.MonkeyPatch, payload: object, requests: list[str] | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    payload: object,
+    requests: list[str] | None = None,
+    headers: list[dict[str, str]] | None = None,
 ) -> None:
-    """リリース一覧 API の応答を差し替える (``requests`` を渡すと要求 URL を記録する)."""
+    """リリース一覧 API の応答を差し替える (``requests``/``headers`` で要求内容を記録する)."""
     body = json.dumps(payload).encode("utf-8")
 
     def _fake_urlopen(
@@ -84,6 +98,10 @@ def _patch_releases(
         if requests is not None:
             # Request オブジェクトの repr では URL が分からないので full_url を記録する。
             requests.append(str(getattr(url, "full_url", url)))
+        if headers is not None:
+            headers.append({
+                k.lower(): v for k, v in getattr(url, "headers", {}).items()
+            })
         return _FakeResponse(body)
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
@@ -159,6 +177,116 @@ def test_inspect_targets_latest_in_the_installed_series(
     assert result.status is config_sync.SyncStatus.DRIFT
     assert result.target_version == "0.2.15"
     assert result.pinned_versions == ("0.2.14",)
+
+
+def test_inspect_skips_prerelease_and_draft_releases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # pre-release チェック付きの素のタグ (v0.2.16) と draft は配布対象ではない。
+    # 除外しないと、配布先が prerelease へ黙って追随する。
+    _patch_releases(
+        monkeypatch,
+        [
+            _release("v0.2.17", draft=True),
+            _release("v0.2.16", prerelease=True),
+            _release("v0.2.15"),
+            _release("v0.2.14"),
+        ],
+    )
+    result = config_sync.inspect(_write(tmp_path, _config_text("0.2.14", _DIGEST)))
+    assert result.status is config_sync.SyncStatus.DRIFT
+    assert result.target_version == "0.2.15"
+
+
+def test_inspect_does_not_downgrade_newer_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 固定版が解決結果より新しい場合は書き換えない。黙ってダウングレードしないため。
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    text = _config_text("0.2.16", _DIGEST)
+    path = _write(tmp_path, text)
+    result = config_sync.inspect(path)
+    # 「参照行が無い (ABSENT)」とは区別する。無言で見逃さないため。
+    assert result.status is config_sync.SyncStatus.AHEAD
+    assert result.pinned_versions == ("0.2.16",)
+    assert config_sync.sync(path, write=True).status is config_sync.SyncStatus.AHEAD
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_inspect_leaves_uncomparable_pin_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 比較できない版 (prerelease 固定など) も触らない。大小が判定できない以上、書き換えは危険。
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    text = _config_text("0.3.0-rc1", _DIGEST)
+    path = _write(tmp_path, text)
+    assert config_sync.inspect(path).status is config_sync.SyncStatus.AHEAD
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_cmd_sync_reports_ahead_with_notice(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 対象外でも理由を stderr に出し、黙って見逃さない (exit は 0)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _write(tmp_path, _config_text("0.2.16", _DIGEST))
+    assert config_sync.cmd_sync(argparse.Namespace(check=True)) == 0
+    assert "より新しい" in capsys.readouterr().err
+
+
+def test_request_headers_use_token_file_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 既存規約の優先順位 (トークンファイル → GITHUB_PAT_TOKEN → GITHUB_TOKEN) に従う。
+    # 独自に GITHUB_TOKEN だけを見ると、この repo の CI/ローカルでは拾えない。
+    headers: list[dict[str, str]] = []
+    _patch_cache_dir(monkeypatch, tmp_path)
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "github.token").write_text("file-token\n", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_PAT_TOKEN", "pat-token")
+    _patch_releases(monkeypatch, [_release("v0.2.15")], None, headers)
+    config_sync.inspect(_write(tmp_path, _config_text("0.2.7", _OLD_DIGEST)))
+    assert headers[0]["authorization"] == "Bearer file-token"
+
+
+def test_request_headers_use_actions_env_when_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Actions が渡すのは GITHUB_PAT_TOKEN。これを見ないと CI では未認証のままになる。
+    headers: list[dict[str, str]] = []
+    _patch_cache_dir(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_PAT_TOKEN", "pat-token")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    _patch_releases(monkeypatch, [_release("v0.2.15")], None, headers)
+    config_sync.inspect(_write(tmp_path, _config_text("0.2.7", _OLD_DIGEST)))
+    assert headers[0]["authorization"] == "Bearer pat-token"
+
+
+def test_request_headers_fall_back_to_github_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    headers: list[dict[str, str]] = []
+    _patch_cache_dir(monkeypatch, tmp_path)
+    monkeypatch.delenv("GITHUB_PAT_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "actions-token")
+    _patch_releases(monkeypatch, [_release("v0.2.15")], None, headers)
+    config_sync.inspect(_write(tmp_path, _config_text("0.2.7", _OLD_DIGEST)))
+    assert headers[0]["authorization"] == "Bearer actions-token"
+
+
+def test_request_headers_are_anonymous_without_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # トークンが無くても同期は成立する (fail-open)。
+    headers: list[dict[str, str]] = []
+    _patch_cache_dir(monkeypatch, tmp_path)
+    monkeypatch.delenv("GITHUB_PAT_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    _patch_releases(monkeypatch, [_release("v0.2.15")], None, headers)
+    config_sync.inspect(_write(tmp_path, _config_text("0.2.7", _OLD_DIGEST)))
+    assert "authorization" not in headers[0]
 
 
 def test_inspect_reports_in_sync(
