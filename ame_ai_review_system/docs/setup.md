@@ -222,7 +222,7 @@ Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version`
 で決まります。hub の最新リリースへ追随させるには `ame-ai-reviewer sync`
 を実行してください。参照行の URL と `#sha256=` を解決して書き換えます。差分の確認だけなら
 `ame-ai-reviewer sync --check` を使います (差分があれば exit
-1、判定できなければ exit 2)。別メジャーの wheel を意図的に固定している場合は対象外です。
+1、判定できなければ exit 2)。別メジャーの wheel を意図的に固定している場合は対象外です。固定版が hub の最新リリースより新しい場合も対象外です (黙ってダウングレードしないため)。この場合は理由が stderr に表示されます。prerelease と draft のリリースは候補にしません。
 
 `ame-ai-reviewer init --force` で `.pre-commit-config.yaml` を再生成する方法もあります。Gate
 1 のフックは、参照が hub の最新リリースから遅れている場合に警告を表示します。書き換えは行わず、同期に失敗してもコミットは妨げません (fail-open)。
