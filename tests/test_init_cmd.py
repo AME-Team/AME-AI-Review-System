@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from ame_ai_review_system import __version__, init_cmd, paths
+from ame_ai_review_system import main as cli
 
 
 def _make_args(**kwargs: object) -> argparse.Namespace:
@@ -179,11 +180,50 @@ def test_init_ts_preset_generates_ts_hooks(
     assert "pnpm-lock" in cfg
 
 
-def test_init_requires_ref_unless_no_workflow(
+def test_init_empty_ref_fails_unless_no_workflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # --ref の既定は移動メジャータグ (init_cmd.DEFAULT_REF)。空文字は明示的な指定ミス
+    # として扱い、ref の無い (動かない) ラッパを書き出さず fail-fast する。
     _init_in(tmp_path, monkeypatch)
     assert init_cmd.cmd_init(_make_args(ref=None)) == 1
+    assert init_cmd.cmd_init(_make_args(ref="")) == 1
+    assert init_cmd.cmd_init(_make_args(ref=None, no_workflow=True)) == 0
+
+
+def test_init_default_ref_generates_moving_major_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 既定 ref は移動メジャータグ。配布先は ref を書き換えずに hub のリリースへ追随する。
+    root = _init_in(tmp_path, monkeypatch)
+    assert init_cmd.cmd_init(_make_args(ref=init_cmd.DEFAULT_REF)) == 0
+    cases = (
+        ("review_command.yml", "review-command.yml"),
+        ("review_reply.yml", "review-reply.yml"),
+    )
+    for out_name, template_name in cases:
+        wf = (root / ".github" / "workflows" / out_name).read_text(encoding="utf-8")
+        assert (
+            f"uses: {init_cmd._REPO_FQN}/.github/workflows/{template_name}"
+            f"@{init_cmd.DEFAULT_REF}" in wf
+        )
+        assert f"system_ref: {init_cmd.DEFAULT_REF}" in wf
+
+
+def test_init_cli_ref_default_is_the_moving_major_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # CLI (main.py) の --ref 既定が単一情報源 init_cmd.DEFAULT_REF と一致し、
+    # 既定でラッパが生成される (--ref は必須ではない) こと。
+    captured: dict[str, object] = {}
+
+    def fake_cmd_init(args: argparse.Namespace) -> int:
+        captured["ref"] = args.ref
+        return 0
+
+    monkeypatch.setattr(init_cmd, "cmd_init", fake_cmd_init)
+    assert cli.main(["init", "--no-workflow"]) == 0
+    assert captured["ref"] == init_cmd.DEFAULT_REF
 
 
 def test_init_embeds_python_bin_in_preset(

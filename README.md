@@ -101,7 +101,7 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
 - **簡単移植**: 2 つの導入方式を提供。
   - **wheel インストール（推奨）**: GitHub Release の wheel を `pip install`
     し、`ame-ai-reviewer init` で設定・ワークフローを生成する。CI は reusable
-    workflow を呼ぶ薄いラッパで、更新は参照タグの差し替えのみ。
+    workflow を呼ぶ薄いラッパで、参照先は現行バージョンの移動メジャータグのため更新作業は不要。
   - **ディレクトリコピー**: `.github/` と `ame_ai_review_system/`
     を他リポジトリにコピーする方式（オフライン環境や細かなカスタマイズ時に）。
 - **対話型の修正サイクル**: 開発者が `@<レビュアー名>`
@@ -229,7 +229,7 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    を付ける。npm 依存のインストールも自動化される (`.ame-review/engines-ts/` に展開)。
 
    ```bash
-   ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
+   ame-ai-reviewer init --preset python --with-engines
    ```
 
    - `--preset`: pre-commit 静的解析セット (`auto` / `full` / `python` / `text` / `ts` /
@@ -237,7 +237,9 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
      を自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
      `./node_modules/.bin` を直接起動するため、事前に `npm install`
      (または pnpm/yarn) が必要 (未実施時は「No such file or directory」で失敗する)
-   - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
+   - `--ref`: reusable workflow と Gate 2
+     checkout が参照する ref。既定は現行バージョンの移動メジャータグで、hub のリリースへ自動追随する。特定バージョンへ固定する場合のみ
+     `vX.Y.Z` を指定する (`--no-workflow` 指定時は不要)
    - `--version`: Gate 1 (pre-commit
      AI フック) が参照する wheel のバージョン。省略時はインストール済みパッケージの
      `__version__`。release の wheel を `#sha256=` で内容固定して参照する (Issue #84)。
@@ -259,7 +261,8 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    - `.github/workflows/review_command.yml`
    - `.github/workflows/review_reply.yml`
 
-   CI は reusable workflow を呼ぶ薄いラッパ。更新は `--ref` の差し替えのみ。
+   CI は reusable
+   workflow を呼ぶ薄いラッパである。参照先の既定は移動メジャータグのため、hub のリリースに自動追随し、更新作業は不要である。バージョン固定時のみ ref を書き換える。
 
    > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
    > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /
@@ -298,11 +301,12 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 
      ```bash
      mkdir -p .claude/skills/review-round
-     curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
+     curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0/.claude/skills/review-round/SKILL.md \
        -o .claude/skills/review-round/SKILL.md
      ```
 
-     （`v0.1.0` は手順 1 の `--ref` と同じリリースタグに揃える）
+     （`v0`
+     は現行系列の移動メジャータグ。hub のリリースに自動追随する。特定バージョンへ固定した場合のみ手順 1 の ref に揃える）
 
    - **方式 B**（ディレクトリコピー時）: `.claude/skills/review-round/` もあわせてコピーする。
 

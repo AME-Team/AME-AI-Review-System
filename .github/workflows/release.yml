@@ -1,5 +1,5 @@
 ---
-# タグ push (v*) で wheel / sdist をビルドし GitHub Release に添付する。
+# タグ push (vX.Y.Z) で wheel / sdist をビルドし GitHub Release に添付する。
 #
 # 配布先は Release の Assets から wheel を pip install する:
 #   pip install <release-wheel-url>
@@ -9,16 +9,27 @@
 # 事前条件:
 #   __init__.py の __version__ とタグ名 (v<version>) を一致させること。
 #   整合性は verify ステップで機械検査される。
+#
+# 移動メジャータグ (moving major tag):
+#   アセット添付の成功後に移動メジャータグをこのリリースへ付け替える。配布先は reusable workflow と
+#   Gate 1 の wheel を移動メジャータグで参照するため、ここが動いて初めて自動追随が成立する。
+#   タグフィルタが vX.Y.Z 形式に限定されているのは、移動タグの付け替え自体が本ワークフローを
+#   再トリガーし、バージョン不一致で失敗する run を生むのを防ぐため (メジャータグは "v*" に一致する)。
 
 name: Release
 
 "on":
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
-  contents: write # Release 作成・アセット添付に必要
+  contents: write # Release 作成・アセット添付・タグの付け替えに必要
+
+# concurrency は意図的に設定しない。同一 group へ新しい run がキューされると、まだ開始して
+# いない pending の run が自動キャンセルされる。短時間に 3 本以上タグを push すると中間の
+# タグの Release とアセットが無言で欠落するため、直列化より各タグの独立性を優先する。
+# 移動タグの巻き戻りは付け替えステップ側で防ぐ (最新リリースのみが実行する)。
 
 jobs:
   build-and-release:
@@ -26,8 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # fetch-depth: 0 で全タグを取得する。移動メジャータグの付け替えはリモートのタグ状態と
+      # 最新リリース判定に依存するため、浅い clone では判定できない。
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -66,3 +81,21 @@ jobs:
             dist/ame_ai_review_system-*.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      # 移動メジャータグをこのリリースへ付け替える。
+      # アセット添付が成功した後にのみ実行し、パッケージが存在しないバージョンへタグが
+      # 向く事故を防ぐ (添付に失敗した run はここへ到達しない)。
+      - name: Move major tag to this release
+        run: |
+          # 付け替えは最新リリースのみが行う。run は並走しうるため、古い run の再実行や
+          # 到着順の逆転で移動タグが巻き戻るのを防ぐ。
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
+          if [ "${GITHUB_REF_NAME}" != "${LATEST_TAG}" ]; then
+            echo "::notice::${GITHUB_REF_NAME} is not the latest release; skipping tag move."
+            echo "  latest=${LATEST_TAG}"
+            exit 0
+          fi
+          MAJOR_TAG="v$(echo "${GITHUB_REF_NAME#v}" | cut -d. -f1)"
+          git tag -f "$MAJOR_TAG" "$GITHUB_REF_NAME"
+          git push origin "$MAJOR_TAG" --force
+          echo "Moved ${MAJOR_TAG} -> ${GITHUB_REF_NAME}"
