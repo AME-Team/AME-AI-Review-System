@@ -1,4 +1,3 @@
-# pyright: basic
 """リリースワークフローの移動メジャータグ (moving major tag) を機械検証する.
 
 配布先は移動メジャータグを参照して hub のリリースへ自動追随する。付け替えの仕組みが失われると
@@ -44,9 +43,10 @@ def test_major_tag_move_runs_after_release_upload() -> None:
 
 def test_major_tag_move_derives_major_and_force_pushes() -> None:
     # 移動先は push されたタグのメジャー成分 (例: v2.3.4 → v2)。付け替えは force push する。
+    # 対象は HEAD にする (浅い clone でも確実に解決でき、タグ ref の取得有無に依存しない)。
     text = _release_text()
     assert 'MAJOR_TAG="v$(echo "${GITHUB_REF_NAME#v}" | cut -d. -f1)"' in text
-    assert 'git tag -f "$MAJOR_TAG" "$GITHUB_REF_NAME"' in text
+    assert 'git tag -f "$MAJOR_TAG" HEAD' in text
     assert 'git push origin "$MAJOR_TAG" --force' in text
 
 
@@ -58,18 +58,21 @@ def test_release_workflow_does_not_serialize_runs() -> None:
 
 def test_major_tag_move_is_guarded_to_the_latest_release() -> None:
     # run は並走しうる。古い run の再実行や到着順の逆転で移動タグが巻き戻らないよう、
-    # 最新リリース以外は付け替えをスキップする。
+    # 最新リリース以外は付け替えをスキップする。最新判定は checkout 時点のローカルタグでは
+    # なくリモートを直接読む (自 run の開始後に push されたタグを見落とさないため)。
     text = _release_text()
-    assert (
-        "LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)" in text
-    )
+    assert "git ls-remote --tags --refs origin 'refs/tags/v*'" in text
     assert 'if [ "${GITHUB_REF_NAME}" != "${LATEST_TAG}" ]; then' in text
+    # 最新タグを解決できない場合は無言でスキップせず失敗させる。
+    assert (
+        'echo "::error::could not resolve the latest release tag from origin."' in text
+    )
 
 
-def test_release_workflow_fetches_tags_for_the_move() -> None:
-    # 浅い clone ではリモートのタグ状態を取得できず付け替えが失敗するため、
-    # fetch-depth: 0 を要求する。
-    assert "fetch-depth: 0" in _release_text()
+def test_release_workflow_keeps_the_move_shallow_clone_safe() -> None:
+    # 付け替えは HEAD を対象にし、ls-remote で最新判定するため浅い clone で足りる。
+    # fetch-depth: 0 を要求しない (取得量を増やす必要がない)。
+    assert "fetch-depth" not in _release_text()
 
 
 def test_default_ref_matches_version_major_tag() -> None:

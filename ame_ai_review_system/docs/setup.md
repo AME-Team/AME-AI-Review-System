@@ -308,7 +308,7 @@ curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0/.c
 
 URL の `v0`
 は現行系列の移動メジャータグです。hub のリリースに自動追随します。特定バージョンへ固定した場合のみ Step
-1 の ref に揃えます。1 の ref に揃えます。
+1 の ref に揃えます。
 
 #### 方式 B の場合（ディレクトリコピー時）
 
