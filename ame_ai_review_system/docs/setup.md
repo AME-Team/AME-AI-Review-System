@@ -218,9 +218,14 @@ workflow を呼ぶ薄いラッパです。参照先の既定は移動メジャ�
 
 参照先の既定は現行バージョンの移動メジャータグです。hub のリリースごとにタグが付け替えられるため、配布先のラッパを書き換える必要はありません。
 
-Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version` で決まります。版を上げる場合は
-`ame-ai-reviewer init --force` で `.pre-commit-config.yaml` を再生成してください。
-`additional_dependencies` の URL と `#sha256=` を手で更新しても構いません (Issue #84)。
+Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version`
+で決まります。hub の最新リリースへ追随させるには `ame-ai-reviewer sync`
+を実行してください。参照行の URL と `#sha256=` を解決して書き換えます。差分の確認だけなら
+`ame-ai-reviewer sync --check` を使います (差分があれば exit
+1、判定できなければ exit 2)。別メジャーの wheel を意図的に固定している場合は対象外です。
+
+`ame-ai-reviewer init --force` で `.pre-commit-config.yaml` を再生成する方法もあります。Gate
+1 のフックは、参照が hub の最新リリースから遅れている場合に警告を表示します。書き換えは行わず、同期に失敗してもコミットは妨げません (fail-open)。
 
 > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
 > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /
