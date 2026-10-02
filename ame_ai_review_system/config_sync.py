@@ -60,6 +60,9 @@ _TIMEOUT_SECONDS = 10
 # fail-open でも待ち時間は消えないため、レイテンシは別に潰す必要がある。
 _HOOK_TIMEOUT_SECONDS = 3
 _CACHE_TTL_SECONDS = 3600
+# 解決に失敗した場合も短い TTL で記録する。記録しないと、オフライン環境ではコミットごとに
+# タイムアウトを待ち直す (レイテンシ対策が失敗ケースで効かない)。
+_FAILURE_CACHE_TTL_SECONDS = 300
 
 # ``sync --check`` の終了コード。更新すべき状態 (drift) と、判定できなかった状態
 # (解決不能・設定読取不能) を区別する。同じ 1 にすると、CI のゲートが一時的な
@@ -185,35 +188,50 @@ def _cache_path() -> Path:
     return paths.global_config_dir() / "config_sync_cache.json"
 
 
-def _read_cached_target(major: str) -> tuple[str, str] | None:
-    """TTL 内の解決結果をキャッシュから読む."""
+def _read_cached_target(major: str) -> tuple[bool, tuple[str, str] | None]:
+    """キャッシュの ``(有効な記録があるか, 解決結果)`` を返す.
+
+    ``(True, None)`` は「TTL 内に解決へ失敗した」ことを表す。失敗も記録するのは、記録しないと
+    オフライン環境でコミットごとにタイムアウトを待ち直す (レイテンシ対策が失敗ケースで効かない)
+    ためである。
+    """
     try:
         raw = json.loads(_cache_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
+        return False, None
     if not isinstance(raw, dict):
-        return None
+        return False, None
     data = cast("dict[str, Any]", raw)
+    if data.get("major") != major:
+        return False, None
+    now = time.time()
+    failed_at = data.get("failed_at")
+    if isinstance(failed_at, int | float):
+        return now - failed_at <= _FAILURE_CACHE_TTL_SECONDS, None
     resolved_at = data.get("resolved_at")
     if (
-        data.get("major") != major
-        or not isinstance(data.get("version"), str)
-        or not isinstance(data.get("digest"), str)
-        or not isinstance(resolved_at, int | float)
-        or time.time() - resolved_at > _CACHE_TTL_SECONDS
+        isinstance(data.get("version"), str)
+        and isinstance(data.get("digest"), str)
+        and isinstance(resolved_at, int | float)
+        and now - resolved_at <= _CACHE_TTL_SECONDS
     ):
-        return None
-    return cast("str", data["version"]), cast("str", data["digest"])
+        return True, (cast("str", data["version"]), cast("str", data["digest"]))
+    return False, None
 
 
-def _write_cached_target(major: str, version: str, digest: str) -> None:
-    """解決結果をキャッシュへ書く (失敗しても無視する・fail-open)."""
-    payload = {
-        "major": major,
-        "version": version,
-        "digest": digest,
-        "resolved_at": time.time(),
-    }
+def _write_cached_target(major: str, target: tuple[str, str] | None) -> None:
+    """解決結果をキャッシュへ書く (``None`` は失敗の記録・失敗しても無視する)."""
+    payload: dict[str, Any]
+    if target is None:
+        payload = {"major": major, "failed_at": time.time()}
+    else:
+        version, digest = target
+        payload = {
+            "major": major,
+            "version": version,
+            "digest": digest,
+            "resolved_at": time.time(),
+        }
     try:
         cache = _cache_path()
         cache.parent.mkdir(parents=True, exist_ok=True)
@@ -229,15 +247,16 @@ def _resolve_target(
     """追随先の ``(version, sha256)`` を解決する.
 
     ``use_cache`` はフック経由の判定用。コミットごとに API を引くとレイテンシが残るため
-    (fail-open でも待ち時間は消えない)、TTL 内はキャッシュを使う。
+    (fail-open でも待ち時間は消えない)、TTL 内はキャッシュを使う。解決に失敗した場合も
+    短い TTL で記録し、オフライン時に毎コミット待ち直さないようにする。
     """
     if use_cache:
-        cached = _read_cached_target(major)
-        if cached is not None:
+        found, cached = _read_cached_target(major)
+        if found:
             return cached
     target = _latest_release(major, timeout=timeout)
-    if target is not None and use_cache:
-        _write_cached_target(major, *target)
+    if use_cache:
+        _write_cached_target(major, target)
     return target
 
 

@@ -89,12 +89,16 @@ def _patch_releases(
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
 
-def _patch_offline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ネットワーク不可を再現する."""
+def _patch_offline(
+    monkeypatch: pytest.MonkeyPatch, requests: list[str] | None = None
+) -> None:
+    """ネットワーク不可を再現する (``requests`` を渡すと試行回数を数える)."""
 
     def _boom(
-        _url: object, _data: bytes | None = None, *, timeout: float | None = None
+        url: object, _data: bytes | None = None, *, timeout: float | None = None
     ) -> _FakeResponse:
+        if requests is not None:
+            requests.append(str(getattr(url, "full_url", url)))
         message = "offline"
         raise OSError(message)
 
@@ -385,6 +389,43 @@ def test_hook_uses_cached_target_within_ttl(
     assert len(requests) == 1
     # 警告自体はキャッシュからでも毎回出す (古い参照を見逃さない)。
     assert capsys.readouterr().err.count("ame-ai-reviewer sync") == 2
+
+
+def test_hook_does_not_retry_immediately_after_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 失敗も記録する。記録しないと、オフラインではコミットごとにタイムアウトを待ち直す
+    # (レイテンシ対策が失敗ケースで効かない)。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_cache_dir(monkeypatch, tmp_path)
+    requests: list[str] = []
+    _patch_offline(monkeypatch, requests)
+    _write(tmp_path, _config_text("0.2.7", _OLD_DIGEST))
+    config_sync.warn_if_out_of_sync()
+    config_sync.warn_if_out_of_sync()
+    assert len(requests) == 1
+    assert not capsys.readouterr().err
+
+
+def test_hook_retries_after_failure_ttl(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 失敗の記録も TTL で失効させ、いつまでも再試行しない状態にしない。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_cache_dir(monkeypatch, tmp_path)
+    requests: list[str] = []
+    _patch_offline(monkeypatch, requests)
+    _write(tmp_path, _config_text("0.2.7", _OLD_DIGEST))
+    config_sync.warn_if_out_of_sync()
+    cache = tmp_path / "config" / "config_sync_cache.json"
+    data = json.loads(cache.read_text(encoding="utf-8"))
+    assert "failed_at" in data
+    data["failed_at"] = 0  # 1970 年。どんな TTL でも失効している。
+    cache.write_text(json.dumps(data), encoding="utf-8")
+    config_sync.warn_if_out_of_sync()
+    assert len(requests) == 2
 
 
 def test_hook_refreshes_expired_cache(
