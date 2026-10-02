@@ -567,7 +567,7 @@ uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-A
             "Generate config and workflows. Use --with-engines for TS engines (opencode / claude-ts); npm dependencies are installed automatically into .ame-review/engines-ts/."
           )}
         </DocP>
-        <DocPre>{`ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines`}</DocPre>
+        <DocPre>{`ame-ai-reviewer init --preset python --with-engines`}</DocPre>
         <DocTable
           head={[l("オプション", "Option"), l("説明", "Description")]}
           rows={[
@@ -581,8 +581,8 @@ uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-A
             [
               <DocInline key="r">--ref</DocInline>,
               l(
-                "reusable workflow の参照（リリースタグ or ブランチ）。--no-workflow 指定時以外は必須。",
-                "The reusable workflow reference (release tag or branch). Required unless --no-workflow is given."
+                "reusable workflow と Gate 2 checkout が参照する ref。既定は現行バージョンの移動メジャータグで、hub のリリースに自動追随します。特定バージョンへ固定する場合のみ vX.Y.Z を指定します（--no-workflow 指定時は不要）。",
+                "The ref used by the reusable workflow and the Gate 2 checkout. Defaults to the current version's moving major tag, so consumers follow hub releases automatically. Pass vX.Y.Z only to pin a specific version (not needed with --no-workflow)."
               ),
             ],
             [
@@ -624,8 +624,8 @@ uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-A
         />
         <DocP>
           {l(
-            "生成物は以下のとおりです。CI は reusable workflow を呼ぶ薄いラッパのため、更新は --ref の差し替えのみです。",
-            "The generated files are listed below. CI wrappers are thin, so upgrades are just a --ref bump."
+            "生成物は以下のとおりです。CI は reusable workflow を呼ぶ薄いラッパで、参照先の既定は移動メジャータグのため更新作業は不要です。",
+            "The generated files are listed below. CI wrappers are thin and default to the moving major tag, so no upgrade work is needed."
           )}
         </DocP>
         <DocPre>
@@ -684,7 +684,7 @@ cp -r ame_ai_review_system/ /path/to/your-repo/`}
         </DocP>
         <DocPre>
           {`mkdir -p .claude/skills/review-round
-curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \\
+curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0/.claude/skills/review-round/SKILL.md \\
   -o .claude/skills/review-round/SKILL.md`}
         </DocPre>
       </Section>

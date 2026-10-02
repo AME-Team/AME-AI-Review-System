@@ -13,6 +13,10 @@ Gate 1 の AI フックは既定で ``language: python`` + wheel 参照 (``addit
 ``--python`` (または ``AME_INIT_PYTHON``) を指定するとオフライン向けに
 ``language: system`` で生成する (Issue #66)。
 
+生成する CI ラッパは ``--ref`` (既定 :data:`DEFAULT_REF` = 現行バージョンの移動メジャータグ)
+を参照する。移動タグは hub のリリースへ自動追随するため、配布先での更新作業は
+不要である。
+
 idempotent: 既存ファイルは上書きしない。``--force`` で上書きする。
 """
 
@@ -59,6 +63,13 @@ _REPO_NAME = "AME-AI-Review-System"
 # __REPO__ プレースホルダを init 生成時に _REPO_OWNER/_REPO_NAME で置換する。
 _REPO_PLACEHOLDER = "__REPO__"
 _REPO_FQN = f"{_REPO_OWNER}/{_REPO_NAME}"
+
+# 配布先ラッパが参照する既定 ref。移動メジャータグ (moving major tag) を __version__ から
+# 導出することで、リリース時に実際に付け替えられるタグと常に一致させる。
+#   - `.github/workflows/release.yml` は push されたタグのメジャー成分を付け替える。
+#   - ここを定数で持つと、メジャーが変わった時に配布先が解決不能な ref を参照する。
+# 特定バージョンへ固定したい場合のみ ``--ref vX.Y.Z`` を明示する。
+DEFAULT_REF = f"v{__version__.split('.')[0]}"
 
 # ``language: system`` 時に additional_dependencies の代わりに置く説明コメント。
 _SYSTEM_ADDEPS_COMMENT = (
@@ -429,8 +440,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     if not args.no_workflow:
         if not args.ref:
             print(
-                "ERROR: --ref is required unless --no-workflow "
-                "(use a release tag, e.g. --ref v1.0.0)",
+                "ERROR: --ref が空です。移動メジャータグ (既定: "
+                f"{DEFAULT_REF}) かリリースタグ (例: v0.2.15) を指定してください。",
                 file=sys.stderr,
             )
             return 1

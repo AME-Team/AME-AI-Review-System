@@ -1175,8 +1175,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_init.add_argument(
         "--ref",
-        default=None,
-        help="GitHub ref for reusable workflows (required unless --no-workflow)",
+        default=init_cmd.DEFAULT_REF,
+        help="reusable workflow と Gate 2 checkout が参照する GitHub ref "
+        f"(default: 移動メジャータグ {init_cmd.DEFAULT_REF} = hub のリリースに自動追随)。"
+        "特定バージョンへ固定する場合のみ vX.Y.Z を指定する",
     )
     p_init.add_argument(
         "--no-workflow",

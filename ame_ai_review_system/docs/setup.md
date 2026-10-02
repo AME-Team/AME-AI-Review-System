@@ -175,14 +175,16 @@ claude-ts) を使う場合は `--with-engines`
 を付ける。npm 依存のインストールも自動化される (`.ame-review/engines-ts/` に展開)。
 
 ```bash
-ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
+ame-ai-reviewer init --preset python --with-engines
 ```
 
 - `--preset`: pre-commit 静的解析セット (`auto` / `full` / `python` / `text` / `ts` /
   `minimal`)。`auto` (既定) は `package.json` と `.ts`/`.tsx` ソースの有無から `ts` か `full`
   を自動選択する (Issue #69)。`ts` プリセットの eslint / tsc / prettier / stylelint は
   `./node_modules/.bin` を直接起動するため、事前に `npm install` が必要
-- `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)。`--no-workflow` 指定時以外は必須
+- `--ref`: reusable workflow と Gate 2
+  checkout が参照する ref。既定は現行バージョンの移動メジャータグで、hub のリリースへ自動追随する。特定バージョンへ固定する場合のみ
+  `vX.Y.Z` を指定する (`--no-workflow` 指定時は不要)
 - `--version`: Gate 1 (pre-commit
   AI フック) が参照する wheel のバージョン。省略時はインストール済みパッケージの
   `__version__`。release の wheel を `#sha256=` で内容固定して参照する (Issue #84)。
@@ -209,7 +211,16 @@ ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
 - `.github/workflows/review_command.yml`
 - `.github/workflows/review_reply.yml`
 
-CI は reusable workflow を呼ぶ薄いラッパ。更新は `--ref` の差し替えのみ。
+CI は reusable
+workflow を呼ぶ薄いラッパです。参照先の既定は移動メジャータグのため、hub のリリースに自動追随し、更新作業は不要です。バージョン固定時のみ ref を書き換えます。
+
+#### 更新（アップグレード）
+
+参照先の既定は現行バージョンの移動メジャータグです。hub のリリースごとにタグが付け替えられるため、配布先のラッパを書き換える必要はありません。
+
+Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version` で決まります。版を上げる場合は
+`ame-ai-reviewer init --force` で `.pre-commit-config.yaml` を再生成してください。
+`additional_dependencies` の URL と `#sha256=` を手で更新しても構いません (Issue #84)。
 
 > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
 > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /
@@ -291,11 +302,13 @@ Gate 1（pre-commit）と Gate
 
 ```bash
 mkdir -p .claude/skills/review-round
-curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0.1.0/.claude/skills/review-round/SKILL.md \
+curl -fsSL https://raw.githubusercontent.com/AME-Team/AME-AI-Review-System/v0/.claude/skills/review-round/SKILL.md \
   -o .claude/skills/review-round/SKILL.md
 ```
 
-URL の `v0.1.0` は Step 1 で指定した `--ref` と同じリリースタグに揃えること。
+URL の `v0`
+は現行系列の移動メジャータグです。hub のリリースに自動追随します。特定バージョンへ固定した場合のみ Step
+1 の ref に揃えます。
 
 #### 方式 B の場合（ディレクトリコピー時）
 
