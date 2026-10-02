@@ -89,6 +89,17 @@ class SyncResult:
     detail: str = ""
 
 
+def _is_target_series(url: str, major: str) -> bool:
+    """参照 URL が追随対象のメジャー系列か (別メジャーの意図的固定は False).
+
+    判定 (``inspect``) と書き換え (``_rewrite``) の双方でこれを使う。片方だけに適用すると、
+    対象系列と別メジャーが併存する設定で、判定は「対象系列だけ DRIFT」と言いながら書き換えが
+    別メジャー行まで潰す (意図した固定を黙って破壊する)。
+    """
+    version = _pinned_version(url)
+    return version is None or version.startswith(f"{major}.")
+
+
 def _target_major() -> str:
     """追随先のメジャー系列 (``DEFAULT_REF`` から導出する)."""
     return init_cmd.DEFAULT_REF.removeprefix("v")
@@ -106,8 +117,7 @@ def _managed_matches(text: str, major: str) -> list[re.Match[str]]:
         match = _MANAGED_LINE_RE.match(line)
         if match is None:
             continue
-        version = _pinned_version(match.group("url"))
-        if version is not None and not version.startswith(f"{major}."):
+        if not _is_target_series(match.group("url"), major):
             continue
         matches.append(match)
     return matches
@@ -292,14 +302,18 @@ def inspect(
     )
 
 
-def _rewrite(text: str, version: str, digest: str) -> str:
-    """管理対象行だけを書き換え、改行と他の行を保つ."""
+def _rewrite(text: str, version: str, digest: str, major: str) -> str:
+    """管理対象行だけを書き換え、改行と他の行を保つ.
+
+    対象メジャーの判定は ``inspect`` と同じ ``_is_target_series`` を使う。別メジャーを固定した
+    参照は、判定で対象外としている以上ここでも触らない。
+    """
     out: list[str] = []
     for line in text.splitlines(keepends=True):
         body = line.rstrip("\r\n")
         ending = line[len(body) :]
         match = _MANAGED_LINE_RE.match(body)
-        if match is None:
+        if match is None or not _is_target_series(match.group("url"), major):
             out.append(line)
             continue
         desired = _desired_line(match.group("indent"), version, digest)
@@ -327,7 +341,9 @@ def sync(config_path: Path, *, write: bool) -> SyncResult:
         )
     try:
         text = config_path.read_text(encoding="utf-8")
-        config_path.write_text(_rewrite(text, version, digest), encoding="utf-8")
+        config_path.write_text(
+            _rewrite(text, version, digest, _target_major()), encoding="utf-8"
+        )
     except OSError as exc:
         return SyncResult(
             SyncStatus.UNKNOWN, config_path, detail=f"設定を書けません: {exc}"

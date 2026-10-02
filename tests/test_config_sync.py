@@ -290,6 +290,26 @@ def test_sync_rewrites_only_the_managed_line(
     assert rewritten == expected
 
 
+def test_sync_keeps_foreign_major_line_in_mixed_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 対象系列 (v0.x) と別メジャー (v1.x) が併存し、対象系列だけが DRIFT のケース。
+    # 書き換えが判定と同じ選別を使わないと、固定した v1.x 行まで潰れて契約が破れる。
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    foreign = _line("1.0.0", _DIGEST)
+    text = _config_text("0.2.7", _OLD_DIGEST).replace(
+        "          - claude-agent-sdk\n", f"          - claude-agent-sdk\n{foreign}\n"
+    )
+    path = _write(tmp_path, text)
+    assert config_sync.inspect(path).status is config_sync.SyncStatus.DRIFT
+    result = config_sync.sync(path, write=True)
+    assert result.status is config_sync.SyncStatus.IN_SYNC
+    rewritten = path.read_text(encoding="utf-8")
+    assert _line("0.2.15", _DIGEST) in rewritten
+    assert foreign in rewritten  # 別メジャーの意図的固定は 1 バイトも変えない
+    assert _line("1.0.0", _DIGEST) in rewritten
+
+
 def test_sync_without_write_keeps_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
