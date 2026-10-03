@@ -235,6 +235,11 @@ Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version`
 参照を git 管理せず仮想環境へ入れるだけの導入先では、git 上の参照と突き合わせても古さが分かりません。その場合はフックがインストール済みの版と hub の最新を比べて警告します (Issue
 #153)。
 
+`sync` 自身もレビューシステムの一部です。新しい `sync`
+を使うには、まず導入先の wheel を更新してください。たとえば
+`uv sync --upgrade-package ame-ai-review-system` を実行します。そのあと `ame-ai-reviewer sync`
+を実行すると、`pyproject.toml` と `uv.lock` が hub の最新リリースへ追随します。
+
 `ame-ai-reviewer init --force` で `.pre-commit-config.yaml` を再生成する方法もあります。Gate
 1 のフックは、参照が hub の最新リリースから遅れている場合に警告を表示します。書き換えは行わず、同期に失敗してもコミットは妨げません (fail-open)。
 
