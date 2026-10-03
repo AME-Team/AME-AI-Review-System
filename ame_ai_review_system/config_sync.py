@@ -74,9 +74,10 @@ _RELEASES_API = (
 # 依存名は PEP 503 で正規化して比較する (`ame_ai_review_system` 等の表記揺れを許す)。
 _PACKAGE_NAME = "ame-ai-review-system"
 _NAME_SEPARATORS_RE = re.compile(r"[-_.]+")
+# TOML の文字列は二重引用符と単一引用符の両方が有効なので、どちらも受けて表記を保つ。
 _PYPROJECT_LINE_RE = re.compile(
-    r'^(?P<indent>\s*)"(?P<name>[A-Za-z0-9._-]+)\s*@\s*(?P<url>\S+?)"'
-    r"(?P<comma>,?)(?P<trailing>\s*)$"
+    r'^(?P<indent>\s*)(?P<quote>["\'])(?P<name>[A-Za-z0-9._-]+)\s*@\s*(?P<url>\S+?)'
+    r"(?P=quote)(?P<comma>,?)(?P<trailing>\s*)$"
 )
 _UV_LOCK_TIMEOUT_SECONDS = 120
 
@@ -204,8 +205,9 @@ def _pyproject_path() -> Path:
 def _pyproject_matches(text: str, major: str) -> list[re.Match[str]]:
     """pyproject.toml の管理対象行 (対象メジャーのリリース URL を指す行のみ).
 
-    依存の書き方は ``"ame-ai-review-system @ https://.../download/vX.Y.Z/<name>"``。名前は
-    ``-``/``_``/``.`` の揺れを許し (PEP 503)、末尾のカンマと空白は元の表記のまま保つ。
+    依存の書き方は ``"ame-ai-review-system @ https://.../download/vX.Y.Z/<name>"`` (TOML なので
+    単一引用符でもよい)。名前は ``-``/``_``/``.`` の揺れを許し (PEP 503)、引用符・末尾のカンマと
+    空白は元の表記のまま保つ。
     """
     matches: list[re.Match[str]] = []
     for line in text.splitlines():
@@ -235,8 +237,9 @@ def _desired_pyproject_line(match: re.Match[str], version: str, digest: str) -> 
     (書き換えでフラグメントを落としたり、古い hash を残したりしない)。
     """
     url = _desired_pyproject_url(match, version, digest)
+    quote = match.group("quote")
     return (
-        f'{match.group("indent")}"{match.group("name")} @ {url}"'
+        f"{match.group('indent')}{quote}{match.group('name')} @ {url}{quote}"
         f"{match.group('comma')}{match.group('trailing')}"
     )
 

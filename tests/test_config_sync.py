@@ -767,7 +767,25 @@ def test_sync_pyproject_reports_when_uv_lock_fails(
     assert path.read_text(encoding="utf-8") == text
 
 
-def test_inspect_pyproject_leaves_other_series_alone(
+def test_sync_pyproject_supports_single_quoted_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # TOML では単一引用符も有効。片方だけ見ると、その導入先が無言でスキップされる。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    path = _write_pyproject(
+        tmp_path, _wrap_pyproject(_pyproject_line("0.2.7", quote="'"))
+    )
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "'ame-ai-review-system @ " in text
+    assert init_cmd.wheel_url("0.2.15") in text
+
+
+def test_sync_pyproject_ignores_other_series_line(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # 意図的な別メジャー固定 (v1.x) は対象外。書き換えても 1 バイト変えない。
@@ -888,10 +906,11 @@ def _pyproject_line(
     name: str = "ame-ai-review-system",
     fragment: str | None = None,
     trailing: str = "",
+    quote: str = '"',
 ) -> str:
     """1 行の依存記述を組み立てる (表記揺れ・フラグメント・末尾空白の検証用)."""
     url = init_cmd.wheel_url(version) + (f"#sha256={fragment}" if fragment else "")
-    return f'    "{name} @ {url}",{trailing}\n'
+    return f"    {quote}{name} @ {url}{quote},{trailing}\n"
 
 
 def _wrap_pyproject(line: str) -> str:
