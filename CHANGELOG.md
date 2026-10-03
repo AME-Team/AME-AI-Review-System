@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-10-03
+
 ### Added
 
 - `ame-ai-reviewer sync` が `language: system` の導入先も扱えるようにした (Issue #153)。
