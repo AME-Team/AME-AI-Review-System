@@ -256,20 +256,60 @@ def _desired_pyproject_url(match: re.Match[str], version: str, digest: str) -> s
     return f"{url}#{'&'.join(others)}" if others else url
 
 
+def _write_in_place(target: Path, text: str) -> None:
+    """リンクの実体を直接書き換える (ハードリンクを分離しないため).
+
+    ``O_NOFOLLOW`` を付けて開く (書き換え先が別のリンクへすり替わっていても追従しない)。
+    この経路だけは置換を行わないため原子性を保証しないが、ハードリンクの相手と同じ内容を
+    見せ続けることを優先する。
+    """
+    flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    handle = os.open(target, flags)
+    try:
+        stream = os.fdopen(handle, "w", encoding="utf-8")
+    except OSError:
+        # fdopen に入れなかった場合だけ fd が残るため、ここで閉じる。
+        os.close(handle)
+        raise
+    with stream:
+        stream.write(text)
+
+
 def _write_text_atomic(path: Path, text: str) -> None:
     """同一ディレクトリへ書いてから置換する (部分書きで参照を壊さない).
 
-    一時ファイル名は ``secrets`` で作る (予測できない)。権限は 0600 で作り、書いた直後に
-    元ファイルと同じ権限へ広げる。最初から緩い権限で置かないため、書き込み中の内容が
-    読まれることがない。置換は ``Path.replace`` なので、途中で落ちても元の参照はそのまま残る。
+    シンボリックリンクは置換せず、参照先の実体を置換する (リンク自体を入れ替えず、かつ原子性を
+    保つ)。ハードリンクは置換すると他の名前と分離されるため、その場合だけ実体を直接書き換える
+    (原子性よりリンクの維持を優先する)。一時ファイル名は ``secrets`` で作る (予測できない)。
+    権限は 0600 で作り、書いた直後に元ファイルと同じ権限へ広げる。最初から緩い権限で置かない
+    ため、書き込み中の内容が読まれることがない。置換は ``Path.replace`` なので、途中で落ちても
+    元の参照はそのまま残る。
     """
     try:
-        mode: int | None = stat.S_IMODE(path.stat().st_mode)
+        link_info: os.stat_result | None = path.lstat()
     except OSError:
-        # 元ファイルの権限が読めない場合 (sync は既存ファイルだけを書き換えるため通常は
-        # 起きない) は、緩めずに 0600 のまま置換する。
-        mode = None
-    temporary_path = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+        link_info = None
+    target = path
+    if link_info is not None and stat.S_ISLNK(link_info.st_mode):
+        # リンクをそのまま置換すると参照先ではなくリンクが入れ替わるため、実体を解決する。
+        try:
+            target = path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            # 壊れたリンク・循環リンクは書き換え先が決まらないため、書き換えずに知らせる。
+            message = f"リンクを解決できません: {path}"
+            raise OSError(message) from exc
+    try:
+        info: os.stat_result | None = target.lstat()
+    except OSError:
+        info = None
+    if info is not None and info.st_nlink > 1:
+        # 置換すると他の名前と分離されるため、実体を直接書き換える。
+        _write_in_place(target, text)
+        return
+    # 権限が読めない場合 (sync は既存ファイルだけを書き換えるため通常は起きない) は、
+    # 緩めずに 0600 のまま置換する。
+    mode: int | None = stat.S_IMODE(info.st_mode) if info is not None else None
+    temporary_path = target.with_name(f".{target.name}.{secrets.token_hex(8)}.tmp")
     handle = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     try:
         try:
@@ -283,7 +323,7 @@ def _write_text_atomic(path: Path, text: str) -> None:
             if mode is not None:
                 # umask の影響を受けずに元の権限へ合わせる。
                 os.fchmod(stream.fileno(), mode)
-        temporary_path.replace(path)
+        temporary_path.replace(target)
     finally:
         # 置換に成功していれば一時ファイルは残っていない (失敗時だけ残骸を消す)。
         temporary_path.unlink(missing_ok=True)
@@ -590,7 +630,8 @@ def _run_uv_lock(pyproject_path: Path) -> tuple[bool, str]:
         return False, "`uv` が見つかりません。手動で `uv lock` を実行してください"
     try:
         completed = subprocess.run(
-            [uv, "lock"],
+            # 全体を再解決すると無関係な依存まで uv.lock 上で動くため、対象だけを更新する。
+            [uv, "lock", "--upgrade-package", _PACKAGE_NAME],
             cwd=pyproject_path.parent,
             capture_output=True,
             text=True,

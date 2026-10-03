@@ -12,6 +12,7 @@ import argparse
 import http.client
 import importlib.metadata
 import json
+import os
 import shutil
 import stat
 import subprocess
@@ -713,7 +714,9 @@ def test_sync_pyproject_rewrites_and_runs_uv_lock(
     assert "uv.lock" in result.detail
     assert init_cmd.wheel_url("0.2.15") in path.read_text(encoding="utf-8")
     assert init_cmd.wheel_url("0.2.7") not in path.read_text(encoding="utf-8")
-    assert [call["args"] for call in calls] == [["/usr/bin/uv", "lock"]]
+    assert [call["args"] for call in calls] == [
+        ["/usr/bin/uv", "lock", "--upgrade-package", "ame-ai-review-system"]
+    ]
     # uv は pyproject.toml のあるディレクトリで実行する (project_root と一致しない構成も)。
     assert calls[0]["cwd"] == tmp_path
 
@@ -783,6 +786,43 @@ def test_sync_pyproject_supports_single_quoted_toml(
     text = path.read_text(encoding="utf-8")
     assert "'ame-ai-review-system @ " in text
     assert init_cmd.wheel_url("0.2.15") in text
+
+
+def test_sync_pyproject_follows_symlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # シンボリックリンクは置換せず、参照先を書き換える (リンク自体を入れ替えない)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    real = tmp_path / "real.toml"
+    real.write_text(_wrap_pyproject(_pyproject_line("0.2.7")), encoding="utf-8")
+    link = tmp_path / "pyproject.toml"
+    link.symlink_to(real)
+    assert config_sync.sync_pyproject(link, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    assert link.is_symlink()
+    assert init_cmd.wheel_url("0.2.15") in real.read_text(encoding="utf-8")
+
+
+def test_sync_pyproject_preserves_hardlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # ハードリンクの相手も同じ内容を見る (置換して分離しない)。この経路だけは原子性より
+    # リンクの維持を優先する。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    real = tmp_path / "pyproject.toml"
+    real.write_text(_pyproject_text("0.2.7"), encoding="utf-8")
+    alias = tmp_path / "pyproject.alias.toml"
+    os.link(real, alias)
+    assert config_sync.sync_pyproject(real, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    assert real.stat().st_ino == alias.stat().st_ino
+    assert init_cmd.wheel_url("0.2.15") in alias.read_text(encoding="utf-8")
 
 
 def test_sync_pyproject_ignores_other_series_line(
