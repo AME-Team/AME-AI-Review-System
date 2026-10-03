@@ -14,6 +14,11 @@
 
 書き換えるのは明示コマンド ``ame-ai-reviewer sync`` だけにする。フック実行中に自身の設定を
 書き換えると、実行中の pre-commit と設定ファイルの内容が食い違うため、フック側は警告に留める。
+
+``language: system`` で動かす導入先 (``init --python`` 方式・``uv run`` 方式) は wheel を
+``pyproject.toml`` に参照し、sha256 は ``uv.lock`` が持つ。この形も ``sync`` の対象にし、
+書き換え後は ``uv lock`` を実行してロックを追随させる (Issue #153)。参照を git 管理せず
+仮想環境へ入れるだけの導入先には、インストール済みの版と hub の最新を突き合わせて警告する。
 """
 
 from __future__ import annotations
@@ -22,6 +27,10 @@ import http.client
 import json
 import os
 import re
+import secrets
+import shutil
+import stat
+import subprocess
 import sys
 import time
 import urllib.request
@@ -32,6 +41,8 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     import argparse
     from pathlib import Path
+
+from itertools import starmap
 
 from . import github_client, init_cmd, paths
 
@@ -57,6 +68,18 @@ _VERSION_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 _RELEASES_API = (
     f"https://api.github.com/repos/{init_cmd.repo_fqn()}/releases?per_page=100"
 )
+
+# ``language: system`` の導入先は wheel を pyproject.toml に参照する (sha256 は uv.lock 側)。
+# ロックは ``uv lock`` で追随させる。解決に時間がかかり得るためタイムアウトを長めに取る。
+# 依存名は PEP 503 で正規化して比較する (`ame_ai_review_system` 等の表記揺れを許す)。
+_PACKAGE_NAME = "ame-ai-review-system"
+_NAME_SEPARATORS_RE = re.compile(r"[-_.]+")
+# TOML の文字列は二重引用符と単一引用符の両方が有効なので、どちらも受けて表記を保つ。
+_PYPROJECT_LINE_RE = re.compile(
+    r'^(?P<indent>\s*)(?P<quote>["\'])(?P<name>[A-Za-z0-9._-]+)\s*@\s*(?P<url>\S+?)'
+    r"(?P=quote)(?P<comma>,?)(?P<trailing>\s*)$"
+)
+_UV_LOCK_TIMEOUT_SECONDS = 120
 
 _TIMEOUT_SECONDS = 10
 # フック経由の判定はコミットを待たせるため、タイムアウトを短くし結果をキャッシュする。
@@ -172,6 +195,138 @@ def _managed_matches(text: str, major: str) -> list[re.Match[str]]:
             continue
         matches.append(match)
     return matches
+
+
+def _pyproject_path() -> Path:
+    """``language: system`` の導入先が wheel を参照する ``pyproject.toml`` (Issue #153)."""
+    return paths.project_root() / "pyproject.toml"
+
+
+def _pyproject_matches(text: str, major: str) -> list[re.Match[str]]:
+    """pyproject.toml の管理対象行 (対象メジャーのリリース URL を指す行のみ).
+
+    依存の書き方は ``"ame-ai-review-system @ https://.../download/vX.Y.Z/<name>"`` (TOML なので
+    単一引用符でもよい)。名前は ``-``/``_``/``.`` の揺れを許し (PEP 503)、引用符・末尾のカンマと
+    空白は元の表記のまま保つ。
+    """
+    matches: list[re.Match[str]] = []
+    for line in text.splitlines():
+        match = _PYPROJECT_LINE_RE.match(line)
+        if match is None or not _is_managed_package(match.group("name")):
+            continue
+        if not _is_target_series(match.group("url"), major):
+            continue
+        matches.append(match)
+    return matches
+
+
+def _normalize_package_name(name: str) -> str:
+    """PEP 503 の依存名正規化 (``-``/``_``/``.`` を同一視し小文字化する)."""
+    return _NAME_SEPARATORS_RE.sub("-", name).lower()
+
+
+def _is_managed_package(name: str) -> bool:
+    """依存名がこのパッケージを指すか (``ame_ai_review_system`` 等の揺れを許す)."""
+    return _normalize_package_name(name) == _PACKAGE_NAME
+
+
+def _desired_pyproject_line(match: re.Match[str], version: str, digest: str) -> str:
+    """pyproject.toml の管理対象行の期待値 (名前・カンマ・空白は元の表記のまま).
+
+    ``#sha256=`` を URL に書いている導入先は、その digest も新しいリリースのものへ更新する
+    (書き換えでフラグメントを落としたり、古い hash を残したりしない)。
+    """
+    url = _desired_pyproject_url(match, version, digest)
+    quote = match.group("quote")
+    return (
+        f"{match.group('indent')}{quote}{match.group('name')} @ {url}{quote}"
+        f"{match.group('comma')}{match.group('trailing')}"
+    )
+
+
+def _desired_pyproject_url(match: re.Match[str], version: str, digest: str) -> str:
+    """参照 URL の期待値 (フラグメントは ``sha256=`` だけ差し替え、他はそのまま残す)."""
+    url = init_cmd.wheel_url(version)
+    fragment = match.group("url").partition("#")[2]
+    if not fragment:
+        return url
+    others = [part for part in fragment.split("&") if not part.startswith("sha256=")]
+    if digest:
+        others.insert(0, f"sha256={digest}")
+    return f"{url}#{'&'.join(others)}" if others else url
+
+
+def _write_in_place(target: Path, text: str) -> None:
+    """リンクの実体を直接書き換える (ハードリンクを分離しないため).
+
+    ``O_NOFOLLOW`` を付けて開く (書き換え先が別のリンクへすり替わっていても追従しない)。
+    この経路だけは置換を行わないため原子性を保証しないが、ハードリンクの相手と同じ内容を
+    見せ続けることを優先する。
+    """
+    flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    handle = os.open(target, flags)
+    try:
+        stream = os.fdopen(handle, "w", encoding="utf-8")
+    except OSError:
+        # fdopen に入れなかった場合だけ fd が残るため、ここで閉じる。
+        os.close(handle)
+        raise
+    with stream:
+        stream.write(text)
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    """同一ディレクトリへ書いてから置換する (部分書きで参照を壊さない).
+
+    シンボリックリンクは置換せず、参照先の実体を置換する (リンク自体を入れ替えず、かつ原子性を
+    保つ)。ハードリンクは置換すると他の名前と分離されるため、その場合だけ実体を直接書き換える
+    (原子性よりリンクの維持を優先する)。一時ファイル名は ``secrets`` で作る (予測できない)。
+    権限は 0600 で作り、書いた直後に元ファイルと同じ権限へ広げる。最初から緩い権限で置かない
+    ため、書き込み中の内容が読まれることがない。置換は ``Path.replace`` なので、途中で落ちても
+    元の参照はそのまま残る。
+    """
+    try:
+        link_info: os.stat_result | None = path.lstat()
+    except OSError:
+        link_info = None
+    target = path
+    if link_info is not None and stat.S_ISLNK(link_info.st_mode):
+        # リンクをそのまま置換すると参照先ではなくリンクが入れ替わるため、実体を解決する。
+        try:
+            target = path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            # 壊れたリンク・循環リンクは書き換え先が決まらないため、書き換えずに知らせる。
+            message = f"リンクを解決できません: {path}"
+            raise OSError(message) from exc
+    try:
+        info: os.stat_result | None = target.lstat()
+    except OSError:
+        info = None
+    if info is not None and info.st_nlink > 1:
+        # 置換すると他の名前と分離されるため、実体を直接書き換える。
+        _write_in_place(target, text)
+        return
+    # 権限が読めない場合 (sync は既存ファイルだけを書き換えるため通常は起きない) は、
+    # 緩めずに 0600 のまま置換する。
+    mode: int | None = stat.S_IMODE(info.st_mode) if info is not None else None
+    temporary_path = target.with_name(f".{target.name}.{secrets.token_hex(8)}.tmp")
+    handle = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        try:
+            stream = os.fdopen(handle, "w", encoding="utf-8")
+        except OSError:
+            # fdopen に入れなかった場合だけ fd が残るため、ここで閉じる。
+            os.close(handle)
+            raise
+        with stream:
+            stream.write(text)
+            if mode is not None:
+                # umask の影響を受けずに元の権限へ合わせる。
+                os.fchmod(stream.fileno(), mode)
+        temporary_path.replace(target)
+    finally:
+        # 置換に成功していれば一時ファイルは残っていない (失敗時だけ残骸を消す)。
+        temporary_path.unlink(missing_ok=True)
 
 
 def _desired_line(indent: str, version: str, digest: str) -> str:
@@ -320,6 +475,13 @@ def inspect(
     """
     try:
         text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # ファイルが無いのは異常ではない (pyproject 側だけに参照を持つ導入先など)。
+        return SyncResult(
+            SyncStatus.ABSENT,
+            config_path,
+            detail=".pre-commit-config.yaml がありません",
+        )
     except OSError as exc:
         return SyncResult(
             SyncStatus.UNKNOWN, config_path, detail=f"設定を読めません: {exc}"
@@ -423,8 +585,8 @@ def sync(config_path: Path, *, write: bool) -> SyncResult:
         )
     try:
         text = config_path.read_text(encoding="utf-8")
-        config_path.write_text(
-            _rewrite(text, version, digest, _target_major()), encoding="utf-8"
+        _write_text_atomic(
+            config_path, _rewrite(text, version, digest, _target_major())
         )
     except OSError as exc:
         return SyncResult(
@@ -440,6 +602,197 @@ def sync(config_path: Path, *, write: bool) -> SyncResult:
     )
 
 
+def _installed_version() -> str | None:
+    """この環境にインストールされている review system の版 (無ければ ``None``).
+
+    参照を git 管理しない導入先 (wheel を仮想環境へ直接入れる構成) では、git 上の参照を
+    突き合わせても古さが分からない。インストール済みの版で判定する (Issue #153)。
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover - 標準ライブラリなので通常は起きない
+        return None
+    try:
+        return version("ame-ai-review-system")
+    except PackageNotFoundError:
+        return None
+
+
+def _run_uv_lock(pyproject_path: Path) -> tuple[bool, str]:
+    """pyproject.toml の書き換え後に ``uv lock`` を実行してロックを追随させる (Issue #153).
+
+    参照 URL だけを書き換えると ``uv.lock`` の hash が古いまま残り、``uv sync`` が失敗する。
+    実行ファイルは ``shutil.which`` で解決する (存在しない場合は理由を返す)。作業ディレクトリは
+    ``pyproject.toml`` の親にする (project_root と一致しない構成でも正しいロックを更新する)。
+    """
+    uv = shutil.which("uv")
+    if uv is None:
+        return False, "`uv` が見つかりません。手動で `uv lock` を実行してください"
+    try:
+        completed = subprocess.run(
+            # 全体を再解決すると無関係な依存まで uv.lock 上で動くため、対象だけを更新する。
+            [uv, "lock", "--upgrade-package", _PACKAGE_NAME],
+            cwd=pyproject_path.parent,
+            capture_output=True,
+            text=True,
+            timeout=_UV_LOCK_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"`uv lock` を実行できません: {exc}"
+    if completed.returncode != 0:
+        lines = (completed.stderr or completed.stdout or "").strip().splitlines()
+        why = lines[-1] if lines else f"exit={completed.returncode}"
+        return False, f"`uv lock` が失敗しました: {why}"
+    return True, "uv.lock を更新しました"
+
+
+def inspect_pyproject(
+    pyproject_path: Path, *, use_cache: bool = False, timeout: int = _TIMEOUT_SECONDS
+) -> SyncResult:
+    """``pyproject.toml`` の wheel 参照を検査する (書き換えない・system 構成向け).
+
+    供給チェーン保護のため参照 URL はテキスト完全一致で判定する。``uv.lock`` の hash は
+    ``sync`` が実行する ``uv lock`` が追随させる。
+    """
+    try:
+        text = pyproject_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return SyncResult(
+            SyncStatus.ABSENT, pyproject_path, detail="pyproject.toml がありません"
+        )
+    except OSError as exc:
+        return SyncResult(
+            SyncStatus.UNKNOWN, pyproject_path, detail=f"設定を読めません: {exc}"
+        )
+    major = _target_major()
+    matches = _pyproject_matches(text, major)
+    if not matches:
+        return SyncResult(
+            SyncStatus.ABSENT,
+            pyproject_path,
+            detail="pyproject.toml に管理対象の wheel 参照がありません (別メジャー固定は対象外)",
+        )
+    pinned = tuple(
+        version
+        for match in matches
+        if (version := _pinned_version(match.group("url"))) is not None
+    )
+    target = _resolve_target(major, use_cache=use_cache, timeout=timeout)
+    if target is None:
+        return SyncResult(
+            SyncStatus.UNKNOWN,
+            pyproject_path,
+            pinned_versions=pinned,
+            detail=f"v{major} 系列の最新リリースを解決できません",
+        )
+    version, digest = target
+    target_order = _version_order(version)
+    if target_order is not None and any(
+        (order := _version_order(pinned_version)) is None or order > target_order
+        for pinned_version in pinned
+    ):
+        return SyncResult(
+            SyncStatus.AHEAD,
+            pyproject_path,
+            pinned_versions=pinned,
+            detail=f"固定版が hub の最新 (v{version}) より新しいため対象外です",
+        )
+    actual = [match.group(0) for match in matches]
+    desired = [_desired_pyproject_line(match, version, digest) for match in matches]
+    if actual == desired:
+        return SyncResult(
+            SyncStatus.IN_SYNC,
+            pyproject_path,
+            target_version=version,
+            target_digest=digest,
+            pinned_versions=pinned,
+        )
+    return SyncResult(
+        SyncStatus.DRIFT,
+        pyproject_path,
+        target_version=version,
+        target_digest=digest,
+        pinned_versions=pinned,
+        detail=f"参照 {', '.join(pinned) or '不明'} → v{version} へ更新できます",
+    )
+
+
+def _rewrite_pyproject(text: str, version: str, digest: str, major: str) -> str:
+    """pyproject.toml の管理対象行だけを書き換える (別メジャー固定は触らない)."""
+    out: list[str] = []
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        ending = line[len(body) :]
+        match = _PYPROJECT_LINE_RE.match(body)
+        if match is None or not _is_managed_package(match.group("name")):
+            out.append(line)
+            continue
+        if not _is_target_series(match.group("url"), major):
+            out.append(line)
+            continue
+        out.append(f"{_desired_pyproject_line(match, version, digest)}{ending}")
+    return "".join(out)
+
+
+def sync_pyproject(pyproject_path: Path, *, write: bool) -> SyncResult:
+    """``pyproject.toml`` の wheel 参照を hub の最新リリースへ同期する (system 構成向け).
+
+    書き換えた場合は ``uv lock`` を実行し、ロックの hash も追随させる。``--check`` は
+    判定のみで書き換えも ``uv lock`` も行わない。
+    """
+    result = inspect_pyproject(pyproject_path)
+    if result.status is not SyncStatus.DRIFT or not write:
+        return result
+    version, digest = result.target_version, result.target_digest
+    if version is None or digest is None:
+        return SyncResult(
+            SyncStatus.UNKNOWN,
+            pyproject_path,
+            pinned_versions=result.pinned_versions,
+            detail="hub の最新リリースを解決できません",
+        )
+    try:
+        text = pyproject_path.read_text(encoding="utf-8")
+        _write_text_atomic(
+            pyproject_path, _rewrite_pyproject(text, version, digest, _target_major())
+        )
+    except OSError as exc:
+        return SyncResult(
+            SyncStatus.UNKNOWN, pyproject_path, detail=f"設定を書けません: {exc}"
+        )
+    try:
+        locked, lock_detail = _run_uv_lock(pyproject_path)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        # uv 側の想定外の失敗でも、参照だけ書き換わった状態を残さない。
+        locked, lock_detail = False, f"`uv lock` を実行できません: {exc}"
+    if not locked:
+        # 参照だけ書き換わってロックが古いままだと uv sync が失敗するため、書き戻して揃える。
+        try:
+            _write_text_atomic(pyproject_path, text)
+        except OSError as exc:
+            return SyncResult(
+                SyncStatus.UNKNOWN,
+                pyproject_path,
+                pinned_versions=result.pinned_versions,
+                detail=f"v{version} への更新後 {lock_detail} (書き戻しにも失敗しました: {exc})",
+            )
+        return SyncResult(
+            SyncStatus.UNKNOWN,
+            pyproject_path,
+            pinned_versions=result.pinned_versions,
+            detail=f"{lock_detail}。整合を保つため参照を書き戻しました",
+        )
+    return SyncResult(
+        SyncStatus.IN_SYNC,
+        pyproject_path,
+        target_version=version,
+        target_digest=digest,
+        pinned_versions=result.pinned_versions,
+        detail=f"v{version} へ更新しました ({lock_detail})",
+    )
+
+
 def warn_if_out_of_sync() -> None:
     """Gate 1 フックの先頭で wheel 参照のドリフトを警告する (fail-open・Issue #147).
 
@@ -447,50 +800,99 @@ def warn_if_out_of_sync() -> None:
     設定は書き換えない (実行中の pre-commit と食い違うため)。失敗しても例外を出さず
     コミット可否に影響させない。待ち時間も開発体験を損なうため、タイムアウトを短くし
     解決結果を TTL 付きでキャッシュする。
+
+    ``language: system`` の導入先は ``pyproject.toml`` の参照も見る。参照を git 管理せず
+    仮想環境へ入れるだけの導入先では、インストール済みの版で古さを判定する (Issue #153)。
+    AHEAD (固定版が最新より新しい) は書き換えも警告も不要なため黙って戻る。
     """
     if os.environ.get("GITHUB_ACTIONS") == "true":
         return
-    # AHEAD (固定版が最新より新しい) は書き換えも警告も不要なため黙って戻る。
-    result = inspect(
-        paths.project_root() / ".pre-commit-config.yaml",
-        use_cache=True,
-        timeout=_HOOK_TIMEOUT_SECONDS,
+    root = paths.project_root()
+    results = (
+        inspect(
+            root / ".pre-commit-config.yaml",
+            use_cache=True,
+            timeout=_HOOK_TIMEOUT_SECONDS,
+        ),
+        inspect_pyproject(
+            _pyproject_path(), use_cache=True, timeout=_HOOK_TIMEOUT_SECONDS
+        ),
     )
-    if result.status is not SyncStatus.DRIFT:
+    drifts = [result for result in results if result.status is SyncStatus.DRIFT]
+    if drifts:
+        for result in drifts:
+            print(
+                f"[config-sync] {result.path.name} の wheel 参照が hub の最新リリースでは"
+                f"ありません ({result.detail})。`ame-ai-reviewer sync` で更新できます "
+                "(Issue #147)。",
+                file=sys.stderr,
+            )
+        return
+    if any(result.status is SyncStatus.IN_SYNC for result in results):
+        return
+    installed = _installed_version()
+    target = _resolve_target(
+        _target_major(), use_cache=True, timeout=_HOOK_TIMEOUT_SECONDS
+    )
+    if installed is None or target is None:
+        return
+    installed_order = _version_order(installed)
+    target_order = _version_order(target[0])
+    if (
+        installed_order is None
+        or target_order is None
+        or installed_order >= target_order
+    ):
         return
     print(
-        f"[config-sync] Gate 1 の wheel 参照が hub の最新リリースではありません "
-        f"({result.detail})。`ame-ai-reviewer sync` で更新できます (Issue #147)。",
+        f"[config-sync] インストール済みの review system (v{installed}) が hub の最新 "
+        f"(v{target[0]}) より古いです。環境を更新してください (Issue #153)。",
         file=sys.stderr,
     )
 
 
-def cmd_sync(args: argparse.Namespace) -> int:
-    """``ame-ai-reviewer sync`` のエントリポイント (Issue #147).
-
-    終了コードは drift (更新すべき) と解決不能 (要調査) を区別する。``--check`` は検出のみで、
-    ドリフトがあれば exit 1、判定できなければ exit 2 を返す (CI のゲートで誤検知しないため)。
-    固定版が hub の最新より新しい場合は書き換えず、理由を stderr に出して exit 0 を返す。
-    """
-    config_path = paths.project_root() / ".pre-commit-config.yaml"
-    result = sync(config_path, write=not args.check)
+def _report(label: str, result: SyncResult) -> int:
+    """1 つの参照先の判定を表示し、その終了コードを返す."""
     prefix = "[config-sync]"
     if result.status is SyncStatus.IN_SYNC:
-        print(f"{prefix} 同期済み ({result.detail or f'v{result.target_version}'})")
+        print(
+            f"{prefix} {label}: 同期済み ({result.detail or f'v{result.target_version}'})"
+        )
         return 0
     if result.status is SyncStatus.ABSENT:
-        print(f"{prefix} 同期対象なし ({result.detail})")
+        print(f"{prefix} {label}: 同期対象なし ({result.detail})")
         return 0
     if result.status is SyncStatus.AHEAD:
         # 更新も不要だが、黙って見逃さないよう理由を出す (存在しない版の固定など)。
-        print(f"{prefix} 対象外: {result.detail}", file=sys.stderr)
+        print(f"{prefix} {label}: 対象外: {result.detail}", file=sys.stderr)
         return 0
     if result.status is SyncStatus.DRIFT:
-        print(f"{prefix} 差分あり: {result.path} — {result.detail}", file=sys.stderr)
+        print(
+            f"{prefix} {label}: 差分あり: {result.path} — {result.detail}",
+            file=sys.stderr,
+        )
         print(
             f"{prefix} `ame-ai-reviewer sync` で更新してください (--check は書き換えません)。",
             file=sys.stderr,
         )
         return _EXIT_DRIFT
-    print(f"{prefix} 判定できません: {result.detail}", file=sys.stderr)
+    print(f"{prefix} {label}: 判定できません: {result.detail}", file=sys.stderr)
     return _EXIT_UNRESOLVED
+
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    """``ame-ai-reviewer sync`` のエントリポイント (Issue #147・#153).
+
+    参照先は 2 つある。``.pre-commit-config.yaml`` の AI フックと、``language: system`` の
+    導入先が wheel を指す ``pyproject.toml`` である。両方を同期し、終了コードは悪い方に
+    合わせる (drift = 1 / 判定不能 = 2)。``--check`` は検出のみで書き換えない。
+    ``pyproject.toml`` を書き換えた場合は ``uv lock`` でロックも追随させる。
+    固定版が hub の最新より新しい場合は書き換えず、理由を stderr に出して exit 0 を返す。
+    """
+    root = paths.project_root()
+    write = not args.check
+    results = (
+        ("pre-commit", sync(root / ".pre-commit-config.yaml", write=write)),
+        ("pyproject", sync_pyproject(_pyproject_path(), write=write)),
+    )
+    return max(starmap(_report, results))

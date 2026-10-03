@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- `ame-ai-reviewer sync` が `language: system` の導入先も扱えるようにした (Issue #153)。
+  - wheel を `pyproject.toml` に参照する構成 (`init --python` 方式、`uv run`
+    方式) を対象に加えた。判定は同じくテキスト完全一致で、別メジャーの意図的な固定は触らない。
+  - 書き換えたあと `uv lock` を実行し、`uv.lock` の URL と hash も追随させる (`uv`
+    が無い / 失敗した場合は理由を表示して exit 2)。
+  - 参照を git 管理せず仮想環境へ入れるだけの導入先では、フックがインストール済みの版と hub の最新を比べて警告する (無言で古い実装を使い続けない)。
+  - `sync` の終了コードは 2 つの参照先 (`.pre-commit-config.yaml` /
+    `pyproject.toml`) の悪い方に合わせる。`.pre-commit-config.yaml`
+    が無い構成は「対象なし」(exit 0) として扱う。
+
 ## [0.2.16] - 2026-10-02
 
 ### Added

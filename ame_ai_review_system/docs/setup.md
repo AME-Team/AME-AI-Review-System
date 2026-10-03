@@ -224,6 +224,17 @@ Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version`
 `ame-ai-reviewer sync --check` を使います (差分があれば exit
 1、判定できなければ exit 2)。別メジャーの wheel を意図的に固定している場合は対象外です。固定版が hub の最新リリースより新しい場合も対象外です (黙ってダウングレードしないため)。この場合は理由が stderr に表示されます。prerelease と draft のリリースは候補にしません。
 
+`language: system` で動かす導入先 (`init --python` 方式、`uv run` 方式) は wheel を `pyproject.toml`
+に参照します。この場合 `#sha256=` は `.pre-commit-config.yaml` ではなく `uv.lock` が持ちます。
+
+`sync` はこの形も対象にし、書き換えたあと `uv lock` でロックも追随させます。`uv`
+が見つからない場合や `uv lock`
+が失敗した場合は、参照を元へ書き戻して整合を保ちます。理由を表示して exit 2 を返すので、`uv`
+を用意して再度実行してください。
+
+参照を git 管理せず仮想環境へ入れるだけの導入先では、git 上の参照と突き合わせても古さが分かりません。その場合はフックがインストール済みの版と hub の最新を比べて警告します (Issue
+#153)。
+
 `ame-ai-reviewer init --force` で `.pre-commit-config.yaml` を再生成する方法もあります。Gate
 1 のフックは、参照が hub の最新リリースから遅れている場合に警告を表示します。書き換えは行わず、同期に失敗してもコミットは妨げません (fail-open)。
 

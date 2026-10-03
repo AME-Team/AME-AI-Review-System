@@ -670,8 +670,8 @@ cp -r ame_ai_review_system/ /path/to/your-repo/`}
         </DocNote>
         <DocNote>
           {l(
-            "Gate 1（pre-commit）が参照する wheel の版は ame-ai-reviewer sync で hub の最新リリースへ追随できます。差分の確認だけなら sync --check を使います（書き換わるのは参照行のみ）。",
-            "Run ame-ai-reviewer sync to move the Gate 1 wheel reference to the latest hub release. sync --check only reports drift; only the reference line is rewritten."
+            "Gate 1（pre-commit）が参照する wheel の版は ame-ai-reviewer sync で hub の最新リリースへ追随できます。差分の確認だけなら sync --check を使います（書き換わるのは参照行のみ）。language: system の導入先が wheel を指す pyproject.toml も対象で、書き換え後は uv lock でロックも追随させます。",
+            "Run ame-ai-reviewer sync to move the Gate 1 wheel reference to the latest hub release. sync --check only reports drift; only the reference line is rewritten. For language: system setups the pyproject.toml reference is updated too, followed by uv lock."
           )}
         </DocNote>
       </Section>

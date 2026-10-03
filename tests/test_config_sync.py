@@ -10,15 +10,20 @@ from __future__ import annotations
 
 import argparse
 import http.client
+import importlib.metadata
 import json
+import os
+import shutil
+import stat
+import subprocess
 import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from ame_ai_review_system import config_sync, init_cmd, paths
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from typing import Self
 
 _DIGEST = "b" * 64
@@ -371,8 +376,18 @@ def test_inspect_is_fail_open_when_offline(
     assert result.status is config_sync.SyncStatus.UNKNOWN
 
 
-def test_inspect_is_fail_open_without_config(tmp_path: Path) -> None:
+def test_inspect_reports_absent_without_config(tmp_path: Path) -> None:
+    # ファイルが無いのは「対象なし」。判定不能にすると、pyproject だけに参照を持つ構成で
+    # sync が exit 2 (要調査) を返してしまう。
     result = config_sync.inspect(tmp_path / "missing.yaml")
+    assert result.status is config_sync.SyncStatus.ABSENT
+
+
+def test_inspect_is_fail_open_on_unreadable_config(tmp_path: Path) -> None:
+    # 読めない (存在するが読めない) 場合は判定不能として返す (fail-open で例外は出さない)。
+    directory = tmp_path / "as-directory.yaml"
+    directory.mkdir()
+    result = config_sync.inspect(directory)
     assert result.status is config_sync.SyncStatus.UNKNOWN
 
 
@@ -610,3 +625,494 @@ def test_warn_is_fail_open_when_offline(
     _write(tmp_path, _config_text("0.2.7", _OLD_DIGEST))
     config_sync.warn_if_out_of_sync()
     assert not capsys.readouterr().err
+
+
+def _pyproject_text(version: str, *, indent: str = "    ", comma: bool = True) -> str:
+    """System 構成の導入先の pyproject.toml を模する (wheel を直接参照する)."""
+    comma_text = "," if comma else ""
+    return (
+        "[project]\n"
+        'name = "x"\n'
+        "dependencies = [\n"
+        f'{indent}"ame-ai-review-system @ {init_cmd.wheel_url(version)}"{comma_text}\n'
+        "]\n"
+    )
+
+
+def _write_pyproject(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "pyproject.toml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _patch_uv(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    available: bool = True,
+    returncode: int = 0,
+    stderr: str = "",
+) -> list[dict[str, object]]:
+    """``uv lock`` の実行を差し替え、呼び出された引数を記録する."""
+
+    def _which(_name: str) -> str | None:
+        return "/usr/bin/uv" if available else None
+
+    monkeypatch.setattr(shutil, "which", _which)
+    calls: list[dict[str, object]] = []
+
+    def _fake_run(
+        args: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append({"args": list(args), **kwargs})
+        return subprocess.CompletedProcess(args, returncode, "", stderr)
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    return calls
+
+
+def _patch_installed_version(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
+    """``importlib.metadata.version`` を差し替える (実環境の導入状況に依存しない)."""
+
+    def _fake_version(_name: str) -> str:
+        return version
+
+    monkeypatch.setattr(importlib.metadata, "version", _fake_version)
+
+
+def test_inspect_pyproject_reports_in_sync(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    result = config_sync.inspect_pyproject(
+        _write_pyproject(tmp_path, _pyproject_text("0.2.15"))
+    )
+    assert result.status is config_sync.SyncStatus.IN_SYNC
+    assert result.target_version == "0.2.15"
+
+
+def test_inspect_pyproject_reports_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    result = config_sync.inspect_pyproject(
+        _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    )
+    assert result.status is config_sync.SyncStatus.DRIFT
+    assert result.target_version == "0.2.15"
+
+
+def test_sync_pyproject_rewrites_and_runs_uv_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 参照 URL だけ書き換えると uv.lock の hash が古いまま残るため、uv lock まで走らせる。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    calls = _patch_uv(monkeypatch)
+    path = _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    result = config_sync.sync_pyproject(path, write=True)
+    assert result.status is config_sync.SyncStatus.IN_SYNC
+    assert "uv.lock" in result.detail
+    assert init_cmd.wheel_url("0.2.15") in path.read_text(encoding="utf-8")
+    assert init_cmd.wheel_url("0.2.7") not in path.read_text(encoding="utf-8")
+    assert [call["args"] for call in calls] == [
+        ["/usr/bin/uv", "lock", "--upgrade-package", "ame-ai-review-system"]
+    ]
+    # uv は pyproject.toml のあるディレクトリで実行する (project_root と一致しない構成も)。
+    assert calls[0]["cwd"] == tmp_path
+
+
+def test_sync_pyproject_check_does_not_write_or_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    calls = _patch_uv(monkeypatch)
+    text = _pyproject_text("0.2.7")
+    path = _write_pyproject(tmp_path, text)
+    assert (
+        config_sync.sync_pyproject(path, write=False).status
+        is config_sync.SyncStatus.DRIFT
+    )
+    assert path.read_text(encoding="utf-8") == text
+    assert calls == []
+
+
+def test_sync_pyproject_reports_when_uv_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # uv が無い環境では「書き換えたがロックが追随していない」ことを黙らせない (要対応)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch, available=False)
+    text = _pyproject_text("0.2.7")
+    path = _write_pyproject(tmp_path, text)
+    result = config_sync.sync_pyproject(path, write=True)
+    assert result.status is config_sync.SyncStatus.UNKNOWN
+    assert "uv" in result.detail
+    # 参照だけ書き換わってロックが古いまま残ると uv sync が壊れるため、書き戻す。
+    assert path.read_text(encoding="utf-8") == text
+    # 書き戻した結果は「変化なし」なので、到達目標の版は載せない (結果の形を揃える)。
+    assert result.target_version is None
+
+
+def test_sync_pyproject_reports_when_uv_lock_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch, returncode=1, stderr="error: no solution found\n")
+    text = _pyproject_text("0.2.7")
+    path = _write_pyproject(tmp_path, text)
+    result = config_sync.sync_pyproject(path, write=True)
+    assert result.status is config_sync.SyncStatus.UNKNOWN
+    assert "no solution found" in result.detail
+    assert "書き戻" in result.detail
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_sync_pyproject_supports_single_quoted_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # TOML では単一引用符も有効。片方だけ見ると、その導入先が無言でスキップされる。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    path = _write_pyproject(
+        tmp_path, _wrap_pyproject(_pyproject_line("0.2.7", quote="'"))
+    )
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "'ame-ai-review-system @ " in text
+    assert init_cmd.wheel_url("0.2.15") in text
+
+
+def test_sync_pyproject_follows_symlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # シンボリックリンクは置換せず、参照先を書き換える (リンク自体を入れ替えない)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    real = tmp_path / "real.toml"
+    real.write_text(_wrap_pyproject(_pyproject_line("0.2.7")), encoding="utf-8")
+    link = tmp_path / "pyproject.toml"
+    link.symlink_to(real)
+    assert config_sync.sync_pyproject(link, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    assert link.is_symlink()
+    assert init_cmd.wheel_url("0.2.15") in real.read_text(encoding="utf-8")
+
+
+def test_sync_pyproject_preserves_hardlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # ハードリンクの相手も同じ内容を見る (置換して分離しない)。この経路だけは原子性より
+    # リンクの維持を優先する。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    real = tmp_path / "pyproject.toml"
+    real.write_text(_pyproject_text("0.2.7"), encoding="utf-8")
+    alias = tmp_path / "pyproject.alias.toml"
+    os.link(real, alias)
+    assert config_sync.sync_pyproject(real, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    assert real.stat().st_ino == alias.stat().st_ino
+    assert init_cmd.wheel_url("0.2.15") in alias.read_text(encoding="utf-8")
+
+
+def test_sync_pyproject_ignores_other_series_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 意図的な別メジャー固定 (v1.x) は対象外。書き換えても 1 バイト変えない。
+    _patch_releases(monkeypatch, [_release("v0.2.15"), _release("v1.2.3")])
+    text = _pyproject_text("1.2.3")
+    path = _write_pyproject(tmp_path, text)
+    assert config_sync.inspect_pyproject(path).status is config_sync.SyncStatus.ABSENT
+    assert (
+        config_sync.sync_pyproject(path, write=True).status
+        is config_sync.SyncStatus.ABSENT
+    )
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_inspect_pyproject_absent_without_reference(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _forbid_network(monkeypatch)
+    path = _write_pyproject(tmp_path, '[project]\nname = "x"\ndependencies = []\n')
+    result = config_sync.inspect_pyproject(path)
+    assert result.status is config_sync.SyncStatus.ABSENT
+    assert config_sync.inspect_pyproject(
+        tmp_path / "pyproject.toml.missing"
+    ).status is (config_sync.SyncStatus.ABSENT)
+
+
+def test_cmd_sync_reports_both_locations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _write(tmp_path, _config_text("0.2.15", _DIGEST))
+    _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    assert config_sync.cmd_sync(argparse.Namespace(check=True)) == 1
+    captured = capsys.readouterr()
+    assert "pre-commit: 同期済み" in captured.out
+    assert "pyproject: 差分あり" in captured.err
+
+
+def test_hook_warns_when_installed_version_is_behind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 参照を git 管理しない導入先 (wheel を venv へ直接入れる構成) は、インストール済みの版で
+    # 古さを判定しないと「対象なし」のまま無言で古い実装を使い続ける。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_installed_version(monkeypatch, "0.2.1")
+    _write(tmp_path, "repos: []\n")
+    config_sync.warn_if_out_of_sync()
+    assert "より古い" in capsys.readouterr().err
+
+
+def test_hook_silent_when_installed_version_is_current(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_installed_version(monkeypatch, "0.2.15")
+    _write(tmp_path, "repos: []\n")
+    config_sync.warn_if_out_of_sync()
+    assert not capsys.readouterr().err
+
+
+def test_hook_prefers_git_reference_over_installed_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # git 上の参照が同期済みなら、インストール済みの版が古くても警告しない (参照が正)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_installed_version(monkeypatch, "0.2.1")
+    _write(tmp_path, _config_text("0.2.15", _DIGEST))
+    config_sync.warn_if_out_of_sync()
+    assert not capsys.readouterr().err
+
+
+def test_hook_warns_for_pyproject_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _write(tmp_path, "repos: []\n")
+    _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    config_sync.warn_if_out_of_sync()
+    err = capsys.readouterr().err
+    assert "pyproject.toml" in err
+    assert "ame-ai-reviewer sync" in err
+
+
+def test_inspect_absent_when_config_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # ファイルが無い構成 (pyproject だけに参照を持つ等) を「判定不能 (要調査)」にしない。
+    _forbid_network(monkeypatch)
+    result = config_sync.inspect(tmp_path / ".pre-commit-config.yaml")
+    assert result.status is config_sync.SyncStatus.ABSENT
+
+
+def test_cmd_sync_only_pyproject_location(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    assert config_sync.cmd_sync(argparse.Namespace(check=True)) == 1
+    captured = capsys.readouterr()
+    assert ".pre-commit-config.yaml がありません" in captured.out
+    assert "pyproject: 差分あり" in captured.err
+
+
+def _pyproject_line(
+    version: str,
+    *,
+    name: str = "ame-ai-review-system",
+    fragment: str | None = None,
+    trailing: str = "",
+    quote: str = '"',
+) -> str:
+    """1 行の依存記述を組み立てる (表記揺れ・フラグメント・末尾空白の検証用)."""
+    url = init_cmd.wheel_url(version) + (f"#sha256={fragment}" if fragment else "")
+    return f"    {quote}{name} @ {url}{quote},{trailing}\n"
+
+
+def _wrap_pyproject(line: str) -> str:
+    return f'[project]\nname = "x"\ndependencies = [\n{line}]\n'
+
+
+def test_inspect_pyproject_accepts_underscore_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 依存名は PEP 503 の正規化で同一視する (ame_ai_review_system と書く導入先がある)。
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    path = _write_pyproject(
+        tmp_path, _wrap_pyproject(_pyproject_line("0.2.7", name="ame_ai_review_system"))
+    )
+    _patch_uv(monkeypatch)
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    # 書き換え後も元の表記 (アンダースコア) を保つ。
+    text = path.read_text(encoding="utf-8")
+    assert "ame_ai_review_system @ " in text
+    assert init_cmd.wheel_url("0.2.15") in text
+
+
+def test_inspect_pyproject_updates_pinned_fragment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # URL に #sha256= を書く導入先は、書き換えでフラグメントを落とさず新しい digest にする。
+    _patch_releases(monkeypatch, [_release("v0.2.15", digest=_DIGEST)])
+    path = _write_pyproject(
+        tmp_path, _wrap_pyproject(_pyproject_line("0.2.7", fragment=_OLD_DIGEST))
+    )
+    _patch_uv(monkeypatch)
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    text = path.read_text(encoding="utf-8")
+    assert f"{init_cmd.wheel_url('0.2.15')}#sha256={_DIGEST}" in text
+    assert _OLD_DIGEST not in text
+
+
+def test_inspect_pyproject_in_sync_ignores_unrelated_lines(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    path = _write_pyproject(
+        tmp_path,
+        '[project]\nname = "x"\ndependencies = [\n'
+        '    "ame-ai-review-system @ ' + init_cmd.wheel_url("0.2.15") + '",\n'
+        '    "ame-ai-review-system-extra @ https://example.invalid/x.whl",\n'
+        '    "other @ ' + init_cmd.wheel_url("0.2.7") + '",\n'
+        "]\n",
+    )
+    # 名前が違う / 別 URL の行は管理対象にしない。
+    assert config_sync.inspect_pyproject(path).status is config_sync.SyncStatus.IN_SYNC
+
+
+def test_sync_pyproject_runs_uv_in_pyproject_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # project_root と pyproject.toml の位置が違っても、uv lock は pyproject の隣で走らせる。
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _patch_project_root(monkeypatch, repo)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    calls = _patch_uv(monkeypatch)
+    path = _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    assert calls[0]["cwd"] == tmp_path
+
+
+def test_inspect_pyproject_keeps_other_fragment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # sha256 以外のフラグメント (egg= 等) は落とさず、sha256 だけ差し替える。
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    line = (
+        f'    "ame-ai-review-system @ {init_cmd.wheel_url("0.2.7")}'
+        f'#egg=ame_ai_review_system&sha256={_OLD_DIGEST}",\n'
+    )
+    path = _write_pyproject(tmp_path, _wrap_pyproject(line))
+    _patch_uv(monkeypatch)
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "egg=ame_ai_review_system" in text
+    assert f"sha256={_DIGEST}" in text
+    assert _OLD_DIGEST not in text
+
+
+def test_sync_pyproject_keeps_trailing_whitespace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 行末の空白は書き換えで落とさない (無関係な差分を作らない)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    path = _write_pyproject(
+        tmp_path, _wrap_pyproject(_pyproject_line("0.2.7", trailing="  "))
+    )
+    config_sync.sync_pyproject(path, write=True)
+    assert path.read_text(encoding="utf-8").splitlines()[3].endswith('",  ')
+
+
+def test_sync_pyproject_keeps_reference_when_write_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 書き込みが途中で失敗しても、参照を壊さない (一時ファイル + 置換)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    text = _pyproject_text("0.2.7")
+    path = _write_pyproject(tmp_path, text)
+
+    message = "disk full"
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise OSError(message)
+
+    monkeypatch.setattr(Path, "replace", _boom)
+    result = config_sync.sync_pyproject(path, write=True)
+    assert result.status is config_sync.SyncStatus.UNKNOWN
+    assert path.read_text(encoding="utf-8") == text
+    # 一時ファイルを残さない。
+    assert [entry.name for entry in tmp_path.iterdir()] == ["pyproject.toml"]
+
+
+def test_sync_pyproject_preserves_file_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 置換で権限を変えない (mkstemp 方式だと 0600 に落ちる)。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    path = _write_pyproject(tmp_path, _pyproject_text("0.2.7"))
+    path.chmod(0o640)
+    assert config_sync.sync_pyproject(path, write=True).status is (
+        config_sync.SyncStatus.IN_SYNC
+    )
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_sync_pyproject_rolls_back_on_unexpected_lock_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # uv 側が想定外の例外を出しても、参照だけ書き換わった状態を残さない。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.15")])
+    _patch_uv(monkeypatch)
+    text = _pyproject_text("0.2.7")
+    path = _write_pyproject(tmp_path, text)
+
+    message = "unexpected"
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise ValueError(message)
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    result = config_sync.sync_pyproject(path, write=True)
+    assert result.status is config_sync.SyncStatus.UNKNOWN
+    assert "uv lock" in result.detail
+    assert path.read_text(encoding="utf-8") == text
