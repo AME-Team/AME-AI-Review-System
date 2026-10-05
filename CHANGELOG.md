@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-10-05
+
 ### Fixed
 
 - opencode sidecar のリトライ方針を直した (Issue #154)。
