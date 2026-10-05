@@ -37,6 +37,9 @@ export default tseslint.config(
       "**/build/**",
       "eslint.config.mjs",
       "ame_ai_review_system/**",
+      // 検証スクリプトは Node 用の素の .mjs で、型情報を要求する TS 向けルールの対象外。
+      // sidecar 本体 (ame_ai_review_system/**) と同じ扱いにする。
+      "scripts/**/*.mjs",
     ],
   }
 );

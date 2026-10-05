@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- opencode sidecar のリトライ方針を直した (Issue #154)。
+  - `finish=length` の空応答リトライは、`high` 起点だと step
+    down で予算を使い切り、最深段 (`low`) の同一 variant 再試行に到達していなかった。予算を梯子の段数 +
+    1 にし、起点に関わらず最深段で最低 1 回は同じ variant を試す。
+  - 接続エラーの再試行判定を `cause.code` の許可リストに変更した (`UND_ERR_CONNECT_TIMEOUT` /
+    `ECONNRESET` / `ETIMEDOUT` / `EPIPE` / `EAI_AGAIN` を追加)。文言一致の `fetch failed`
+    は廃止し、`CERT_HAS_EXPIRED` 等の恒久エラーを再試行しない。
+  - 判定は `engines/ts/retry.mjs` に集約し、`scripts/verify-opencode-retry.mjs` と
+    `tests/test_opencode_sidecar.py` で検証する。
+
 ## [0.2.17] - 2026-10-03
 
 ### Added
