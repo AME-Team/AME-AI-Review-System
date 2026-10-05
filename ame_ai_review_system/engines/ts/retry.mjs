@@ -34,6 +34,9 @@ const RETRYABLE_CODES = new Set([
 //   - undici は "fetch failed" の原因を cause に入れる (1 段深いこともある)
 //   - localhost のように接続先が複数ある場合、undici は AggregateError を投げ、
 //     個々の失敗は cause.errors[] に入る (cause.code は undefined になる)
+// undici の実際の形は "fetch failed" (1) → cause (2) → AggregateError (3) → errors[] (4) で、
+// 4 段で足りる。上限は病的な入れ子や循環に対する保険で、超えた分は判定に使わない
+// (浅い側でコードが 1 つも取れなければ、下の文言による保険へ進む)。
 const MAX_CAUSE_DEPTH = 4;
 
 function collectErrorCodes(err, depth = 0) {

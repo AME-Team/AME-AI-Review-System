@@ -95,6 +95,21 @@ assert.equal(
 );
 ok("恒久エラーが混ざるチェーンは再試行しない");
 
+// 深さ上限 (4 段) の境界を両側から押さえる。
+function nest(code, levels) {
+  let node = { code };
+  for (let i = 0; i < levels; i++) node = { cause: node };
+  return node;
+}
+
+// ちょうど 4 段 (実形状と同じ深さ) のコードは判定に使う。
+assert.equal(isRetryableError(nest("ECONNRESET", 4)), true, "4 段目は判定に使う");
+ok("ちょうど上限 (4 段) のコードは判定に使う");
+
+// 上限を超える分は判定に使わず、再試行しない (実形状では起きない病的な入れ子)。
+assert.equal(isRetryableError(nest("ECONNRESET", 5)), false, "5 段目は判定に使わない");
+ok("深さ上限を超える入れ子は再試行しない (上限の根拠は実形状の 4 段)");
+
 // --- 長さ系: 実際のループを駆動して、試された variant を観測する -------------------
 const LENGTH_EXHAUSTED = new Error("length exhausted");
 
