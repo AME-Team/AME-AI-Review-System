@@ -1,8 +1,8 @@
-// opencode sidecar のリトライ方針を検証する (Issue #154)。
+// opencode sidecar のリトライ挙動を検証する (Issue #154)。
 //
-// 配布物そのもの (ame_ai_review_system/engines/ts/retry.mjs) を import して検証するため、
-// 「方針は直ったが sidecar が使っていない」という取り違えも検出する (配線は本文の検査で確認)。
-// Node だけで完結し、ネットワークにも依存しない (SDK を読み込まない純粋モジュールのため)。
+// 配布物そのもの (ame_ai_review_system/engines/ts/retry.mjs) を import し、実際の実行ループ
+// (runWithRetries) を差し替え可能な依存で駆動する。SDK もネットワークも使わないため、
+// CI でもそのまま動く。
 //
 // 使い方: node scripts/verify-opencode-retry.mjs
 import assert from "node:assert/strict";
@@ -15,12 +15,11 @@ import {
   MAX_PROMPT_ATTEMPTS,
   RETRY_BASE_DELAY_MS,
   isRetryableError,
-  planLengthRetry,
+  runWithRetries,
 } from "../ame_ai_review_system/engines/ts/retry.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sidecarPath = join(here, "..", "ame_ai_review_system", "engines", "ts", "opencode.mjs");
-const policyPath = join(here, "..", "ame_ai_review_system", "engines", "ts", "retry.mjs");
 
 let checks = 0;
 function ok(label) {
@@ -56,66 +55,107 @@ assert.equal(isRetryableError({ message: "length limit reached" }), false);
 assert.equal(isRetryableError(undefined), false);
 ok("恒久エラー (証明書・名前解決失敗) と素の fetch failed は再試行しない");
 
-// コードが取れない場合の保険は、一時的と分かる文言だけ (headers timeout / econnrefused)。
+// コードが取れない場合の保険は、一時的と分かる文言だけ。
 assert.equal(isRetryableError({ message: "Headers Timeout Error" }), true);
 assert.equal(isRetryableError({ message: "connect ECONNREFUSED 127.0.0.1:4096" }), true);
 ok("コードが無い場合も一時的な文言だけを拾う");
 
-// --- 長さ系: 起点に関わらず最深段で同一 variant を試す -----------------------------
-function simulate(initialVariant) {
+// --- 長さ系: 実際のループを駆動して、試された variant を観測する -------------------
+const LENGTH_EXHAUSTED = new Error("length exhausted");
+
+async function driveLengthFailure(initialVariant) {
   const tried = [];
-  let variant = initialVariant;
-  let used = 0;
-  for (;;) {
-    tried.push(variant);
-    const plan = planLengthRetry(variant, used);
-    if (plan.action === "give-up") break;
-    if (plan.action === "step-down") variant = plan.variant;
-    used++;
-    assert.ok(used <= MAX_LENGTH_RETRIES, "予算を超えて再試行している");
+  const logs = [];
+  let raised = null;
+  try {
+    await runWithRetries({
+      initialVariant,
+      runOnce: (variant) => {
+        tried.push(variant);
+        throw LENGTH_EXHAUSTED;
+      },
+      isLengthExhausted: (err) => err === LENGTH_EXHAUSTED,
+      sleepFn: () => Promise.resolve(),
+      log: (message) => logs.push(String(message)),
+    });
+  } catch (err) {
+    raised = err;
   }
-  return tried;
+  return { tried, logs, raised };
 }
 
-// high 起点: high→medium→low と下げたあと、最深段 (low) を同一 variant で再試行する。
-assert.deepEqual(simulate("high"), ["high", "medium", "low", "low"]);
-ok("high 起点でも最深段 (low) の同一 variant 再試行に到達する");
+const LADDER_CASES = [
+  ["high", ["high", "medium", "low", "low"]],
+  ["medium", ["medium", "low", "low", "low"]],
+  ["low", ["low", "low", "low", "low"]],
+  [undefined, [undefined, undefined, undefined, undefined]],
+];
+for (const [initial, expected] of LADDER_CASES) {
+  const { tried, logs, raised } = await driveLengthFailure(initial);
+  assert.deepEqual(tried, expected, `起点 ${String(initial)} の試行順`);
+  assert.equal(raised, LENGTH_EXHAUSTED, "使い切ったら業務エラーとして送出する");
+  assert.equal(logs.length, MAX_LENGTH_RETRIES, "再試行のたびに理由を 1 行出す");
+}
+ok("起点に関わらず最深段で同一 variant を再試行し、使い切ったら送出する");
+ok("high 起点の試行順は high→medium→low→low (Issue #154 の再現条件)");
 
-// medium 起点: 1 段下げたあと、最深段で 2 回再試行する (残余を同一 variant に使う)。
-assert.deepEqual(simulate("medium"), ["medium", "low", "low", "low"]);
-ok("medium 起点は最深段で残余を同一 variant に使う");
+// --- 接続系: 実際のループで再試行と打ち切りを観測する -----------------------------
+const TRANSIENT_ERROR = Object.assign(new Error("connect ECONNREFUSED"), {
+  cause: { code: "ECONNREFUSED" },
+});
+const PERMANENT_ERROR = Object.assign(new Error("fetch failed"), {
+  cause: { code: "CERT_HAS_EXPIRED" },
+});
 
-// 最深段・variant 未指定 (サーバー既定) は variant を変えずに予算を使い切る。
-assert.deepEqual(simulate("low"), ["low", "low", "low", "low"]);
-assert.deepEqual(simulate(undefined), [undefined, undefined, undefined, undefined]);
-ok("low 起点 / サーバー既定は variant を変えない");
+async function driveConnection({ failures, error }) {
+  const delays = [];
+  let calls = 0;
+  let raised = null;
+  let result = null;
+  try {
+    result = await runWithRetries({
+      initialVariant: "low",
+      runOnce: () => {
+        calls++;
+        if (calls <= failures) throw error;
+        return "review text";
+      },
+      sleepFn: (ms) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+      log: () => {},
+    });
+  } catch (err) {
+    raised = err;
+  }
+  return { calls, delays, raised, result };
+}
 
-// 未知の variant は step down せず同一 variant で再試行する。
-assert.deepEqual(simulate("xhigh"), ["xhigh", "xhigh", "xhigh", "xhigh"]);
-ok("未知の variant は step down しない");
+const recovered = await driveConnection({ failures: 2, error: TRANSIENT_ERROR });
+assert.equal(recovered.calls, 3);
+assert.deepEqual(recovered.delays, [RETRY_BASE_DELAY_MS, RETRY_BASE_DELAY_MS * 2]);
+assert.equal(recovered.result.text, "review text");
+ok("一時的な接続エラーはバックオフ付きで再試行して成功する");
 
-// 打ち切りは give-up を返す (呼び出し側は業務エラーとして送出する)。
-assert.equal(planLengthRetry("low", MAX_LENGTH_RETRIES).action, "give-up");
-assert.ok(MAX_LENGTH_RETRIES > 2, "梯子 (2 段) では最深段の再試行に到達しない");
-ok(`予算 ${MAX_LENGTH_RETRIES} 回で打ち切る`);
+const exhausted = await driveConnection({ failures: 99, error: TRANSIENT_ERROR });
+assert.equal(exhausted.calls, MAX_PROMPT_ATTEMPTS);
+assert.equal(exhausted.raised, TRANSIENT_ERROR);
+ok(`一時的な失敗が続く場合は ${MAX_PROMPT_ATTEMPTS} 回で打ち切る`);
 
-// --- 配線: sidecar 本体が方針を使っている ---------------------------------------
+const permanent = await driveConnection({ failures: 1, error: PERMANENT_ERROR });
+assert.equal(permanent.calls, 1, "恒久エラーは 1 回で諦める");
+assert.equal(permanent.raised, PERMANENT_ERROR);
+ok("恒久エラーは再試行せず即座に送出する");
+
+// --- 配線: sidecar 本体が方針モジュールのループを使っている (最小限のスモークチェック) ---
 const sidecar = await readFile(sidecarPath, "utf8");
-assert.match(sidecar, /from "\.\/retry\.mjs"/);
-assert.match(sidecar, /planLengthRetry\(variant, lengthRetries\)/);
-assert.match(sidecar, /isRetryableError\(err\) && attempt < MAX_PROMPT_ATTEMPTS/);
+assert.match(sidecar, /runWithRetries\(\{/);
 assert.doesNotMatch(sidecar, /message\.includes\("fetch failed"\)/);
-ok("sidecar 本体が retry.mjs の方針を使っている");
+ok("sidecar 本体が retry.mjs のループを呼んでいる");
 
-const policy = await readFile(policyPath, "utf8");
-assert.doesNotMatch(policy, /includes\("fetch failed"\)/);
-assert.match(policy, /RETRYABLE_CODES/);
-ok("方針側に文言一致の fetch failed が残っていない");
-
-// --- 既存の予算が壊れていない ---------------------------------------------------
-assert.equal(MAX_PROMPT_ATTEMPTS, 3);
-assert.equal(RETRY_BASE_DELAY_MS, 5000);
-ok("接続リトライの予算とバックオフは据え置き");
+assert.ok(MAX_LENGTH_RETRIES > 2, "梯子 (2 段) では最深段の再試行に到達しない");
+ok(`長さリトライの予算は ${MAX_LENGTH_RETRIES} 回`);
 
 console.log(`\n1..${checks}`);
-console.log("opencode sidecar のリトライ方針は期待どおりです。");
+console.log("opencode sidecar のリトライ挙動は期待どおりです。");

@@ -17,14 +17,8 @@
 
 import { createOpencodeClient } from "@opencode-ai/sdk";
 
-// リトライ方針は retry.mjs に集約している (Issue #154: 判定を純粋関数にして検証可能にする)。
-import {
-  MAX_LENGTH_RETRIES,
-  MAX_PROMPT_ATTEMPTS,
-  RETRY_BASE_DELAY_MS,
-  isRetryableError,
-  planLengthRetry,
-} from "./retry.mjs";
+// リトライ方針とループは retry.mjs に集約している (Issue #154: 挙動で検証できるようにする)。
+import { runWithRetries } from "./retry.mjs";
 
 // 業務エラー（プロンプト/レスポンス契約違反等）を接続エラーと区別するためのフラグ。
 // catch 側で接続先 URL を出すかどうかの判定に使う（業務エラー時は URL 出力が誤誘導するため）。
@@ -43,10 +37,6 @@ class LengthExhaustedError extends EngineError {
     super(message);
     this.name = "LengthExhaustedError";
   }
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseArgs() {
@@ -199,63 +189,16 @@ async function main() {
       "tool-call syntax. Respond ONLY with a single valid JSON object matching the requested " +
       "schema. Do not include any other text.";
 
-  // Issue #113: 接続エラー・ヘッダータイムアウトはバックオフ付きで retry。
-  // Issue #137: finish=length で空応答した場合は variant を下げてリトライし、
-  // 回復不能なら従来どおり業務エラーとして送出する。
-  let attempt = 0;
+  // Issue #113 / #137 / #154: 接続リトライと長さリトライのループは retry.mjs に集約している。
   // opts.variant は parseArgs() が --variant <value> から設定する (opencode_ts.py が
   // thinking → --variant を渡す)。値が無ければ undefined (サーバー既定) のまま。
-  let variant = opts.variant;
-  let lengthRetries = 0;
-  while (true) {
-    attempt++;
-    try {
-      const text = await runPromptOnce(client, prompt, {
-        model,
-        toolsOff,
-        system,
-        variant,
-      });
-      process.stdout.write(text);
-      return;
-    } catch (err) {
-      if (err instanceof LengthExhaustedError) {
-        const plan = planLengthRetry(variant, lengthRetries);
-        if (plan.action !== "give-up") {
-          if (plan.action === "step-down") {
-            // high→medium→low と reasoning を下げて再試行する。
-            variant = plan.variant;
-            console.error(
-              `[opencode.mjs] finish=length with empty output; retry ` +
-                `${lengthRetries + 1}/${MAX_LENGTH_RETRIES} with variant=${variant}...`
-            );
-          } else {
-            // 既に最低段 (low / サーバー既定)。server default はむしろ reasoning が
-            // 高くなり得るため上げず、同じ variant で再試行する (非決定性回復, Issue #137)。
-            // Issue #154: 梯子の段数に 1 を足した予算により、`high` 起点でもここへ到達する。
-            console.error(
-              `[opencode.mjs] finish=length with empty output; retry ` +
-                `${lengthRetries + 1}/${MAX_LENGTH_RETRIES} (variant stays ` +
-                `${variant ?? "server default"})...`
-            );
-          }
-          lengthRetries++;
-          attempt = 0; // 接続リトライ回数も振り直す
-          continue;
-        }
-      }
-      if (isRetryableError(err) && attempt < MAX_PROMPT_ATTEMPTS) {
-        const delay = RETRY_BASE_DELAY_MS * attempt;
-        console.error(
-          `[opencode.mjs] attempt ${attempt}/${MAX_PROMPT_ATTEMPTS} failed ` +
-            `(${err.message}); retrying in ${delay}ms...`
-        );
-        await sleep(delay);
-        continue;
-      }
-      throw err;
-    }
-  }
+  // 使い切った場合は最後のエラーがそのまま送出され、main().catch が業務エラーとして扱う。
+  const { text } = await runWithRetries({
+    initialVariant: opts.variant,
+    runOnce: (variant) => runPromptOnce(client, prompt, { model, toolsOff, system, variant }),
+    isLengthExhausted: (err) => err instanceof LengthExhaustedError,
+  });
+  process.stdout.write(text);
 }
 
 main().catch((err) => {

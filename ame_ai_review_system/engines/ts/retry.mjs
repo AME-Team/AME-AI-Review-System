@@ -53,9 +53,74 @@ export function isRetryableError(err) {
 //   { action: "step-down", variant } — 一段下げて再試行する
 //   { action: "same-variant" }       — 同じ variant で再試行する (非決定性回復)
 //   { action: "give-up" }            — 予算を使い切った (呼び出し側は業務エラーとして送出する)
-export function planLengthRetry(variant, lengthRetriesUsed) {
-  if (lengthRetriesUsed >= MAX_LENGTH_RETRIES) return { action: "give-up" };
+export function planLengthRetry(variant, lengthRetriesUsed, maxLengthRetries = MAX_LENGTH_RETRIES) {
+  if (lengthRetriesUsed >= maxLengthRetries) return { action: "give-up" };
   const next = VARIANT_STEP_DOWN[variant];
   if (next !== undefined) return { action: "step-down", variant: next };
   return { action: "same-variant" };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 接続リトライ (Issue #113) と長さリトライ (Issue #137 / #154) をまとめた実行ループ。
+// runOnce / isLengthExhausted / sleepFn / log を差し替えられるようにして、sidecar 本体と
+// まったく同じコードをテストから挙動で検証できるようにする (Issue #154)。
+// 再試行を使い切った場合は最後のエラーをそのまま送出する (呼び出し側が業務エラーとして扱う)。
+export async function runWithRetries({
+  runOnce,
+  initialVariant,
+  isLengthExhausted = () => false,
+  maxPromptAttempts = MAX_PROMPT_ATTEMPTS,
+  maxLengthRetries = MAX_LENGTH_RETRIES,
+  baseDelayMs = RETRY_BASE_DELAY_MS,
+  sleepFn = sleep,
+  log = console.error,
+}) {
+  let attempt = 0;
+  let variant = initialVariant;
+  let lengthRetries = 0;
+  for (;;) {
+    attempt++;
+    try {
+      return { text: await runOnce(variant), attempts: attempt };
+    } catch (err) {
+      if (isLengthExhausted(err)) {
+        const plan = planLengthRetry(variant, lengthRetries, maxLengthRetries);
+        if (plan.action !== "give-up") {
+          if (plan.action === "step-down") {
+            // high→medium→low と reasoning を下げて再試行する。
+            variant = plan.variant;
+            log(
+              `[opencode.mjs] finish=length with empty output; retry ` +
+                `${lengthRetries + 1}/${maxLengthRetries} with variant=${variant}...`
+            );
+          } else {
+            // 既に最低段 (low / サーバー既定)。server default はむしろ reasoning が高く
+            // なり得るため上げず、同じ variant で再試行する (非決定性回復, Issue #137)。
+            // Issue #154: 梯子の段数に 1 を足した予算により `high` 起点でもここへ到達する。
+            log(
+              `[opencode.mjs] finish=length with empty output; retry ` +
+                `${lengthRetries + 1}/${maxLengthRetries} (variant stays ` +
+                `${variant ?? "server default"})...`
+            );
+          }
+          lengthRetries++;
+          attempt = 0; // 接続リトライ回数も振り直す
+          continue;
+        }
+      }
+      if (isRetryableError(err) && attempt < maxPromptAttempts) {
+        const delay = baseDelayMs * attempt;
+        log(
+          `[opencode.mjs] attempt ${attempt}/${maxPromptAttempts} failed ` +
+            `(${err.message}); retrying in ${delay}ms...`
+        );
+        await sleepFn(delay);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
