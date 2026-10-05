@@ -20,6 +20,8 @@ assets = [
     "ame_ai_review_system/config.json",
     "ame_ai_review_system/review_prompt.txt",
     "ame_ai_review_system/engines/ts/package.json",
+    "ame_ai_review_system/engines/ts/opencode.mjs",
+    "ame_ai_review_system/engines/ts/retry.mjs",
     "ame_ai_review_system/templates/precommit/python.yaml",
 ]
 names = zipfile.ZipFile(whl).namelist()

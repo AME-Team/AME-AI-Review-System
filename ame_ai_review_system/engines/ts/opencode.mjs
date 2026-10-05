@@ -11,10 +11,14 @@
 // レビュー完了後は作成したセッションを削除し、サーバ側へのセッション蓄積を防ぐ。
 //
 // 接続安定性 (Issue #113): サーバー未起動 (ECONNREFUSED) やコールドスタート時の
-// ヘッダータイムアウト (UND_ERR_HEADERS_TIMEOUT) は retry で回復を試みる。サーバー
-// 自体の自動起動は Python 側アダプタ (opencode_ts.py) が行う。
+// タイムアウト (UND_ERR_CONNECT_TIMEOUT / UND_ERR_HEADERS_TIMEOUT) は retry で回復を試みる。
+// サーバー自体の自動起動は Python 側アダプタ (opencode_ts.py) が行う。判定は retry.mjs に
+// 集約しており、許可リストに無いコード (証明書期限切れ等) は再試行しない (Issue #154)。
 
 import { createOpencodeClient } from "@opencode-ai/sdk";
+
+// リトライ方針とループは retry.mjs に集約している (Issue #154: 挙動で検証できるようにする)。
+import { runWithRetries } from "./retry.mjs";
 
 // 業務エラー（プロンプト/レスポンス契約違反等）を接続エラーと区別するためのフラグ。
 // catch 側で接続先 URL を出すかどうかの判定に使う（業務エラー時は URL 出力が誤誘導するため）。
@@ -33,35 +37,6 @@ class LengthExhaustedError extends EngineError {
     super(message);
     this.name = "LengthExhaustedError";
   }
-}
-
-// Issue #113: 一時的な接続・ヘッダータイムアウトは retry で回復できる。
-const MAX_PROMPT_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 5000;
-
-// Issue #137: finish=length で空応答した際に variant を順に下げてリトライする。
-// high→medium→low と reasoning を減らす。step down 先が無い場合（low 起点や
-// --variant 未指定のサーバー既定）は variant を変えず、MAX_LENGTH_RETRIES の残余を
-// 同じ variant の再試行に使う（非決定性回復, Issue #137）。
-const MAX_LENGTH_RETRIES = 2;
-const VARIANT_STEP_DOWN = { high: "medium", medium: "low", low: undefined };
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isRetryableError(err) {
-  if (!err) return false;
-  const code = err.code || (err.cause && err.cause.code) || "";
-  const message = String(err.message || "").toLowerCase();
-  return (
-    code === "ECONNREFUSED" ||
-    code === "UND_ERR_HEADERS_TIMEOUT" ||
-    code === "UND_ERR_SOCKET" ||
-    message.includes("headers timeout") ||
-    message.includes("fetch failed") ||
-    message.includes("econnrefused")
-  );
 }
 
 function parseArgs() {
@@ -214,60 +189,16 @@ async function main() {
       "tool-call syntax. Respond ONLY with a single valid JSON object matching the requested " +
       "schema. Do not include any other text.";
 
-  // Issue #113: 接続エラー・ヘッダータイムアウトはバックオフ付きで retry。
-  // Issue #137: finish=length で空応答した場合は variant を下げてリトライし、
-  // 回復不能なら従来どおり業務エラーとして送出する。
-  let attempt = 0;
+  // Issue #113 / #137 / #154: 接続リトライと長さリトライのループは retry.mjs に集約している。
   // opts.variant は parseArgs() が --variant <value> から設定する (opencode_ts.py が
   // thinking → --variant を渡す)。値が無ければ undefined (サーバー既定) のまま。
-  let variant = opts.variant;
-  let lengthRetries = 0;
-  while (true) {
-    attempt++;
-    try {
-      const text = await runPromptOnce(client, prompt, {
-        model,
-        toolsOff,
-        system,
-        variant,
-      });
-      process.stdout.write(text);
-      return;
-    } catch (err) {
-      if (err instanceof LengthExhaustedError && lengthRetries < MAX_LENGTH_RETRIES) {
-        const next = VARIANT_STEP_DOWN[variant];
-        if (next !== undefined) {
-          // high→medium→low と reasoning を下げて再試行する。
-          variant = next;
-          console.error(
-            `[opencode.mjs] finish=length with empty output; retry ` +
-              `${lengthRetries + 1}/${MAX_LENGTH_RETRIES} with variant=${next}...`
-          );
-        } else {
-          // 既に最低段 (low / サーバー既定)。server default はむしろ reasoning が
-          // 高くなり得るため上げず、同じ variant で再試行する (非決定性回復, Issue #137)。
-          console.error(
-            `[opencode.mjs] finish=length with empty output; retry ` +
-              `${lengthRetries + 1}/${MAX_LENGTH_RETRIES} (variant stays ` +
-              `${variant ?? "server default"})...`
-          );
-        }
-        lengthRetries++;
-        attempt = 0; // 接続リトライ回数も振り直す
-        continue;
-      }
-      if (isRetryableError(err) && attempt < MAX_PROMPT_ATTEMPTS) {
-        const delay = RETRY_BASE_DELAY_MS * attempt;
-        console.error(
-          `[opencode.mjs] attempt ${attempt}/${MAX_PROMPT_ATTEMPTS} failed ` +
-            `(${err.message}); retrying in ${delay}ms...`
-        );
-        await sleep(delay);
-        continue;
-      }
-      throw err;
-    }
-  }
+  // 使い切った場合は最後のエラーがそのまま送出され、main().catch が業務エラーとして扱う。
+  const { text } = await runWithRetries({
+    initialVariant: opts.variant,
+    runOnce: (variant) => runPromptOnce(client, prompt, { model, toolsOff, system, variant }),
+    isLengthExhausted: (err) => err instanceof LengthExhaustedError,
+  });
+  process.stdout.write(text);
 }
 
 main().catch((err) => {
