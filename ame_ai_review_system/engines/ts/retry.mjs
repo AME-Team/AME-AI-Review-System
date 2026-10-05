@@ -30,21 +30,32 @@ const RETRYABLE_CODES = new Set([
   "UND_ERR_SOCKET",
 ]);
 
-function errorCode(err) {
-  // cause 側のコードを優先する (undici の "fetch failed" は cause に本来の原因を持つ)。
-  const cause = err && err.cause;
-  if (cause && typeof cause.code === "string" && cause.code) return cause.code;
-  if (err && typeof err.code === "string" && err.code) return err.code;
-  return "";
+// cause の入れ子を辿って、現れ得るコードをすべて集める。
+//   - undici は "fetch failed" の原因を cause に入れる (1 段深いこともある)
+//   - localhost のように接続先が複数ある場合、undici は AggregateError を投げ、
+//     個々の失敗は cause.errors[] に入る (cause.code は undefined になる)
+const MAX_CAUSE_DEPTH = 4;
+
+function collectErrorCodes(err, depth = 0) {
+  if (!err || typeof err !== "object" || depth > MAX_CAUSE_DEPTH) return [];
+  const codes = [];
+  if (typeof err.code === "string" && err.code) codes.push(err.code);
+  const nested = [];
+  if (err.cause) nested.push(err.cause);
+  if (Array.isArray(err.errors)) nested.push(...err.errors);
+  for (const child of nested) codes.push(...collectErrorCodes(child, depth + 1));
+  return codes;
 }
 
 // Issue #154: コードが取れる場合は許可リストだけで判定する。文言一致の "fetch failed" は
 // CERT_HAS_EXPIRED 等の恒久エラーまで拾い、回復しない失敗を繰り返すため使わない。
 // コードが取れない場合に限り、一時的と分かる文言だけを保険として見る。
+// AggregateError を考慮して、集めたコードがすべて一時的と分かるときだけ再試行する
+// (恒久エラーが 1 つでも混ざっていれば、回復しない失敗を繰り返さない)。
 export function isRetryableError(err) {
   if (!err) return false;
-  const code = errorCode(err);
-  if (code) return RETRYABLE_CODES.has(code);
+  const codes = collectErrorCodes(err);
+  if (codes.length > 0) return codes.every((code) => RETRYABLE_CODES.has(code));
   const message = String(err.message || "").toLowerCase();
   return message.includes("headers timeout") || message.includes("econnrefused");
 }

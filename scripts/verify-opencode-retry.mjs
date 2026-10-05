@@ -60,6 +60,41 @@ assert.equal(isRetryableError({ message: "Headers Timeout Error" }), true);
 assert.equal(isRetryableError({ message: "connect ECONNREFUSED 127.0.0.1:4096" }), true);
 ok("コードが無い場合も一時的な文言だけを拾う");
 
+// localhost のように接続先が複数あると undici は AggregateError を返し、cause.code は
+// undefined になる (個々の失敗は cause.errors[])。ここを取りこぼすと Issue #113 の
+// サーバー未起動回復が退行する。
+const AGGREGATE_REFUSED = Object.assign(new Error("fetch failed"), {
+  cause: Object.assign(new AggregateError([], "all failed"), {
+    errors: [
+      Object.assign(new Error("connect ECONNREFUSED ::1:4096"), {
+        code: "ECONNREFUSED",
+      }),
+      Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:4096"), {
+        code: "ECONNREFUSED",
+      }),
+    ],
+  }),
+});
+assert.equal(isRetryableError(AGGREGATE_REFUSED), true, "AggregateError の各失敗");
+assert.equal(isRetryableError({ cause: { cause: { code: "ECONNRESET" } } }), true);
+ok("AggregateError と入れ子の cause も走査する");
+
+// 逆に、恒久エラーが混ざっていれば再試行しない (回復しない失敗を繰り返さない)。
+assert.equal(
+  isRetryableError({
+    code: "UND_ERR_SOCKET",
+    cause: { code: "CERT_HAS_EXPIRED" },
+  }),
+  false
+);
+assert.equal(
+  isRetryableError({
+    cause: { errors: [{ code: "ECONNREFUSED" }, { code: "CERT_HAS_EXPIRED" }] },
+  }),
+  false
+);
+ok("恒久エラーが混ざるチェーンは再試行しない");
+
 // --- 長さ系: 実際のループを駆動して、試された variant を観測する -------------------
 const LENGTH_EXHAUSTED = new Error("length exhausted");
 
@@ -147,6 +182,15 @@ const permanent = await driveConnection({ failures: 1, error: PERMANENT_ERROR })
 assert.equal(permanent.calls, 1, "恒久エラーは 1 回で諦める");
 assert.equal(permanent.raised, PERMANENT_ERROR);
 ok("恒久エラーは再試行せず即座に送出する");
+
+// サーバー未起動 (AggregateError) でもループが再試行し、起動後に回復すること。
+const aggregateRecovered = await driveConnection({
+  failures: 1,
+  error: AGGREGATE_REFUSED,
+});
+assert.equal(aggregateRecovered.calls, 2);
+assert.equal(aggregateRecovered.result.text, "review text");
+ok("サーバー未起動 (AggregateError) から回復する");
 
 // --- 配線: sidecar 本体が方針モジュールのループを使っている (最小限のスモークチェック) ---
 const sidecar = await readFile(sidecarPath, "utf8");
