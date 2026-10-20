@@ -220,19 +220,32 @@ def _select_reply(
 
 
 def _warn_reply_skipped(
-    thread_id: int, thread: list[dict[str, Any]], reviewer_logins: set[str]
+    thread_id: int,
+    thread: list[dict[str, Any]],
+    reviewer_logins: set[str],
+    *,
+    emit_annotation: bool = False,
 ) -> None:
-    """再評価しなかった理由を GitHub Actions のアノテーションとして残す (Issue #159)."""
+    """再評価しなかった理由を残す (Issue #159).
+
+    Args:
+        thread_id: 対象スレッドのルートコメント ID。
+        thread: スレッドのコメント列。
+        reviewer_logins: レビュアーの login 集合。
+        emit_annotation: True なら ``::warning::`` を stdout にも出す。stdout が
+            プロンプト出力（build 系サブコマンド）のときは付けない。
+    """
     root_login = thread[0].get("user", {}).get("login", "") if thread else ""
     reason = (
         "スレッドの起点がレビュアーではないため、メンション付き返信だけを対象にします"
         if root_login not in reviewer_logins
         else "レビュアーの返信より新しい開発者返信がありません"
     )
-    print(
-        f"::warning::thread {thread_id}: 再評価をスキップしました ({reason})",
-        file=sys.stderr,
-    )
+    message = f"thread {thread_id}: 再評価をスキップしました ({reason})"
+    if emit_annotation:
+        # GitHub Actions は stdout の workflow command をアノテーションとして表示する。
+        print(f"::warning::{message}", flush=True)
+    print(f"[reply] WARNING: {message}", file=sys.stderr)
 
 
 def _thread_is_pending(
@@ -642,6 +655,8 @@ def _build_prompt_for_thread(
     token: str,
     reviewer_name: str,
     base_ref: str,
+    *,
+    emit_annotation: bool = False,
 ) -> str:
     thread_id = int(thread_id_str)
     comments = _get_thread_comments(api_url, repo, pr, token)
@@ -655,7 +670,9 @@ def _build_prompt_for_thread(
     reviewer_logins = github_client.reviewer_logins(api_url, token, reviewer_name)
     selected = _select_reply(thread, reviewer_name, reviewer_logins)
     if selected is None:
-        _warn_reply_skipped(thread_id, thread, reviewer_logins)
+        _warn_reply_skipped(
+            thread_id, thread, reviewer_logins, emit_annotation=emit_annotation
+        )
         return ""
     latest_reply = selected
 
@@ -754,6 +771,7 @@ def _process_thread(
             token,
             reviewer_name,
             base_ref,
+            emit_annotation=True,
         )
 
         if not prompt:
@@ -976,20 +994,18 @@ def _classify_thread(
     latest_reply = _select_reply(thread, reviewer_name, reviewer_logins)
     if latest_reply is None:
         return STATE_UNANSWERED
-    latest_reply_time = latest_reply.get("created_at", "")
-    later_reviewer_replies = sorted(
-        (
-            r
-            for r in thread[1:]
-            if r.get("user", {}).get("login") in reviewer_logins
-            and r.get("created_at", "") > latest_reply_time
-        ),
+    # 承認は「最新のレビュアー判定」だけで決める。LGTM の後に開発者がお礼を返しても
+    # 承認は取り消さない。逆に LGTM の後にレビュアーが追加指摘を出したら未承認に戻る。
+    # WHY: 会話だけの返信で未承認に戻すと、ガードが常に失敗してマージを塞ぐ。LGTM 後の
+    # 追加コミットは新しい SHA として扱われ、/request-review の新しいラウンドで審査される
+    # （スレッド単位の承認はそのラウンドの指摘に対する判定であるため）。
+    reviewer_replies = sorted(
+        (r for r in thread[1:] if r.get("user", {}).get("login") in reviewer_logins),
         key=lambda r: r.get("created_at", ""),
     )
-    if not later_reviewer_replies:
+    if not reviewer_replies:
         return STATE_AWAITING
-    # LGTM の後に追加指摘が投稿された場合は未承認のまま扱う（最新の判定のみ採用）。
-    last_verdict = later_reviewer_replies[-1]
+    last_verdict = reviewer_replies[-1]
     return (
         STATE_LGTM
         if is_lgtm_body(str(last_verdict.get("body", "")))

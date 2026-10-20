@@ -547,7 +547,11 @@ def test_process_thread_posts_reply(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(reply, "_post_reply", record_post)
     monkeypatch.setattr(reply, "_check_stale", lambda *_args: "ok")
-    monkeypatch.setattr(reply, "_build_prompt_for_thread", lambda *_args: "prompt")
+    monkeypatch.setattr(
+        reply,
+        "_build_prompt_for_thread",
+        lambda *_args, **_kwargs: "prompt",
+    )
     monkeypatch.setattr(
         reply,
         "_run_engine",
@@ -576,7 +580,11 @@ def test_process_thread_skips_when_no_longer_pending(
 
     monkeypatch.setattr(reply, "_post_reply", record_post)
     monkeypatch.setattr(reply, "_check_stale", lambda *_args: "ok")
-    monkeypatch.setattr(reply, "_build_prompt_for_thread", lambda *_args: "prompt")
+    monkeypatch.setattr(
+        reply,
+        "_build_prompt_for_thread",
+        lambda *_args, **_kwargs: "prompt",
+    )
     monkeypatch.setattr(
         reply,
         "_run_engine",
@@ -744,6 +752,30 @@ def test_check_threads_lgtm_then_new_finding_is_not_approved() -> None:
     ]
     states = _evaluate({"comments": comments, "resolved": set()})
     assert states[0].state == reply.STATE_AWAITING
+
+
+def test_check_threads_developer_reply_after_lgtm_keeps_approval() -> None:
+    # LGTM の後に開発者がお礼を返しても承認は取り消さない（最新のレビュアー判定が基準）。
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat", in_reply_to=10),
+        _comment(
+            12,
+            "対応確認しました。LGTM ✅ Resolve してください。",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+            in_reply_to=10,
+        ),
+        _comment(
+            13,
+            "ありがとうございます。",
+            login="octocat",
+            created_at="2024-01-03T00:00:00Z",
+            in_reply_to=10,
+        ),
+    ]
+    states = _evaluate({"comments": comments, "resolved": set()})
+    assert states[0].state == reply.STATE_LGTM
 
 
 def test_check_threads_fails_without_token(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1146,7 +1146,12 @@ def main(argv: list[str] | None = None) -> int:
         "check-threads",
         help="Fail when a review thread has no reviewer verdict (LGTM)",
     )
-    p_check_threads.add_argument("--pr", required=True, help="Pull request number")
+    p_check_threads.add_argument(
+        "--pr",
+        required=True,
+        type=int,
+        help="Pull request number",
+    )
 
     # sync (Issue #147): Gate 1 の wheel 参照を hub の最新リリースへ同期する。
     p_sync = subparsers.add_parser(
@@ -1228,7 +1233,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init":
         return init_cmd.cmd_init(args)
     if args.command == "check-threads":
-        return reply_module.cmd_check_threads(args.pr)
+        return reply_module.cmd_check_threads(str(args.pr))
     parser.print_help()
     return 2
 
