@@ -36,6 +36,7 @@ from . import (
     review_config,
 )
 from . import payload as payload_module
+from . import reply as reply_module
 from .engine import apply_engine_info_env, resolve_settings, resolve_timeout
 
 # ============================================================================
@@ -73,11 +74,11 @@ def _reviewer_author_login(api_url: str, token: str, reviewer_name: str) -> str:
     """
     logins = github_client.reviewer_logins(api_url, token, reviewer_name)
     bot = github_client.bot_login(reviewer_name)
-    # 実投稿者 (bot login 以外) を優先して返す。和集合に実投稿者が無ければ bot。
-    for login in logins:
-        if login != bot:
-            return login
-    return bot
+    # 実投稿者 (bot login でも bare slug でもない login) を優先して返す。
+    # bare slug は App の REST/GraphQL 上の表記であって PAT の投稿者ではないため除外する
+    # (Issue #159)。和集合に実投稿者が無ければ bot にフォールバックする。
+    candidates = sorted(login for login in logins if login not in {bot, reviewer_name})
+    return candidates[0] if candidates else bot
 
 
 def _run_git(args: list[str], cwd: pathlib.Path | None = None) -> str:
@@ -1141,6 +1142,12 @@ def main(argv: list[str] | None = None) -> int:
     # setup
     subparsers.add_parser("setup", help="Install dependencies and configure hooks")
 
+    p_check_threads = subparsers.add_parser(
+        "check-threads",
+        help="Fail when a review thread has no reviewer verdict (LGTM)",
+    )
+    p_check_threads.add_argument("--pr", required=True, help="Pull request number")
+
     # sync (Issue #147): Gate 1 の wheel 参照を hub の最新リリースへ同期する。
     p_sync = subparsers.add_parser(
         "sync",
@@ -1220,6 +1227,8 @@ def main(argv: list[str] | None = None) -> int:
         return config_sync.cmd_sync(args)
     if args.command == "init":
         return init_cmd.cmd_init(args)
+    if args.command == "check-threads":
+        return reply_module.cmd_check_threads(args.pr)
     parser.print_help()
     return 2
 

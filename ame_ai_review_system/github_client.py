@@ -121,7 +121,10 @@ def reviewer_logins(api_url: str, token: str, reviewer_name: str) -> set[str]:
     if cached is not None:
         return set(cached)
 
-    logins = {bot_login(reviewer_name)}
+    # Issue #159: REST/GraphQL のコメントでは App の login が ``{slug}`` (``[bot]`` 無し) で
+    # 返る場合がある。``[bot]`` 付きだけを照合するとレビュアー起点のスレッドを取り違え、
+    # メンション必須の判定に落ちて返信が無視されるため、両方を受け入れる。
+    logins = {bot_login(reviewer_name), reviewer_name}
     try:
         user = http_request("GET", f"{api_url}/user", token)
     except HttpError as exc:

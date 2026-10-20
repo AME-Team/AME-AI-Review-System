@@ -119,7 +119,7 @@ def test_reviewer_logins_resolves_real_login(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(github_client, "http_request", fake_http_request)
     assert github_client.reviewer_logins(
         "https://api.github.com", "tok-real", "ame-ai-reviewer"
-    ) == {"developer", "ame-ai-reviewer[bot]"}
+    ) == {"developer", "ame-ai-reviewer[bot]", "ame-ai-reviewer"}
 
 
 def test_reviewer_logins_falls_back_to_bot(
@@ -140,7 +140,7 @@ def test_reviewer_logins_falls_back_to_bot(
     monkeypatch.setattr(github_client, "http_request", _raise)
     assert github_client.reviewer_logins(
         "https://api.github.com", "tok-bot", "ame-ai-reviewer"
-    ) == {"ame-ai-reviewer[bot]"}
+    ) == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
 
 
 def test_reviewer_logins_non_dict_response_falls_back_to_bot(
@@ -160,7 +160,7 @@ def test_reviewer_logins_non_dict_response_falls_back_to_bot(
     monkeypatch.setattr(github_client, "http_request", fake_http_request)
     assert github_client.reviewer_logins(
         "https://api.github.com", "tok-nondict", "ame-ai-reviewer"
-    ) == {"ame-ai-reviewer[bot]"}
+    ) == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
 
 
 def test_reviewer_logins_failure_not_cached(
@@ -192,8 +192,8 @@ def test_reviewer_logins_failure_not_cached(
     second = github_client.reviewer_logins(
         "https://api.github.com", "tok-fail", "ame-ai-reviewer"
     )
-    assert first == {"ame-ai-reviewer[bot]"}
-    assert second == {"ame-ai-reviewer[bot]"}
+    assert first == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
+    assert second == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
     # 失敗はキャッシュされないため、2 回目の呼び出しでも API へ再アクセスする。
     assert len(calls) == 2
 
@@ -221,8 +221,8 @@ def test_reviewer_logins_success_is_cached(
     second = github_client.reviewer_logins(
         "https://api.github.com", "tok-cache-ok", "ame-ai-reviewer"
     )
-    assert first == {"developer", "ame-ai-reviewer[bot]"}
-    assert second == {"developer", "ame-ai-reviewer[bot]"}
+    assert first == {"developer", "ame-ai-reviewer[bot]", "ame-ai-reviewer"}
+    assert second == {"developer", "ame-ai-reviewer[bot]", "ame-ai-reviewer"}
     assert len(calls) == 1
 
 
@@ -251,8 +251,8 @@ def test_reviewer_logins_auth_error_cached(monkeypatch: pytest.MonkeyPatch) -> N
     second = github_client.reviewer_logins(
         "https://api.github.com", "tok-401", "ame-ai-reviewer"
     )
-    assert first == {"ame-ai-reviewer[bot]"}
-    assert second == {"ame-ai-reviewer[bot]"}
+    assert first == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
+    assert second == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
     assert len(calls) == 1
 
 
@@ -313,8 +313,8 @@ def test_reviewer_logins_rate_limit_403_not_cached(
     second = github_client.reviewer_logins(
         "https://api.github.com", "tok-403", "ame-ai-reviewer"
     )
-    assert first == {"ame-ai-reviewer[bot]"}
-    assert second == {"ame-ai-reviewer[bot]"}
+    assert first == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
+    assert second == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
     assert len(calls) == 2
 
 
@@ -339,8 +339,8 @@ def test_reviewer_logins_5xx_not_cached(monkeypatch: pytest.MonkeyPatch) -> None
     second = github_client.reviewer_logins(
         "https://api.github.com", "tok-5xx", "ame-ai-reviewer"
     )
-    assert first == {"ame-ai-reviewer[bot]"}
-    assert second == {"ame-ai-reviewer[bot]"}
+    assert first == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
+    assert second == {"ame-ai-reviewer[bot]", "ame-ai-reviewer"}
     assert len(calls) == 2
 
 

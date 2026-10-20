@@ -182,6 +182,11 @@ def test_build_prompt_warns_not_to_assert_file_existence(
     ]
     monkeypatch.setattr(reply, "_get_thread_comments", lambda *_args: comments)
     monkeypatch.setattr(reply, "_get_pr_diff", lambda *_args, **_kwargs: "diff")
+    monkeypatch.setattr(
+        github_client,
+        "reviewer_logins",
+        lambda *_args, **_kwargs: {"ame-ai-reviewer[bot]"},
+    )
     prompt = reply._build_prompt_for_thread(
         "api",
         "octo/repo",
@@ -304,8 +309,19 @@ def test_thread_is_pending_with_mention() -> None:
 
 
 def test_thread_is_pending_without_mention() -> None:
+    # Issue #159: レビュアー起点のスレッドでは、メンションの有無に関わらず
+    # 開発者の返信を再評価対象にする（付け忘れで LGTM が欠けるのを防ぐ）。
     thread = [
         _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat"),
+    ]
+    assert _thread_is_pending_for(thread) is True
+
+
+def test_thread_is_pending_without_mention_on_developer_thread() -> None:
+    # レビュアー以外が起点のスレッドは、従来どおりメンション必須。
+    thread = [
+        _comment(10, "developer note", login="octocat"),
         _comment(11, "修正しました", login="octocat"),
     ]
     assert _thread_is_pending_for(thread) is False
@@ -586,3 +602,129 @@ def test_run_engine_omits_show_info_when_gate2_false(
 ) -> None:
     reply._run_engine("PROMPT", show_info=False)
     assert capture_engine_env["env"].get("AME_ENGINE_SHOW_INFO") == "0"
+
+
+# --- _select_reply --------------------------------------------------------
+
+
+def test_select_reply_prefers_latest_developer_reply() -> None:
+    thread = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "@ame-ai-reviewer 1 回目の修正", login="octocat"),
+        _comment(
+            12,
+            "2 回目の修正",
+            login="octocat",
+            created_at="2024-01-02T00:00:00Z",
+        ),
+    ]
+    selected = reply._select_reply(thread, "ame-ai-reviewer", {"ame-ai-reviewer[bot]"})
+    assert selected is not None
+    assert selected["id"] == 12
+
+
+def test_select_reply_ignores_reviewer_replies() -> None:
+    thread = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat"),
+        _comment(
+            12,
+            "LGTM",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+        ),
+    ]
+    selected = reply._select_reply(thread, "ame-ai-reviewer", {"ame-ai-reviewer[bot]"})
+    assert selected is not None
+    assert selected["id"] == 11
+
+
+def test_select_reply_without_replies() -> None:
+    thread = [_comment(10, "root", login="ame-ai-reviewer[bot]")]
+    assert (
+        reply._select_reply(thread, "ame-ai-reviewer", {"ame-ai-reviewer[bot]"}) is None
+    )
+
+
+# --- check-threads (Issue #159) -------------------------------------------
+
+
+def _evaluate(payload: dict[str, Any]) -> list[reply.ThreadState]:
+    original_comments = reply._get_thread_comments
+    original_resolved = reply._resolved_root_ids
+    original_logins = github_client.reviewer_logins
+    reply._get_thread_comments = lambda *_a, **_k: payload["comments"]
+    reply._resolved_root_ids = lambda *_a, **_k: payload["resolved"]
+    github_client.reviewer_logins = lambda *_a, **_k: {"ame-ai-reviewer[bot]"}
+    try:
+        return reply.evaluate_threads(
+            "https://api.github.com", "o/r", "1", "t", "ame-ai-reviewer"
+        )
+    finally:
+        reply._get_thread_comments = original_comments
+        reply._resolved_root_ids = original_resolved
+        github_client.reviewer_logins = original_logins
+
+
+def test_check_threads_reports_unanswered_and_awaiting() -> None:
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(20, "root2", login="ame-ai-reviewer[bot]"),
+        _comment(21, "修正しました", login="octocat", in_reply_to=20),
+    ]
+    states = {
+        s.root_id: s.state for s in _evaluate({"comments": comments, "resolved": set()})
+    }
+    assert states[10] == reply.STATE_UNANSWERED
+    assert states[20] == reply.STATE_AWAITING
+
+
+def test_check_threads_counts_lgtm_even_when_resolved() -> None:
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat", in_reply_to=10),
+        _comment(
+            12,
+            "対応確認しました。LGTM ✅ Resolve してください。",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+            in_reply_to=10,
+        ),
+    ]
+    states = _evaluate({"comments": comments, "resolved": {10}})
+    assert [s.state for s in states] == [reply.STATE_LGTM]
+    assert states[0].resolved is True
+
+
+def test_check_threads_flags_resolved_thread_without_lgtm() -> None:
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "対応しました", login="octocat", in_reply_to=10),
+    ]
+    states = _evaluate({"comments": comments, "resolved": {10}})
+    assert states[0].state == reply.STATE_AWAITING
+    assert states[0].pending is True
+
+
+def test_check_threads_reviewer_followup_without_lgtm_is_not_approved() -> None:
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat", in_reply_to=10),
+        _comment(
+            12,
+            "追加の指摘: 例外処理が不足しています",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+            in_reply_to=10,
+        ),
+    ]
+    states = _evaluate({"comments": comments, "resolved": set()})
+    assert states[0].state == reply.STATE_AWAITING
+
+
+def test_check_threads_ignores_developer_started_threads() -> None:
+    comments = [
+        _comment(10, "developer question", login="octocat"),
+        _comment(11, "answer", login="ame-ai-reviewer[bot]", in_reply_to=10),
+    ]
+    assert _evaluate({"comments": comments, "resolved": set()}) == []
