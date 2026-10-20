@@ -930,9 +930,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
 # ============================================================================
 # Merge-time guard: LGTM 未取得スレッドの検出 (Issue #159)
 # ============================================================================
@@ -1088,3 +1085,7 @@ def cmd_check_threads(pr: str) -> int:
 
     print(f"[check-threads] 全 {len(states)} スレッドが LGTM 済みです。")
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

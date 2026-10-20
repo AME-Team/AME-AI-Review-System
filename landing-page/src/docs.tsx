@@ -434,9 +434,9 @@ const FEATURE_DETAILS: FeatureDetail[] = [
   {
     title: "対話型の修正サイクル",
     bodyJa:
-      "開発者がインラインスレッドに返信すると、AI が最新コードを再評価してスレッドに返答します。メンションは推奨ですが、レビュアーが起点のスレッドではメンションが無くても再評価されます。LGTM を受け取ったスレッドだけを Resolve でき、Resolve 漏れは ame-ai-reviewer check-threads で検出できます。",
+      "開発者がインラインスレッドに返信すると、AI が最新コードを再評価してスレッドに返答します。メンションは推奨ですが、レビュアーが起点のスレッドではメンションが無くても再評価されます。未承認のスレッドは ame-ai-reviewer check-threads で検出できます（Resolve 済みでも LGTM が無ければ未承認）。",
     bodyEn:
-      "When a developer replies in an inline thread, the AI re-evaluates the latest code and replies. A mention is recommended but no longer required on reviewer-started threads. Only threads that received LGTM should be resolved, and any gap is caught by ame-ai-reviewer check-threads.",
+      "When a developer replies in an inline thread, the AI re-evaluates the latest code and replies. A mention is recommended but no longer required on reviewer-started threads. Unapproved threads are reported by ame-ai-reviewer check-threads, including threads that were resolved without an LGTM.",
   },
   {
     title: "重大度ラベル",
