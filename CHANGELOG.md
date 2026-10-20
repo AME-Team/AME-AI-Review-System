@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-10-20
+
 ### Added
 
 - `ame-ai-reviewer check-threads --pr <N>` を追加した (Issue
