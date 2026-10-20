@@ -156,6 +156,11 @@ def _patch_project_root(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
         return root
 
     monkeypatch.setattr(paths, "project_root", _root)
+    # 既定の設定ディレクトリは実ユーザーの ~/.config を指すため、そのまま使うとフックが
+    # 残した config_sync_cache.json を読み、スタブではなく実際の最新リリースで判定して
+    # しまう（環境依存で失敗する）。キャッシュも検証用ディレクトリへ隔離する。
+    config_dir = root / "config"
+    monkeypatch.setattr(paths, "global_config_dir", lambda: config_dir)
 
 
 def _write(tmp_path: Path, text: str) -> Path:
