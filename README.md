@@ -57,6 +57,8 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
 - **マルチCodingエージェント対応 & 広範なコンテキスト検証**: Claude Code / OpenCode / Antigravity
   CLI 等を指定可能。Codingエージェントが差分外領域も自発的に探索し「コード修正に伴うドキュメント更新の有無」なども高度に検証する。
 - **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
+- **スレッド承認の検証**: `ame-ai-reviewer check-threads --pr <N>`
+  で、LGTM 未取得のスレッドをマージ前に検出できる。Resolve 済みでも LGTM が無ければ失敗する。
 - **pre-commit 時の AI レビュー**: `git commit`
   時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW
   / INFO の指摘のみ `precommit_max_reviews`（既定 3）回連続で無限ループ回避の escape

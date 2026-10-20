@@ -434,9 +434,9 @@ const FEATURE_DETAILS: FeatureDetail[] = [
   {
     title: "対話型の修正サイクル",
     bodyJa:
-      "開発者がインラインスレッドに @ame-ai-reviewer[bot] で返信すると、AI が最新コードを再評価してスレッドに返答します。LGTM を受け取ったスレッドは Resolve できます。",
+      "開発者がインラインスレッドに返信すると、AI が最新コードを再評価してスレッドに返答します。メンションは推奨ですが、レビュアーが起点のスレッドではメンションが無くても再評価されます。未承認のスレッドは ame-ai-reviewer check-threads で検出できます（Resolve 済みでも LGTM が無ければ未承認）。",
     bodyEn:
-      "When a developer replies with @ame-ai-reviewer[bot] in an inline thread, the AI re-evaluates the latest code and replies. Threads that receive LGTM can be resolved.",
+      "When a developer replies in an inline thread, the AI re-evaluates the latest code and replies. A mention is recommended but no longer required on reviewer-started threads. Unapproved threads are reported by ame-ai-reviewer check-threads, including threads that were resolved without an LGTM.",
   },
   {
     title: "重大度ラベル",
@@ -971,6 +971,10 @@ const Gate2Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
             l(
               "LGTM ✅ を受け取ったスレッドを Resolve し、全て解決したら再度 /request-review で再レビュー",
               "Resolve threads that received LGTM ✅; once all are resolved, re-request via /request-review"
+            ),
+            l(
+              "マージ前に ame-ai-reviewer check-threads --pr <N> で LGTM 未取得のスレッドが無いことを確認",
+              "Before merging, run ame-ai-reviewer check-threads --pr <N> to confirm no thread is missing LGTM"
             ),
           ]}
         />

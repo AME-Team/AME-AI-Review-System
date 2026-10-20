@@ -23,10 +23,11 @@ import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from typing import Any, cast
 
-from . import diff_truncate, engine, github_client, review_config
-from .stale_detect import LGTM_MARKER, is_stale_thread
+from . import diff_truncate, engine, github_client, paths, review_config
+from .stale_detect import LGTM_MARKER, is_lgtm_body, is_stale_thread
 
 # LGTM テンプレートは stale_detect の LGTM_MARKER から構築し単一情報源にする (指摘対応)。
 _DEFAULT_LGTM = f"対応確認しました。{LGTM_MARKER} Resolve してください。"
@@ -178,6 +179,75 @@ def _get_pr_diff(
 # ============================================================================
 
 
+def _thread_root_is_reviewer(
+    thread: list[dict[str, Any]], reviewer_logins: set[str]
+) -> bool:
+    """スレッドの起点コメントがレビュアーの指摘かどうかを返す."""
+    if not thread:
+        return False
+    root_login = thread[0].get("user", {}).get("login", "")
+    return root_login in reviewer_logins
+
+
+def _select_reply(
+    thread: list[dict[str, Any]], reviewer_name: str, reviewer_logins: set[str]
+) -> dict[str, Any] | None:
+    """再評価対象の返信を 1 件返す（対象が無ければ None）.
+
+    レビュアーが起点のスレッドでは、メンションの有無に関わらず最新の開発者返信を
+    対象にする (Issue #159)。メンションを付け忘れた返信が無言で無視されると、
+    LGTM が付かないままスレッドが Resolve されて証跡が欠けるため。
+    レビュアー以外が起点のスレッドでは、従来どおりメンション付き返信のみを対象にする。
+    """
+    replies = thread[1:]
+    if not replies:
+        return None
+
+    if _thread_root_is_reviewer(thread, reviewer_logins):
+        developer_replies = [
+            r
+            for r in replies
+            if r.get("user", {}).get("login", "") not in reviewer_logins
+        ]
+        return developer_replies[-1] if developer_replies else None
+
+    mention_replies = [
+        r
+        for r in replies
+        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
+    ]
+    return mention_replies[-1] if mention_replies else None
+
+
+def _warn_reply_skipped(
+    thread_id: int,
+    thread: list[dict[str, Any]],
+    reviewer_logins: set[str],
+    *,
+    emit_annotation: bool = False,
+) -> None:
+    """再評価しなかった理由を残す (Issue #159).
+
+    Args:
+        thread_id: 対象スレッドのルートコメント ID。
+        thread: スレッドのコメント列。
+        reviewer_logins: レビュアーの login 集合。
+        emit_annotation: True なら ``::warning::`` を stdout にも出す。stdout が
+            プロンプト出力（build 系サブコマンド）のときは付けない。
+    """
+    root_login = thread[0].get("user", {}).get("login", "") if thread else ""
+    reason = (
+        "スレッドの起点がレビュアーではないため、メンション付き返信だけを対象にします"
+        if root_login not in reviewer_logins
+        else "レビュアーの返信より新しい開発者返信がありません"
+    )
+    message = f"thread {thread_id}: 再評価をスキップしました ({reason})"
+    if emit_annotation:
+        # GitHub Actions は stdout の workflow command をアノテーションとして表示する。
+        print(f"::warning::{message}", flush=True)
+    print(f"[reply] WARNING: {message}", file=sys.stderr)
+
+
 def _thread_is_pending(
     root_id: int,
     thread: list[dict[str, Any]] | None,
@@ -189,21 +259,15 @@ def _thread_is_pending(
     if thread is None or root_id in resolved_ids:
         return False
 
-    replies = thread[1:]
-
-    mention_replies = [
-        r
-        for r in replies
-        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
-    ]
-    if not mention_replies:
+    latest_reply = _select_reply(thread, reviewer_name, reviewer_logins)
+    if latest_reply is None:
         return False
 
-    latest_mention_time = max(r.get("created_at", "") for r in mention_replies)
+    latest_reply_time = latest_reply.get("created_at", "")
     reviewer_replied_after = any(
         r.get("user", {}).get("login") in reviewer_logins
-        and r.get("created_at", "") > latest_mention_time
-        for r in replies
+        and r.get("created_at", "") > latest_reply_time
+        for r in thread[1:]
     )
     return not reviewer_replied_after
 
@@ -297,16 +361,13 @@ def _cmd_build(pr: str, thread_id_str: str) -> None:
         print(f"[build] thread {thread_id} not found", file=sys.stderr)
         return
     parent = thread[0]
-    replies = thread[1:]
 
-    mention_replies = [
-        r
-        for r in replies
-        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
-    ]
-    if not mention_replies:
+    reviewer_logins = github_client.reviewer_logins(api_url, token, reviewer_name)
+    selected = _select_reply(thread, reviewer_name, reviewer_logins)
+    if selected is None:
+        _warn_reply_skipped(thread_id, thread, reviewer_logins)
         return
-    latest_reply = mention_replies[-1]
+    latest_reply = selected
 
     diff = _get_pr_diff(base_ref, api_url=api_url, repo=repo, pr=pr, token=token)
 
@@ -594,6 +655,8 @@ def _build_prompt_for_thread(
     token: str,
     reviewer_name: str,
     base_ref: str,
+    *,
+    emit_annotation: bool = False,
 ) -> str:
     thread_id = int(thread_id_str)
     comments = _get_thread_comments(api_url, repo, pr, token)
@@ -603,16 +666,15 @@ def _build_prompt_for_thread(
         print(f"[reply] thread {thread_id} not found", file=sys.stderr)
         return ""
     parent = thread[0]
-    replies = thread[1:]
 
-    mention_replies = [
-        r
-        for r in replies
-        if github_client.mentions_reviewer(r.get("body", ""), reviewer_name)
-    ]
-    if not mention_replies:
+    reviewer_logins = github_client.reviewer_logins(api_url, token, reviewer_name)
+    selected = _select_reply(thread, reviewer_name, reviewer_logins)
+    if selected is None:
+        _warn_reply_skipped(
+            thread_id, thread, reviewer_logins, emit_annotation=emit_annotation
+        )
         return ""
-    latest_reply = mention_replies[-1]
+    latest_reply = selected
 
     diff = _get_pr_diff(base_ref, api_url=api_url, repo=repo, pr=pr, token=token)
 
@@ -709,6 +771,7 @@ def _process_thread(
             token,
             reviewer_name,
             base_ref,
+            emit_annotation=True,
         )
 
         if not prompt:
@@ -882,6 +945,161 @@ def main(argv: list[str] | None = None) -> int:
     else:
         sys.exit(f"Unknown command: {cmd}")
 
+    return 0
+
+
+# ============================================================================
+# Merge-time guard: LGTM 未取得スレッドの検出 (Issue #159)
+# ============================================================================
+
+STATE_LGTM = "lgtm"
+STATE_AWAITING = "awaiting"
+STATE_UNANSWERED = "unanswered"
+
+_STATE_LABELS = {
+    STATE_LGTM: "LGTM 済み",
+    STATE_AWAITING: "LGTM 待ち",
+    STATE_UNANSWERED: "未返信",
+}
+
+
+@dataclass(frozen=True)
+class ThreadState:
+    """1 レビュースレッドの判定結果.
+
+    Attributes:
+        root_id: スレッドの起点コメント ID。
+        path: 指摘対象のファイルパス。
+        line: 指摘対象の行 (不明なら None)。
+        state: ``lgtm`` / ``awaiting`` / ``unanswered`` のいずれか。
+        resolved: GitHub 上で Resolve 済みかどうか (情報表示用)。
+    """
+
+    root_id: int
+    path: str
+    line: int | None
+    state: str
+    resolved: bool
+
+    @property
+    def pending(self) -> bool:
+        """LGTM が付いていない（= マージ前に解消すべき）スレッドか."""
+        return self.state != STATE_LGTM
+
+
+def _classify_thread(
+    thread: list[dict[str, Any]], reviewer_name: str, reviewer_logins: set[str]
+) -> str:
+    """スレッドが LGTM 済みか、返信待ちかを判定する."""
+    latest_reply = _select_reply(thread, reviewer_name, reviewer_logins)
+    if latest_reply is None:
+        return STATE_UNANSWERED
+    # 承認は「最新のレビュアー判定」だけで決める。LGTM の後に開発者がお礼を返しても
+    # 承認は取り消さない。逆に LGTM の後にレビュアーが追加指摘を出したら未承認に戻る。
+    # WHY: 会話だけの返信で未承認に戻すと、ガードが常に失敗してマージを塞ぐ。LGTM 後の
+    # 追加コミットは新しい SHA として扱われ、/request-review の新しいラウンドで審査される
+    # （スレッド単位の承認はそのラウンドの指摘に対する判定であるため）。
+    reviewer_replies = sorted(
+        (r for r in thread[1:] if r.get("user", {}).get("login") in reviewer_logins),
+        key=lambda r: r.get("created_at", ""),
+    )
+    if not reviewer_replies:
+        return STATE_AWAITING
+    last_verdict = reviewer_replies[-1]
+    return (
+        STATE_LGTM
+        if is_lgtm_body(str(last_verdict.get("body", "")))
+        else STATE_AWAITING
+    )
+
+
+def evaluate_threads(
+    api_url: str, repo: str, pr: str, token: str, reviewer_name: str
+) -> list[ThreadState]:
+    """PR のレビュースレッドを評価して状態の一覧を返す.
+
+    レビュアーが起点のスレッドだけを対象にする。Resolve 済みでも LGTM が無ければ
+    未承認として扱う（Resolve 操作だけでは承認の証跡にならないため）。
+
+    Args:
+        api_url: GitHub API のベース URL。
+        repo: ``owner/name`` 形式のリポジトリ。
+        pr: プルリクエスト番号。
+        token: API トークン。
+        reviewer_name: レビュアー名 (既定 ``ame-ai-reviewer``)。
+
+    Returns:
+        レビュースレッドの状態一覧。
+    """
+    comments = _get_thread_comments(api_url, repo, pr, token)
+    threads = _group_by_thread(comments)
+    resolved_ids = _resolved_root_ids(int(pr), token)
+    reviewer_logins = github_client.reviewer_logins(api_url, token, reviewer_name)
+
+    states: list[ThreadState] = []
+    for root_id, thread in threads.items():
+        if not _thread_root_is_reviewer(thread, reviewer_logins):
+            continue
+        states.append(
+            ThreadState(
+                root_id=root_id,
+                path=str(thread[0].get("path", "")),
+                line=thread[0].get("line"),
+                state=_classify_thread(thread, reviewer_name, reviewer_logins),
+                resolved=root_id in resolved_ids,
+            )
+        )
+    return states
+
+
+def cmd_check_threads(pr: str) -> int:
+    """``check-threads`` サブコマンド: 未 LGTM スレッドがあれば 1 を返す."""
+    api_url, repo = github_client.resolve_env()
+    # CI は REVIEWER_TOKEN / AME_AI_REVIEWER_TOKEN、ローカルは共通のトークンファイル
+    # (github.token) か GITHUB_PAT_TOKEN を使う。解決できなければ明示的に失敗する。
+    token = os.environ.get("REVIEWER_TOKEN") or os.environ.get(
+        "AME_AI_REVIEWER_TOKEN", ""
+    )
+    if not token:
+        try:
+            token = github_client.get_token(
+                str(paths.global_config_dir() / "github.token")
+            )
+        except RuntimeError:
+            token = ""
+    reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
+
+    if not token:
+        print(
+            "[check-threads] ERROR: GitHub token not found "
+            "(set REVIEWER_TOKEN / AME_AI_REVIEWER_TOKEN / GITHUB_PAT_TOKEN)",
+            file=sys.stderr,
+        )
+        return 1
+
+    states = evaluate_threads(api_url, repo, pr, token, reviewer_name)
+    if not states:
+        print("[check-threads] レビュースレッドはありません。")
+        return 0
+
+    for state in states:
+        resolved = "resolved" if state.resolved else "open"
+        print(
+            f"[check-threads] {_STATE_LABELS[state.state]:<8} {resolved:<8} "
+            f"{state.path}:{state.line} (thread {state.root_id})",
+            file=sys.stderr,
+        )
+
+    pending = [state for state in states if state.pending]
+    if pending:
+        print(
+            f"[check-threads] LGTM 未取得のスレッドが {len(pending)} 件あります。"
+            "返信 → LGTM → Resolve の順で解消してください。",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"[check-threads] 全 {len(states)} スレッドが LGTM 済みです。")
     return 0
 
 

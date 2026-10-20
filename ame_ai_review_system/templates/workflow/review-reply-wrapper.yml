@@ -30,6 +30,7 @@ jobs:
       comment_id: ${{ github.event.comment.id }}
       comment_body: ${{ github.event.comment.body }}
       comment_user: ${{ github.event.comment.user.login }}
+      in_reply_to_id: ${{ github.event.comment.in_reply_to_id || '' }}
       system_ref: __REF__
       review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}

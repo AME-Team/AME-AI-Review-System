@@ -31,6 +31,12 @@ name: AI Review Reply (Reusable)
         type: string
         required: false
         default: ""
+      # Issue #159: メンションを付け忘れた返信も再評価するため、返信先コメント ID を
+      # 受け取る。空文字は「既存スレッドへの返信ではない」ことを表す。
+      in_reply_to_id:
+        type: string
+        required: false
+        default: ""
       system_ref:
         type: string
         required: false
@@ -80,9 +86,15 @@ jobs:
     name: General Review Reply (ame-ai-reviewer)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Issue #159: レビュアーのスレッドへの返信はメンション無しでも再評価する。
+    # メンション必須のままだと、返信が無言で skip され LGTM が付かないまま
+    # Resolve される（= 監査証跡が欠ける）。判定の最終的な絞り込みは reply.py が行う。
+    # Issue #159: bare login (``ame-ai-reviewer``) で投稿される環境もあるため、両方を除外する。
+    # 除外しないとレビュアー自身の LGTM 返信がジョブを起動し、重複 LGTM やループの原因になる。
     if: >-
-      inputs.comment_user != 'ame-ai-reviewer[bot]' && !startsWith(inputs.comment_body, '/') &&
-      contains(inputs.comment_body, '@ame-ai-reviewer')
+      inputs.comment_user != 'ame-ai-reviewer[bot]' && inputs.comment_user != 'ame-ai-reviewer' &&
+      !startsWith(inputs.comment_body, '/') && (contains(inputs.comment_body, '@ame-ai-reviewer') ||
+      inputs.in_reply_to_id != '')
     steps:
       - name: Checkout PR repo
         uses: actions/checkout@v4
