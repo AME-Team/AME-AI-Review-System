@@ -722,6 +722,43 @@ def test_check_threads_reviewer_followup_without_lgtm_is_not_approved() -> None:
     assert states[0].state == reply.STATE_AWAITING
 
 
+def test_check_threads_lgtm_then_new_finding_is_not_approved() -> None:
+    # LGTM の後に追加指摘が来たら未承認に戻す（最新の判定だけを採用する）。
+    comments = [
+        _comment(10, "root", login="ame-ai-reviewer[bot]"),
+        _comment(11, "修正しました", login="octocat", in_reply_to=10),
+        _comment(
+            12,
+            "対応確認しました。LGTM ✅ Resolve してください。",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-02T00:00:00Z",
+            in_reply_to=10,
+        ),
+        _comment(
+            13,
+            "追加の指摘: 例外処理が不足しています",
+            login="ame-ai-reviewer[bot]",
+            created_at="2024-01-03T00:00:00Z",
+            in_reply_to=10,
+        ),
+    ]
+    states = _evaluate({"comments": comments, "resolved": set()})
+    assert states[0].state == reply.STATE_AWAITING
+
+
+def test_check_threads_fails_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "octo/repo")
+    monkeypatch.delenv("REVIEWER_TOKEN", raising=False)
+    monkeypatch.delenv("AME_AI_REVIEWER_TOKEN", raising=False)
+
+    def _raise(*_args: Any, **_kwargs: Any) -> str:
+        msg = "no token"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(github_client, "get_token", _raise)
+    assert reply.cmd_check_threads("1") == 1
+
+
 def test_check_threads_ignores_developer_started_threads() -> None:
     comments = [
         _comment(10, "developer question", login="octocat"),

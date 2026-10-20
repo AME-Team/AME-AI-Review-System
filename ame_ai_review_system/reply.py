@@ -26,7 +26,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, cast
 
-from . import diff_truncate, engine, github_client, review_config
+from . import diff_truncate, engine, github_client, paths, review_config
 from .stale_detect import LGTM_MARKER, is_lgtm_body, is_stale_thread
 
 # LGTM テンプレートは stale_detect の LGTM_MARKER から構築し単一情報源にする (指摘対応)。
@@ -980,13 +980,24 @@ def _classify_thread(
     if latest_reply is None:
         return STATE_UNANSWERED
     latest_reply_time = latest_reply.get("created_at", "")
-    lgtm_after = any(
-        r.get("user", {}).get("login") in reviewer_logins
-        and r.get("created_at", "") > latest_reply_time
-        and is_lgtm_body(str(r.get("body", "")))
-        for r in thread[1:]
+    later_reviewer_replies = sorted(
+        (
+            r
+            for r in thread[1:]
+            if r.get("user", {}).get("login") in reviewer_logins
+            and r.get("created_at", "") > latest_reply_time
+        ),
+        key=lambda r: r.get("created_at", ""),
     )
-    return STATE_LGTM if lgtm_after else STATE_AWAITING
+    if not later_reviewer_replies:
+        return STATE_AWAITING
+    # LGTM の後に追加指摘が投稿された場合は未承認のまま扱う（最新の判定のみ採用）。
+    last_verdict = later_reviewer_replies[-1]
+    return (
+        STATE_LGTM
+        if is_lgtm_body(str(last_verdict.get("body", "")))
+        else STATE_AWAITING
+    )
 
 
 def evaluate_threads(
@@ -1031,11 +1042,27 @@ def evaluate_threads(
 def cmd_check_threads(pr: str) -> int:
     """``check-threads`` サブコマンド: 未 LGTM スレッドがあれば 1 を返す."""
     api_url, repo = github_client.resolve_env()
-    # pr_streak と同じフォールバック (CI の経路によって変数名が異なる)。
+    # CI は REVIEWER_TOKEN / AME_AI_REVIEWER_TOKEN、ローカルは共通のトークンファイル
+    # (github.token) か GITHUB_PAT_TOKEN を使う。解決できなければ明示的に失敗する。
     token = os.environ.get("REVIEWER_TOKEN") or os.environ.get(
         "AME_AI_REVIEWER_TOKEN", ""
     )
+    if not token:
+        try:
+            token = github_client.get_token(
+                str(paths.global_config_dir() / "github.token")
+            )
+        except RuntimeError:
+            token = ""
     reviewer_name = os.environ.get("REVIEWER_NAME", "ame-ai-reviewer")
+
+    if not token:
+        print(
+            "[check-threads] ERROR: GitHub token not found "
+            "(set REVIEWER_TOKEN / AME_AI_REVIEWER_TOKEN / GITHUB_PAT_TOKEN)",
+            file=sys.stderr,
+        )
+        return 1
 
     states = evaluate_threads(api_url, repo, pr, token, reviewer_name)
     if not states:
