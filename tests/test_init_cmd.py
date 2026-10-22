@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +22,7 @@ def _make_args(**kwargs: object) -> argparse.Namespace:
         "python": None,
         "version": None,
         "engine": "auto",
+        "no_base_hooks": False,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -29,6 +32,17 @@ def _init_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / ".git").mkdir()
     monkeypatch.setenv("AME_REVIEW_PROJECT_ROOT", str(tmp_path))
     return tmp_path
+
+
+def _touch(root: Path, rel: str) -> None:
+    """走査対象のダミーファイルを置く (Issue #142 の検出テスト用)."""
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}" if rel.endswith(".json") else "# x\n", encoding="utf-8")
+
+
+def _read_config(root: Path) -> str:
+    return (root / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
 
 @pytest.fixture(autouse=True)
@@ -520,3 +534,291 @@ def test_ci_template_skip_matches_ai_hook_ids() -> None:
                 ai_ids.add(line.split(":", 1)[1].strip())
     assert ai_ids, "AI フック ID が precommit テンプレートから検出できません"
     assert skip_ids == ai_ids
+
+
+# ---------------------------------------------------------------------------
+# Issue #142: init 時の既存ファイル走査による共通衛生フックの補完
+# ---------------------------------------------------------------------------
+
+
+def test_detect_file_kinds_skips_vendor_and_generated_dirs(tmp_path: Path) -> None:
+    # node_modules / .ame-review / キャッシュ配下は走査しない (生成物を種別として数えない)。
+    _touch(tmp_path, "node_modules/pkg/index.json")
+    _touch(tmp_path, ".ame-review/config.json")
+    _touch(tmp_path, ".pytest_cache/v/cache/nodeids.json")
+    _touch(tmp_path, "docs/guide.md")
+    assert init_cmd._detect_file_kinds(tmp_path) == frozenset({"markdown"})
+
+
+def test_detect_file_kinds_ignores_gitignored_paths(tmp_path: Path) -> None:
+    # git 管理下では git ls-files が .gitignore を尊重し、キャッシュを種別と誤検出しない。
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text(".cache/\n", encoding="utf-8")
+    _touch(tmp_path, ".cache/settings.json")
+    _touch(tmp_path, "README.md")
+    assert init_cmd._detect_file_kinds(tmp_path) == frozenset({"markdown"})
+
+
+def test_detect_file_kinds_ignores_mdx(tmp_path: Path) -> None:
+    # .mdx は JSX 構文を含み markdownlint が失敗するため対象外とする (レビュー指摘対応)。
+    _touch(tmp_path, "docs/page.mdx")
+    assert init_cmd._detect_file_kinds(tmp_path) == frozenset()
+
+
+def test_insert_base_hooks_reports_missing_anchor() -> None:
+    # repos: が無いテンプレートでは挿入できたことにしない (成功表示の防止)。
+    assert init_cmd._insert_base_hooks("a: 1\n", "  x\n") is None
+    assert init_cmd._insert_base_hooks("repos:\n  - repo: a\n", "  # b\n") == (
+        "repos:\n  # b\n  - repo: a\n"
+    )
+    assert init_cmd._insert_base_hooks("repos:\n", "") == "repos:\n"
+
+
+def test_jsonc_exclude_covers_commented_json() -> None:
+    # check-json は厳密 JSON 検査のため、JSONC (コメント/末尾カンマ) を除外する。
+    pattern = re.compile(init_cmd._JSONC_EXCLUDE)
+    jsonc = (
+        "tsconfig.json",
+        "tsconfig.build.json",
+        "jsconfig.json",
+        ".vscode/settings.json",
+        ".devcontainer/devcontainer.json",
+    )
+    for path in jsonc:
+        assert pattern.search(path), path
+    for path in ("package.json", "src/config.json", "tsconfig.md"):
+        assert not pattern.search(path), path
+
+
+def test_yaml_quote_escapes_backslashes_for_double_quoted_scalar() -> None:
+    # 素の正規表現を YAML の double-quoted scalar へ入れると \. が不正エスケープになる。
+    assert init_cmd._yaml_quote(r"a\.b") == r'"a\\.b"'
+    assert init_cmd._yaml_quote("plain") == '"plain"'
+    # ダブルクォートを含む exclude でも YAML を壊さない。
+    assert init_cmd._yaml_quote('a"b') == r'"a\"b"'
+
+
+def test_init_reports_skip_when_config_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 既存の .pre-commit-config.yaml は既定でスキップされる。書き込まないのに
+    # 「追加しました」と表示しない (レビュー指摘対応)。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    capsys.readouterr()
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    out = capsys.readouterr().out
+    assert "追加しました" not in out
+    assert "--force で反映" in out
+
+
+def test_scan_skip_dirs_does_not_change_preset_detection(tmp_path: Path) -> None:
+    # 走査専用の除外集合をプリセット自動判定と共有すると判定結果が変わるため分けている。
+    assert init_cmd._SKIP_DIRS < init_cmd._SCAN_SKIP_DIRS
+    _touch(tmp_path, "site/assets/app.ts")
+    # site/ 配下の .ts は自動判定では従来どおり検出される (挙動を変えない)。
+    assert init_cmd._repo_has_suffix(tmp_path, frozenset({".ts"})) is True
+    assert init_cmd._detect_file_kinds(tmp_path) == frozenset()
+
+
+def test_init_adds_markdownlint_when_markdown_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #142: 既存の README.md を検出し、python プリセットへ Markdown リンタを補う。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "https://github.com/igorshubovych/markdownlint-cli" in cfg
+    assert "- id: markdownlint" in cfg
+
+
+def test_init_skips_kind_hooks_when_kind_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # .md / .yaml / .json が無ければ種別フックは足さない (常時フックのみ)。
+    root = _init_in(tmp_path, monkeypatch)
+    (root / "main.py").write_text("print(1)\n", encoding="utf-8")
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "- id: end-of-file-fixer" in cfg
+    assert "- id: check-yaml" not in cfg
+    assert "- id: check-json" not in cfg
+    assert "markdownlint" not in cfg
+
+
+def test_init_adds_yaml_and_json_hooks_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ワークフロー定義 (.yml) と JSON があるリポジトリでは該当フックを補う。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, ".github/workflows/ci.yml")
+    _touch(root, "settings.json")
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "- id: check-yaml" in cfg
+    assert "- id: check-json" in cfg
+
+
+def test_init_base_hooks_do_not_duplicate_preset_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # full は yamllint を持つため check-yaml を重複追加しない。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, ".github/workflows/ci.yml")
+    assert init_cmd.cmd_init(_make_args(preset="full", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "- id: yamllint" in cfg
+    assert "- id: check-yaml" not in cfg
+
+
+def test_init_ts_preset_prettier_supersedes_check_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ts は prettier が json を検査するため check-json を重複追加しない。
+    root = _init_in(tmp_path, monkeypatch)
+    (root / "package.json").write_text("{}", encoding="utf-8")
+    assert init_cmd.cmd_init(_make_args(preset="ts", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "- id: prettier" in cfg
+    assert "- id: check-json" not in cfg
+
+
+def test_init_text_preset_existing_markdown_linter_supersedes_markdownlint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # text は markdownlint-cli2 / textlint を持つため markdownlint を足さない。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    assert init_cmd.cmd_init(_make_args(preset="text", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "- id: markdownlint-cli2" in cfg
+    assert "repo: https://github.com/igorshubovych/markdownlint-cli" not in cfg
+
+
+def test_init_no_base_hooks_flag_skips_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # --no-base-hooks は走査結果を一切足さない (既存リポジトリの段階導入向け)。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    _touch(root, "settings.json")
+    args = _make_args(preset="python", no_workflow=True, no_base_hooks=True)
+    assert init_cmd.cmd_init(args) == 0
+    cfg = _read_config(root)
+    assert "https://github.com/pre-commit/pre-commit-hooks" not in cfg
+    assert "markdownlint" not in cfg
+    assert "- id: check-json" not in cfg
+
+
+def test_init_minimal_preset_never_adds_base_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # minimal は「静的解析フックを持たない」明示的な選択のため走査結果を足さない。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    _touch(root, "settings.json")
+    assert init_cmd.cmd_init(_make_args(preset="minimal", no_workflow=True)) == 0
+    cfg = _read_config(root)
+    assert "- id: check-added-large-files" not in cfg
+    assert "- id: check-json" not in cfg
+    assert "markdownlint" not in cfg
+
+
+def test_init_detection_ignores_generated_ame_review_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # init が直前に置いた .ame-review/config.json を「JSON あり」と誤検出しない。
+    root = _init_in(tmp_path, monkeypatch)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / "main.py").write_text("print(1)\n", encoding="utf-8")
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    assert (root / ".ame-review" / "config.json").exists()
+    assert "- id: check-json" not in _read_config(root)
+
+
+def test_init_generated_configs_parse_as_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 断片を文字列連結で組み立てるため、生成物が YAML として妥当であることを機械的に確認する。
+    yaml = pytest.importorskip("yaml")
+    for preset in ("full", "minimal", "python", "text", "ts"):
+        root = tmp_path / preset
+        root.mkdir()
+        _init_in(root, monkeypatch)
+        _touch(root, "README.md")
+        _touch(root, "config.yaml")
+        assert init_cmd.cmd_init(_make_args(preset=preset, no_workflow=True)) == 0
+        parsed = yaml.safe_load(_read_config(root))
+        assert "local" in [repo["repo"] for repo in parsed["repos"]]
+        for repo in parsed["repos"]:
+            assert repo["repo"]
+            assert "rev" in repo or repo["repo"] == "local"
+            assert all(hook["id"] for hook in repo["hooks"])
+
+
+def test_init_cli_no_base_hooks_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CLI から --no-base-hooks が init_cmd まで届く。
+    captured: dict[str, object] = {}
+
+    def fake_cmd_init(args: argparse.Namespace) -> int:
+        captured["no_base_hooks"] = args.no_base_hooks
+        return 0
+
+    monkeypatch.setattr(init_cmd, "cmd_init", fake_cmd_init)
+    assert cli.main(["init", "--no-base-hooks", "--no-workflow"]) == 0
+    assert captured["no_base_hooks"] is True
+
+
+def test_init_system_mode_skips_base_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # --python はオフライン前提の指定。remote リポジトリの hook env を初回に取得する
+    # 共通衛生フックを足すと、その前提を壊す (Issue #142 レビュー指摘対応)。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    _touch(root, "settings.json")
+    monkeypatch.setattr(init_cmd, "_verify_importable", lambda _p: True)
+    args = _make_args(
+        preset="python", no_workflow=True, python="/custom/venv/bin/python"
+    )
+    assert init_cmd.cmd_init(args) == 0
+    cfg = _read_config(root)
+    assert "https://github.com/pre-commit/pre-commit-hooks" not in cfg
+    assert "markdownlint" not in cfg
+    assert "- id: check-json" not in cfg
+    assert "- id: ruff" in cfg
+
+
+def test_yaml_template_exclude_and_multi_document_args() -> None:
+    # Helm / Ansible 等のテンプレートや複数ドキュメントで初回から失敗しないようにする。
+    pattern = re.compile(init_cmd._YAML_TEMPLATE_EXCLUDE)
+    for path in ("charts/app/values.yaml", "ansible/templates/site.yml", "x/config.j2"):
+        assert pattern.search(path), path
+    for path in ("config/app.yaml", "template.yml", "src/charts.md"):
+        assert pattern.search(path) is None, path
+    yaml_hook = next(
+        hook
+        for group in init_cmd._BASE_HOOK_REPOS
+        for hook in group.hooks
+        if hook.hook_id == "check-yaml"
+    )
+    assert yaml_hook.args == "[--allow-multiple-documents]"
+    assert yaml_hook.exclude == init_cmd._YAML_TEMPLATE_EXCLUDE
+
+
+def test_render_base_hooks_skips_existing_repo(tmp_path: Path) -> None:
+    # プリセットが同じ repo を別 rev で持つ場合は二重に並べない。
+    preset = "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.0.0\n    hooks:\n      - id: trailing-whitespace\n"
+    block, added = init_cmd._render_base_hooks(frozenset({"markdown"}), preset)
+    assert "https://github.com/pre-commit/pre-commit-hooks" not in block
+    assert "trailing-whitespace" not in added
+    assert "markdownlint" in added
+
+
+def test_insert_base_hooks_ignores_comment_anchor() -> None:
+    # コメント行の "# repos:" を挿入位置と誤認しない。
+    content = "# repos: の下に並べる\nrepos:\n  - repo: a\n"
+    inserted = init_cmd._insert_base_hooks(content, "  # base\n")
+    assert inserted == "# repos: の下に並べる\nrepos:\n  # base\n  - repo: a\n"

@@ -199,9 +199,38 @@ ame-ai-reviewer init --preset python --with-engines
   #79)。`AME_INIT_PYTHON` 環境変数でも同様に system 方式へ切り替わる (Issue #66)。
 - `--no-workflow`: CI ラッパワークフロー (`review_command.yml` /
   `review_reply.yml`) の生成をスキップする
+- `--no-base-hooks`: 既存ファイルの走査で追加する共通衛生フックを生成しない (Issue
+  #142)。既定は追加する
 - `--with-engines`:
   TS エンジンサイドカー (`.ame-review/engines-ts/`) を展開し npm 依存をインストールする
 - `--force`: 既存ファイルを上書きする。既定は「ファイルが存在すればスキップ」
+
+既存ファイルの走査について補足します。`init` はリポジトリ内の `.md` / `.yaml` / `.json`
+を走査します。選択した preset に無い種別があれば、次のフックを追加します。
+
+- `.md` があれば `markdownlint` を追加する
+- `.yaml` があれば `check-yaml` を追加する
+- `.json` があれば `check-json` を追加する
+
+汎用フックは種別に依らず常に追加します。対象は `check-added-large-files` / `check-merge-conflict` /
+`trailing-whitespace` / `end-of-file-fixer` です。
+
+preset が同等以上のフックを持つ場合は重複させません (`full` の `yamllint` と `check-yaml`
+など)。`minimal` は「静的解析フックを持たない」選択のため、走査結果を足しません。 `markdownlint`
+は Node.js を必要とします。
+
+追加するフックは初回実行時に各 hook リポジトリを取得するため、ネットワークが必要です。そのため
+`--python` / `AME_INIT_PYTHON` を指定したオフライン構成では追加しません。 `--no-base-hooks`
+で明示的に止められます。
+
+`check-json` は厳密な JSON 検査のため、JSONC を除外します。対象はコメントや末尾カンマを含む
+`tsconfig.json` / `.vscode/` / `devcontainer.json` です。
+
+`check-yaml` は `---` 区切りの複数ドキュメントを許可します。Helm /
+Ansible 等のテンプレート（`charts/` / `templates/` / `*.j2`）は除外します。
+
+既存リポジトリでは初回の実行で整形系フックが失敗するかもしれません。`init` の後で
+`pre-commit run --all-files` を一度実行し、正規化してください。
 
 生成物は以下のとおり。
 

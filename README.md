@@ -250,6 +250,8 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    - `--python`: オフライン環境向け。指定すると Gate 1 フックを `language: system`
      で生成し、Python インタープリタパスを埋め込む。省略時は wheel 方式 (`language: python`) で生成し、絶対パスを埋め込まない。生成物は共有・コミットしても他環境/CI で動作する (Issue
      #79)。 `AME_INIT_PYTHON` 環境変数でも system 方式へ切り替わる (Issue #66)。
+   - `--no-base-hooks`: 既存ファイルの走査で追加する共通衛生フックの生成を止める (Issue
+     #142)。既定は追加する
 
    > [!NOTE] **生成物は移植可能**: 既定の `language: python`
    > 方式では pre-commit が各環境で venv を自動作成し wheel を導入するため、絶対パスが埋め込まれません。
@@ -264,6 +266,24 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    - `.pre-commit-config.yaml`
    - `.github/workflows/review_command.yml`
    - `.github/workflows/review_reply.yml`
+
+   > [!NOTE] **既存ファイルを走査して静的解析フックを補う**: `init` はリポジトリ内の `.md` / `.yaml`
+   > / `.json` を走査する。選択した preset に無い種別があれば `markdownlint` / `check-yaml` /
+   > `check-json` を `.pre-commit-config.yaml` へ追加する (Issue
+   > #142)。汎用フック (`check-added-large-files` / `check-merge-conflict` / `trailing-whitespace` /
+   > `end-of-file-fixer`) は種別に依らず追加する (`minimal` / `--no-base-hooks` / `--python`
+   > 指定時と、preset が同一 id を持つ場合は除く)。preset が同等以上のフックを持つ場合は重複させない (`full`
+   > の `yamllint` と `check-yaml` など)。`minimal`
+   > は「静的解析フックを持たない」選択のため走査結果を足さない。`markdownlint`
+   > は Node.js を必要とする。`check-json` は既知の JSONC (`tsconfig.json` / `.vscode/` /
+   > `devcontainer.json`) を除外する。`check-yaml` は複数ドキュメントを許可し、Helm /
+   > Ansible 等のテンプレート (`charts/` / `templates/` / `*.j2`) を除外する。
+   >
+   > 既存リポジトリでは初回に整形系フックが失敗し得る。`init` の後に `pre-commit run --all-files`
+   > を一度実行して正規化しておく。
+   >
+   > 追加するフックは初回実行時に各 hook リポジトリを取得するためネットワークが要る。オフライン前提の
+   > `--python` / `AME_INIT_PYTHON` 指定時は追加しない。`--no-base-hooks` で明示的に止められる。
 
    CI は reusable
    workflow を呼ぶ薄いラッパである。参照先の既定は移動メジャータグのため、hub のリリースに自動追随し、更新作業は不要である。バージョン固定時のみ ref を書き換える。

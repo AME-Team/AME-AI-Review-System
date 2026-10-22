@@ -607,6 +607,13 @@ uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-A
               ),
             ],
             [
+              <DocInline key="nbh">--no-base-hooks</DocInline>,
+              l(
+                "既存ファイルの走査で追加する共通衛生フック（check-yaml / markdownlint / end-of-file-fixer 等）を生成しません。既定は追加します。minimal は常に追加しません。",
+                "Skips the shared hygiene hooks added from the existing-file scan (check-yaml / markdownlint / end-of-file-fixer, etc.). They are added by default; minimal never adds them."
+              ),
+            ],
+            [
               <DocInline key="we">--with-engines</DocInline>,
               l(
                 "TS エンジンサイドカー（.ame-review/engines-ts/）を展開し npm 依存をインストールします。",
@@ -622,6 +629,12 @@ uv tool upgrade "ame-ai-review-system" --from "https://github.com/AME-Team/AME-A
             ],
           ]}
         />
+        <DocP>
+          {l(
+            "init はリポジトリ内の .md / .yaml / .json を走査し、選択した preset に無い種別があれば markdownlint / check-yaml / check-json を .pre-commit-config.yaml へ追加します。汎用フック（check-added-large-files / check-merge-conflict / trailing-whitespace / end-of-file-fixer）も追加します。preset が同等以上のフックを持つ場合は重複させません。check-json は既知の JSONC（tsconfig.json / .vscode/ / devcontainer.json）を除外します。check-yaml は複数ドキュメントを許可し、Helm / Ansible 等のテンプレート（charts/ / templates/ / *.j2）を除外します。追加するフックは初回実行時に hook リポジトリを取得するため、オフライン前提の --python / AME_INIT_PYTHON 指定時は追加しません。既存リポジトリでは init の後に pre-commit run --all-files を一度実行して正規化してください。",
+            "init scans the repository for .md / .yaml / .json files and adds markdownlint / check-yaml / check-json to .pre-commit-config.yaml when the selected preset lacks that kind. The generic hooks (check-added-large-files / check-merge-conflict / trailing-whitespace / end-of-file-fixer) are added too. Hooks the preset already covers are not duplicated. check-json excludes known JSONC (tsconfig.json / .vscode/ / devcontainer.json). check-yaml allows multiple documents and excludes Helm / Ansible templates (charts/ / templates/ / *.j2). Because the added hooks fetch their hook repositories on first run, they are skipped with the offline --python / AME_INIT_PYTHON options. For existing repositories, run pre-commit run --all-files once after init to normalise the tree."
+          )}
+        </DocP>
         <DocP>
           {l(
             "生成物は以下のとおりです。CI は reusable workflow を呼ぶ薄いラッパで、参照先の既定は移動メジャータグのため更新作業は不要です。",
