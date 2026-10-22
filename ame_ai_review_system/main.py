@@ -1210,6 +1210,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Skip generating CI wrapper workflows",
     )
     p_init.add_argument(
+        "--no-base-hooks",
+        action="store_true",
+        help="既存ファイル (Markdown / YAML / JSON 等) を走査して追加する共通衛生フック "
+        "(check-yaml / markdownlint / end-of-file-fixer 等) を生成しない (Issue #142)",
+    )
+    p_init.add_argument(
         "--with-engines",
         action="store_true",
         help="Install TS engine sidecar (.ame-review/engines-ts)",

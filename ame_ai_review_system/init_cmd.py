@@ -24,17 +24,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import urllib.request
-from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from . import __version__, paths
 
 if TYPE_CHECKING:
     import argparse
-    from pathlib import Path
 
 # preset 名 → templates/precommit/ のファイル名。
 _PRESETS: dict[str, str] = {
@@ -275,6 +276,32 @@ _SKIP_DIRS = frozenset(
     {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"},
 )
 
+# Issue #142: 既存ファイル走査専用の除外集合。``_SKIP_DIRS`` を拡張して共有すると、
+# プリセット自動判定 (``_repo_has_suffix``) の判定結果まで変わるため別集合にする。
+#   - ``.ame-review`` は init 自身が直前に生成するため、config.json を「JSON あり」と
+#     誤検出しないよう除外する。
+#   - キャッシュ / ビルド生成物は git 管理外のことが多く、``.gitignore`` 済みの
+#     ファイルを種別として数えないための保険 (git が無い環境のフォールバック用)。
+_SCAN_SKIP_DIRS = _SKIP_DIRS | frozenset(
+    {
+        ".ame-review",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        ".tox",
+        ".nox",
+        ".eggs",
+        ".cache",
+        "htmlcov",
+        "coverage",
+        "target",
+        ".next",
+        ".nuxt",
+        ".turbo",
+        "site",
+    },
+)
+
 
 def _repo_has_suffix(root: Path, suffixes: frozenset[str]) -> bool:
     """リポジトリ内に指定の拡張子のファイルが存在するかを判定する.
@@ -286,6 +313,257 @@ def _repo_has_suffix(root: Path, suffixes: frozenset[str]) -> bool:
         if any(name.endswith(suffix) for name in filenames for suffix in suffixes):
             return True
     return False
+
+
+# Issue #142: init 時にリポジトリ内の既存ファイル構成を走査し、言語プリセットが
+# 持たない共通衛生フック (Markdown / YAML / JSON 等) を補う。拡張子 → 種別の対応を
+# 単一情報源にし、検出と追加判定の両方から参照する。
+_SUFFIX_KINDS: dict[str, str] = {
+    ".md": "markdown",
+    ".markdown": "markdown",
+    # .mdx は JSX 構文を含み markdownlint が失敗するため対象外 (レビュー指摘対応)。
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".json": "json",
+}
+
+# ロックファイルと TS エンジンサイドカーは生成物 (手で整形しない) のため、
+# 行末空白 / EOF 修正の対象から外す。codespell の exclude と同じ並びに揃える。
+# 値は素の正規表現で持ち、YAML へ書くときにバックスラッシュを二重化する
+# (_yaml_quote)。テストからそのまま re で検証できるよう単一情報源にする。
+_BASE_HOOKS_EXCLUDE = (
+    r"(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|^\.ame-review/engines-ts/"
+)
+
+# check-json は json.load による厳密検査のため、コメント / 末尾カンマを含む JSONC
+# (tsconfig.json, .vscode/*.json, devcontainer.json) があると初回から失敗する。
+# 既存リポジトリへ後付けするフックなので、既知の JSONC は除外する (レビュー指摘対応)。
+_JSONC_EXCLUDE = (
+    r"(^|/)(tsconfig|jsconfig)(\.[^/]*)?\.json$|(^|/)\.vscode/"
+    r"|(^|/)devcontainer\.json$"
+)
+
+# check-yaml は 1 ドキュメント前提のため、`---` 区切りの複数ドキュメントや Helm /
+# Ansible / Jinja のテンプレートで初回から失敗する。複数ドキュメントを許可し、
+# テンプレート系のパスは除外する (レビュー指摘対応)。
+_YAML_TEMPLATE_EXCLUDE = r"(^|/)(charts|templates)/|\.(j2|jinja2?)$"
+
+
+def _yaml_quote(text: str) -> str:
+    """正規表現を YAML の double-quoted scalar として安全に埋め込む."""
+    return '"' + text.replace("\\", "\\\\") + '"'
+
+
+_BASE_HOOKS_HEADER = """\
+  # =========================================================================
+  # Issue #142: init がリポジトリ内の既存ファイルを走査して追加した共通衛生フック
+  #   検出したファイル種別: {kinds}
+  # 言語プリセットに含まれない種別だけを追加する。行末空白 / 末尾改行 / 大容量 /
+  # コンフリクトマーカーは種別に依らず追加する。YAML は構文検査のみのため、
+  # actionlint 等が必要なら手動で追加すること。JSON は既知の JSONC (tsconfig 等) を
+  # 除外して検査する。
+  # 不要な場合は `ame-ai-reviewer init --no-base-hooks` で生成し直すこと。
+  # =========================================================================
+"""
+
+
+class _BaseHook(NamedTuple):
+    """共通衛生フック 1 件の定義 (Issue #142)."""
+
+    hook_id: str
+    # この種別が検出されたときだけ追加する (空集合 = 常に追加)。
+    requires: frozenset[str] = frozenset()
+    # これらのフック id がプリセットに含まれていれば追加しない (同等以上とみなす)。
+    satisfied_by: frozenset[str] = frozenset()
+    # args は YAML フロー配列の本文 (例: "[--fix]")、exclude は正規表現本文。
+    args: str = ""
+    exclude: str = ""
+
+    def render(self) -> str:
+        """1 件の hook エントリを ``.pre-commit-config.yaml`` の断片へ整形する."""
+        lines = [f"      - id: {self.hook_id}"]
+        if self.args:
+            lines.append(f"        args: {self.args}")
+        if self.exclude:
+            lines.append(f"        exclude: {_yaml_quote(self.exclude)}")
+        return "\n".join(lines) + "\n"
+
+
+class _BaseRepo(NamedTuple):
+    """共通衛生フックを提供する pre-commit リポジトリ 1 件 (Issue #142)."""
+
+    repo: str
+    rev: str
+    hooks: tuple[_BaseHook, ...]
+
+
+# 追加するフックの並び (順序 = 生成物での並び)。pre-commit-hooks は
+# `language: python` のため追加ツール無しで動く。markdownlint は `language: node`
+# で、hook 用 env は pre-commit が作るため npm install は不要 (node のみ必要)。
+_BASE_HOOK_REPOS: tuple[_BaseRepo, ...] = (
+    _BaseRepo(
+        "https://github.com/pre-commit/pre-commit-hooks",
+        "v6.0.0",
+        (
+            _BaseHook("check-added-large-files"),
+            _BaseHook("check-merge-conflict"),
+            _BaseHook("trailing-whitespace", exclude=_BASE_HOOKS_EXCLUDE),
+            _BaseHook("end-of-file-fixer", exclude=_BASE_HOOKS_EXCLUDE),
+            _BaseHook(
+                "check-yaml",
+                requires=frozenset({"yaml"}),
+                # yamllint は YAML を構文 + スタイルで検査する上位互換。
+                satisfied_by=frozenset({"yamllint"}),
+                args="[--allow-multiple-documents]",
+                exclude=_YAML_TEMPLATE_EXCLUDE,
+            ),
+            _BaseHook(
+                "check-json",
+                requires=frozenset({"json"}),
+                # prettier は types_or に json を含み、構文不正なら失敗する。
+                satisfied_by=frozenset({"prettier"}),
+                exclude=_JSONC_EXCLUDE,
+            ),
+        ),
+    ),
+    _BaseRepo(
+        "https://github.com/igorshubovych/markdownlint-cli",
+        "v0.49.1",
+        (
+            _BaseHook(
+                "markdownlint",
+                requires=frozenset({"markdown"}),
+                # 既存の Markdown リンタがあれば重複させない。
+                satisfied_by=frozenset(
+                    {"markdownlint", "markdownlint-cli2", "textlint"},
+                ),
+                args="[--fix]",
+            ),
+        ),
+    ),
+)
+
+
+def _git_listed_files(root: Path) -> list[str] | None:
+    """Git 管理下のファイル一覧を返す (追跡済み + 未追跡・非 ignore).
+
+    ``.gitignore`` を尊重することで、キャッシュやビルド生成物に含まれる ``.json`` を
+    「JSON ファイルあり」と誤検出しない (Issue #142 レビュー指摘対応)。git リポジトリ
+    でない / git が無い場合は ``None`` を返し、呼び出し側が os.walk へフォールバックする。
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    # 非 UTF-8 のファイル名 (Shift-JIS 等) でも UnicodeDecodeError で init 全体を
+    # 落とさないよう surrogateescape で復号する (レビュー指摘対応)。
+    decoded = result.stdout.decode("utf-8", errors="surrogateescape")
+    return [name for name in decoded.split("\0") if name]
+
+
+def _iter_repo_files(root: Path) -> list[str]:
+    """走査対象のファイル名一覧を返す (Issue #142).
+
+    git 管理下では ``git ls-files`` を使う (``.gitignore`` 済みの生成物を拾わない)。
+    使えない場合のみ ``_SCAN_SKIP_DIRS`` で間引いた os.walk にフォールバックする。
+    どちらの経路でも ``_SCAN_SKIP_DIRS`` 配下は除外する。``.ame-review`` は init 自身が
+    直前に生成するため、git 未追跡でも種別として数えない。
+    """
+    listed: list[str] | None = _git_listed_files(root)
+    if listed is None:
+        walked: list[str] = []
+        for _dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _SCAN_SKIP_DIRS]
+            walked.extend(filenames)
+        listed = walked
+    return [
+        name
+        for name in listed
+        if not _SCAN_SKIP_DIRS.intersection(Path(name).parts[:-1])
+    ]
+
+
+def _detect_file_kinds(root: Path) -> frozenset[str]:
+    """リポジトリ内の既存ファイルから静的解析対象のファイル種別を検出する (Issue #142).
+
+    拡張子は小文字化して比較する。
+    """
+    kinds = {
+        kind
+        for name in _iter_repo_files(root)
+        if (kind := _SUFFIX_KINDS.get(Path(name).suffix.lower())) is not None
+    }
+    return frozenset(kinds)
+
+
+def _render_base_hooks(
+    kinds: frozenset[str],
+    preset_content: str,
+) -> tuple[str, tuple[str, ...]]:
+    """検出した種別に応じた共通衛生フックの YAML ブロックを組み立てる (Issue #142).
+
+    プリセットが既に同等以上のフックを持つ場合は追加しない (``satisfied_by``)。
+    ``(ブロック, 追加した hook id の並び)`` を返す。追加が無ければブロックは空文字。
+    """
+    existing = set(re.findall(r"^\s*- id: (\S+)", preset_content, flags=re.MULTILINE))
+    # プリセットが同じ repo を別 rev で持つ場合、同一 URL を二重に並べない
+    # (hook env の二重インストール / rev 不整合を避ける。レビュー指摘対応)。
+    existing_repos = set(
+        re.findall(r"^\s*- repo: (\S+)\s*$", preset_content, flags=re.MULTILINE),
+    )
+    group_blocks: list[str] = []
+    added: list[str] = []
+    for group in _BASE_HOOK_REPOS:
+        if group.repo in existing_repos:
+            continue
+        selected = [
+            hook
+            for hook in group.hooks
+            if (not hook.requires or hook.requires <= kinds)
+            and hook.hook_id not in existing
+            and not hook.satisfied_by & existing
+        ]
+        if not selected:
+            continue
+        group_blocks.append(
+            f"  - repo: {group.repo}\n    rev: {group.rev}\n    hooks:\n"
+            + "".join(hook.render() for hook in selected)
+            + "\n"
+        )
+        added.extend(hook.hook_id for hook in selected)
+    if not group_blocks:
+        return "", ()
+    header = _BASE_HOOKS_HEADER.format(kinds=", ".join(sorted(kinds)) or "なし")
+    return header + "".join(group_blocks), tuple(added)
+
+
+def _insert_base_hooks(content: str, block: str) -> str | None:
+    """``repos:`` の直後へ共通衛生フックのブロックを挿入する (Issue #142).
+
+    言語プリセットのフックより先に評価させるため先頭へ置く。``fail_fast: true``
+    のため、安価な衛生フックを先に走らせる方が無駄な実行を減らせる。
+    挿入位置 (``repos:``) がテンプレートに無い場合は ``None`` を返す。フックが実際には
+    入っていないのに「追加しました」と表示しないよう、成否を呼び出し側へ返す。
+    """
+    if not block:
+        return content
+    # 行頭一致で探す。`# repos:` のようなコメントや値の中の "repos:" にヒットすると
+    # 不正な YAML を生成するため (レビュー指摘対応)。
+    match = re.search(r"^repos:[ \t]*$", content, flags=re.MULTILINE)
+    if match is None:
+        return None
+    line_end = content.find("\n", match.end())
+    if line_end < 0:
+        return f"{content}\n{block}"
+    return content[: line_end + 1] + block + content[line_end + 1 :]
 
 
 def _resolve_preset(preset: str, root: Path) -> str:
@@ -373,6 +651,49 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"ERROR: preset template not found: {src}", file=sys.stderr)
         return 1
     preset_content = src.read_text(encoding="utf-8")
+
+    # Issue #142: リポジトリ内の既存ファイルを走査し、プリセットが持たない共通衛生
+    # フックを補う。走査は .ame-review 配下を除外するため、上で生成した config.json は
+    # 検出対象にならない。minimal は「静的解析フックを持たない」明示的な選択のため
+    # 対象外とし、--no-base-hooks で全プリセットから外せるようにする。
+    if getattr(args, "no_base_hooks", False):
+        print("  base hooks: 指定なし (--no-base-hooks)")
+    elif _use_system_language(args):
+        # --python / AME_INIT_PYTHON はオフライン前提の指定なので、remote リポジトリの
+        # hook env を初回に取得する共通衛生フックは足さない (Issue #142 レビュー指摘対応)。
+        print(
+            "  base hooks: 追加しない (--python / AME_INIT_PYTHON はオフライン前提のため、"
+            "リモート hook リポジトリを取得できません)"
+        )
+    elif preset_name == "minimal":
+        print(
+            "  base hooks: 追加しない (preset=minimal は静的解析フックを持たない選択)"
+        )
+    else:
+        detected = _detect_file_kinds(root)
+        base_block, base_added = _render_base_hooks(detected, preset_content)
+        inserted = _insert_base_hooks(preset_content, base_block)
+        detected_text = ", ".join(sorted(detected)) or "なし"
+        if inserted is None:
+            # テンプレートの書式が変わって repos: が見つからない場合。実際には何も
+            # 入っていないので成功表示にしない (レビュー指摘対応)。
+            print(
+                "WARNING: .pre-commit-config.yaml のテンプレートに `repos:` が無いため、"
+                f"共通衛生フック ({', '.join(base_added)}) を挿入できませんでした "
+                "(Issue #142)。",
+                file=sys.stderr,
+            )
+        else:
+            preset_content = inserted
+            if base_added:
+                print(
+                    f"  base hooks: 既存ファイルから検出 ({detected_text}) "
+                    f"→ {', '.join(base_added)} を追加しました。"
+                )
+            else:
+                print(
+                    f"  base hooks: 追加なし (検出: {detected_text} / プリセットが既に網羅)"
+                )
 
     if _use_system_language(args):
         # オフライン向け: language: system で実インタープリタパスを埋め込む (Issue #66)。
