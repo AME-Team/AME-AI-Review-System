@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.2.20] - 2026-10-22
+
+### Added
+
+- `ame-ai-reviewer init`
+  がリポジトリ内の既存ファイルを走査し、preset に無い種別の静的解析フックを補うようにした (Issue
+  #142)。
+  - `.md` があれば `markdownlint`、`.yaml` / `.yml` があれば `check-yaml`、 `.json` があれば
+    `check-json` を追加する。
+  - 種別に依らず `check-added-large-files` / `check-merge-conflict` / `trailing-whitespace` /
+    `end-of-file-fixer` を追加する。
+  - preset が同等以上のフックを持つ場合は重複させない。
+  - `minimal` / `--no-base-hooks` / `--python` 指定時は追加しない。
+  - 走査は `git ls-files` を使い、`.gitignore` 済みの生成物を拾わない。
+  - `check-json` は既知の JSONC を、`check-yaml` はテンプレート系の YAML を除外する。
+
 ## [0.2.19] - 2026-10-20
 
 ### Added
