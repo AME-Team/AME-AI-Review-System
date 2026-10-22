@@ -351,7 +351,7 @@ _YAML_TEMPLATE_EXCLUDE = r"(^|/)(charts|templates)/|\.(j2|jinja2?)$"
 
 def _yaml_quote(text: str) -> str:
     """正規表現を YAML の double-quoted scalar として安全に埋め込む."""
-    return '"' + text.replace("\\", "\\\\") + '"'
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 _BASE_HOOKS_HEADER = """\
@@ -685,10 +685,21 @@ def cmd_init(args: argparse.Namespace) -> int:
             )
         else:
             preset_content = inserted
-            if base_added:
+            config_path = root / ".pre-commit-config.yaml"
+            # 既存ファイルは既定でスキップされるため、書き込まないのに「追加しました」と
+            # 表示しない (レビュー指摘対応)。
+            will_write = args.force or not config_path.exists()
+            if base_added and will_write:
                 print(
                     f"  base hooks: 既存ファイルから検出 ({detected_text}) "
                     f"→ {', '.join(base_added)} を追加しました。"
+                )
+            elif base_added:
+                print(
+                    f"  base hooks: 既存ファイルから検出 ({detected_text}) "
+                    f"→ {', '.join(base_added)} を追加しますが、"
+                    f"{config_path.name} が既存のため書き込みません "
+                    "(--force で反映)。"
                 )
             else:
                 print(

@@ -594,6 +594,23 @@ def test_yaml_quote_escapes_backslashes_for_double_quoted_scalar() -> None:
     # 素の正規表現を YAML の double-quoted scalar へ入れると \. が不正エスケープになる。
     assert init_cmd._yaml_quote(r"a\.b") == r'"a\\.b"'
     assert init_cmd._yaml_quote("plain") == '"plain"'
+    # ダブルクォートを含む exclude でも YAML を壊さない。
+    assert init_cmd._yaml_quote('a"b') == r'"a\"b"'
+
+
+def test_init_reports_skip_when_config_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 既存の .pre-commit-config.yaml は既定でスキップされる。書き込まないのに
+    # 「追加しました」と表示しない (レビュー指摘対応)。
+    root = _init_in(tmp_path, monkeypatch)
+    _touch(root, "README.md")
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    capsys.readouterr()
+    assert init_cmd.cmd_init(_make_args(preset="python", no_workflow=True)) == 0
+    out = capsys.readouterr().out
+    assert "追加しました" not in out
+    assert "--force で反映" in out
 
 
 def test_scan_skip_dirs_does_not_change_preset_detection(tmp_path: Path) -> None:
