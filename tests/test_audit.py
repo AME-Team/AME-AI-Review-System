@@ -394,6 +394,377 @@ def test_audit_repo_isolates_parse_errors(
     assert _check(result, "gate2:review_command.yml").status is audit.CheckStatus.OK
 
 
+def test_audit_repo_accepts_checks_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # checks: write は read を含む上位権限。誤って DRIFT にしない。
+    wrapper = _wrapper(init_cmd.DEFAULT_REF).replace("checks: read", "checks: write")
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.OK
+
+
+def test_audit_repo_accepts_flow_style_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # permissions: {checks: read} のようなフロー記法も同じ意味。
+    wrapper = _wrapper(init_cmd.DEFAULT_REF).replace(
+        "permissions:\n  contents: read\n  checks: read\n",
+        "permissions: {contents: read, checks: read}\n",
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.OK
+
+
+def test_audit_repo_keeps_drift_when_other_file_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pyproject が読めなくても、pre-commit 側の確定したドリフトは UNKNOWN に格下げしない。
+    def _fake(
+        method: str,
+        url: str,
+        token: str,
+        body: object = None,
+        accept: str = "application/vnd.github+json",
+    ) -> object:
+        assert method == "GET"
+        if "/contents/" not in url:
+            return {"full_name": "AME-Team/demo"}
+        if url.endswith("pyproject.toml"):
+            return {"encoding": "none", "content": ""}
+        path = url.split("/contents/")[1]
+        files = {
+            ".github/workflows/review_command.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit("0.2.16"),
+        }
+        if path not in files:
+            message = "not found"
+            raise github_client.HttpError(404, message)
+        return _contents(files[path])
+
+    monkeypatch.setattr(github_client, "http_request", _fake)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    finding = _check(result, "gate1:wheel")
+    assert finding.status is audit.CheckStatus.DRIFT
+    assert "0.2.16" in finding.detail
+
+
+def test_audit_repo_reports_unknown_when_ahead_and_other_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 片方が「最新より新しい」固定でも、もう片方が読めないなら追随済みと断定しない
+    # (読めない側に DRIFT が隠れ得る)。
+    def _fake(
+        method: str,
+        url: str,
+        token: str,
+        body: object = None,
+        accept: str = "application/vnd.github+json",
+    ) -> object:
+        assert method == "GET"
+        if "/contents/" not in url:
+            return {"full_name": "AME-Team/demo"}
+        if url.endswith("pyproject.toml"):
+            return {"encoding": "none", "content": ""}
+        path = url.split("/contents/")[1]
+        files = {
+            ".github/workflows/review_command.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit("0.2.21"),
+        }
+        if path not in files:
+            message = "not found"
+            raise github_client.HttpError(404, message)
+        return _contents(files[path])
+
+    monkeypatch.setattr(github_client, "http_request", _fake)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert _check(result, "gate1:wheel").status is audit.CheckStatus.UNKNOWN
+
+
+def test_audit_repo_ignores_commented_checks_in_flow_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # フロー記法のコメント内の checks: read を有効な権限として拾わない。
+    wrapper = _wrapper(init_cmd.DEFAULT_REF, checks_read=False).replace(
+        "permissions:\n  contents: read\n",
+        "permissions: {contents: read\n  # , checks: read\n}\n",
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.DRIFT
+    assert "checks: read" in _check(result, "gate2:review_command.yml").detail
+
+
+def _wrapper_with_permissions(permissions: str) -> str:
+    return (
+        "name: x\n"
+        f"permissions:\n{permissions}"
+        "jobs:\n"
+        "  r:\n"
+        f"    uses: {init_cmd.repo_fqn()}/.github/workflows/review-command.yml@"
+        f"{init_cmd.DEFAULT_REF}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        "  checks: read\n",
+        "  checks: write\n",
+        '  checks: "read"\n',
+        "  checks: 'read'\n",
+    ],
+)
+def test_audit_repo_accepts_checks_permission_variants(
+    monkeypatch: pytest.MonkeyPatch, permissions: str
+) -> None:
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": _wrapper_with_permissions(
+                permissions
+            ),
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert _check(result, "gate2:review_command.yml").status is audit.CheckStatus.OK
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        # 別の値 (read-only) は checks 権限ではない
+        _wrapper_with_permissions("  checks: read-only\n"),
+        # コメントアウトされた記述は権限ではない
+        _wrapper_with_permissions("  contents: read\n  # checks: read\n"),
+    ],
+)
+def test_audit_repo_rejects_invalid_checks_permission(
+    monkeypatch: pytest.MonkeyPatch, wrapper: str
+) -> None:
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.DRIFT
+    assert "checks: read" in _check(result, "gate2:review_command.yml").detail
+
+
+def test_audit_repo_accepts_multiline_flow_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # フロー記法が複数行に跨っても checks を読む。
+    wrapper = _wrapper_with_permissions("").replace(
+        "permissions:\n",
+        "permissions: {contents: read,\n   statuses: read, checks: write}\n",
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert _check(result, "gate2:review_command.yml").status is audit.CheckStatus.OK
+
+
+def test_audit_repo_accepts_read_all_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # permissions: read-all は checks を含む。
+    wrapper = _wrapper_with_permissions("  # none\n").replace(
+        "permissions:\n  # none\n", "permissions: 'read-all'\n"
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert _check(result, "gate2:review_command.yml").status is audit.CheckStatus.OK
+
+
+def test_audit_repo_ignores_permissions_inside_block_scalar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # run: | の内側は YAML ではない。内側の permissions を権限宣言と誤認しない。
+    wrapper = (
+        "name: x\n"
+        "jobs:\n"
+        "  r:\n"
+        f"    uses: {init_cmd.repo_fqn()}/.github/workflows/review-command.yml@"
+        f"{init_cmd.DEFAULT_REF}\n"
+        "    steps:\n"
+        "      - run: |2\n"
+        "          permissions: read-all\n"
+        "          echo done\n"
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.DRIFT
+    assert "checks: read" in _check(result, "gate2:review_command.yml").detail
+
+
+def test_audit_repo_checks_job_level_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # トップレベルに checks が無くても、ジョブレベルの permissions に checks: read が
+    # あれば権限は満たされる。
+    wrapper = (
+        "name: x\n"
+        "permissions:\n"
+        "  contents: read\n"
+        "jobs:\n"
+        "  r:\n"
+        "    permissions:\n"
+        "      contents: read\n"
+        "      checks: read\n"
+        f"    uses: {init_cmd.repo_fqn()}/.github/workflows/review-command.yml@"
+        f"{init_cmd.DEFAULT_REF}\n"
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert _check(result, "gate2:review_command.yml").status is audit.CheckStatus.OK
+
+
+def test_audit_repo_honours_job_permissions_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ジョブレベルの permissions はトップレベルを上書きする。呼び出しジョブが checks を
+    # 落としていれば、トップレベルに checks: read があっても権限は無い。
+    wrapper = (
+        "name: x\n"
+        "permissions:\n"
+        "  contents: read\n"
+        "  checks: read\n"
+        "jobs:\n"
+        "  r:\n"
+        "    permissions:\n"
+        "      contents: read\n"
+        f"    uses: {init_cmd.repo_fqn()}/.github/workflows/review-command.yml@"
+        f"{init_cmd.DEFAULT_REF}\n"
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.DRIFT
+    assert "checks: read" in _check(result, "gate2:review_command.yml").detail
+
+
+def test_audit_repo_ignores_checks_of_unrelated_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ラッパを呼ばない別ジョブに checks があっても、呼び出しジョブの権限ではない。
+    wrapper = (
+        "name: x\n"
+        "jobs:\n"
+        "  other:\n"
+        "    permissions:\n"
+        "      checks: read\n"
+        "    runs-on: ubuntu-latest\n"
+        "  r:\n"
+        "    permissions:\n"
+        "      contents: read\n"
+        f"    uses: {init_cmd.repo_fqn()}/.github/workflows/review-command.yml@"
+        f"{init_cmd.DEFAULT_REF}\n"
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.DRIFT
+
+
+def test_audit_repo_ignores_uses_inside_block_scalar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # run: | の内側に書いただけの uses は参照ではない (checks 判定と同じ扱い)。
+    wrapper = (
+        "name: x\n"
+        "permissions:\n"
+        "  checks: read\n"
+        "jobs:\n"
+        "  r:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: |2\n"
+        f"          uses: {init_cmd.repo_fqn()}/.github/workflows/review-command.yml@"
+        f"{init_cmd.DEFAULT_REF}\n"
+    )
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": wrapper,
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.DRIFT
+    assert "不明" in _check(result, "gate2:review_command.yml").detail
+
+
 def test_audit_repo_reports_untracked_wheel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

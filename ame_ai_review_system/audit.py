@@ -34,7 +34,14 @@ _WORKFLOW_FILES = ("review_command.yml", "review_reply.yml")
 _CONTENTS_API = "https://api.github.com/repos/{repo}/contents/{path}"
 _REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 # ``checks:`` は Gate 2 (Circuit Breaker) がリポジトリ自身の CI を見るために要る権限。
-_CHECKS_READ_RE = re.compile(r"^\s*checks:\s*read\s*$", re.MULTILINE)
+# ``permissions`` の書き方は YAML のブロック記法とフロー記法、``read-all`` / ``write-all``
+# の短縮形がある。``checks: write`` は read を含む上位権限なので許容する。
+_PERMISSIONS_RE = re.compile(r"^(?P<indent>\s*)permissions:\s*(?P<rest>.*)$")
+# ``run: |`` などのブロックスカラーは中身が YAML ではないため、その範囲を読み飛ばす。
+# chomping indicator (``-``/``+``) と明示インデント (``|2``, ``>2-``) は任意順で付く。
+_BLOCK_SCALAR_RE = re.compile(r":\s*[|>][-+\d]*\s*$")
+_CHECKS_ENTRY_RE = re.compile(r"^\s*checks:\s*(?P<value>\S+)\s*$")
+_CHECKS_VALUES = frozenset({"read", "write"})
 # 行頭の ``uses:`` だけを対象にする。コメントアウトされた旧参照 (``# uses: ...@v0.2.13``)
 # を拾うと、移行済みのリポジトリをドリフトと誤判定する。値の引用符と、``@ref`` の後ろに
 # 空白なしで続くコメント (``@v0#foo``) も吸収する。
@@ -161,6 +168,159 @@ def _fetch_error(check: str, exc: BaseException) -> Finding:
     return Finding(check, CheckStatus.UNKNOWN, f"取得に失敗: {exc}")
 
 
+def _strip_comment(line: str) -> str:
+    """行末コメントを落とす (``#`` の直前が空白のときだけ。URL の ``#`` は残す)."""
+    for index, char in enumerate(line):
+        if char == "#" and (index == 0 or line[index - 1] in " \t"):
+            return line[:index]
+    return line
+
+
+def _significant_lines(lines: list[str]) -> list[str | None]:
+    """ブロックスカラー (``run: |``) の内側を ``None`` にした一覧 (行番号は保つ).
+
+    内側は YAML ではないため、``permissions:`` や ``uses:`` を本物の宣言として読んでは
+    いけない。
+    """
+    result: list[str | None] = []
+    scalar_indent: int | None = None
+    for raw in lines:
+        line = _strip_comment(raw)
+        indent = len(line) - len(line.lstrip())
+        if scalar_indent is not None:
+            if not line.strip() or indent > scalar_indent:
+                result.append(None)
+                continue
+            scalar_indent = None
+        result.append(line)
+        if _BLOCK_SCALAR_RE.search(line):
+            scalar_indent = indent
+    return result
+
+
+def _indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _flow_permissions_have_checks(
+    lines: list[str | None], start: int, rest: str
+) -> bool:
+    """フロー記法 (``permissions: {...}``) に ``checks: read|write`` があるか."""
+    collected = [rest]
+    for raw in lines[start + 1 :]:
+        if raw is None:
+            continue
+        collected.append(raw)
+        if "}" in raw:
+            break
+    body = " ".join(collected)
+    opened = body.find("{")
+    if opened < 0:
+        return False
+    closed = body.find("}", opened)
+    body = body[opened + 1 : closed] if closed >= 0 else body[opened + 1 :]
+    for entry in body.split(","):
+        key, _, value = entry.partition(":")
+        if key.strip().strip("'\"") == "checks" and value.strip().strip("'\"") in (
+            _CHECKS_VALUES
+        ):
+            return True
+    return False
+
+
+def _block_permissions_have_checks(
+    lines: list[str | None], start: int, indent: int
+) -> bool:
+    """ブロック記法の ``permissions:`` 配下に ``checks: read|write`` があるか."""
+    for raw in lines[start + 1 :]:
+        if raw is None or not raw.strip():
+            continue
+        if _indent_of(raw) <= indent:
+            # permissions ブロックの終わり (同レベル以上のキーが来た)。
+            return False
+        match = _CHECKS_ENTRY_RE.match(raw)
+        # YAML では値の引用符が有効 (``checks: "read"``) なので、比較前に落とす。
+        if match is not None and match.group("value").strip("'\"") in _CHECKS_VALUES:
+            return True
+    return False
+
+
+def _grant_at(lines: list[str | None], index: int, indent: int) -> bool:
+    """``permissions:`` の行が checks を許可しているか."""
+    line = lines[index]
+    match = _PERMISSIONS_RE.match(line) if line is not None else None
+    if match is None:
+        return False
+    rest = match.group("rest").strip().strip("'\"")
+    if rest in {"read-all", "write-all"}:
+        # 全権限の短縮形は checks も含む。
+        return True
+    if rest.startswith("{"):
+        return _flow_permissions_have_checks(lines, index, rest)
+    return _block_permissions_have_checks(lines, index, indent)
+
+
+def _job_grant(lines: list[str | None], index: int, indent: int) -> bool | None:
+    """ラッパを呼ぶジョブの ``permissions:`` を評価する (無ければ ``None``).
+
+    ジョブレベルの ``permissions`` はトップレベルをマージせず丸ごと上書きするため、
+    ラッパを呼ぶジョブに宣言があればそちらが正になる。
+    """
+    start = index
+    while start > 0:
+        previous = lines[start - 1]
+        if previous is not None and previous.strip() and _indent_of(previous) < indent:
+            break
+        start -= 1
+    end = index + 1
+    while end < len(lines):
+        line = lines[end]
+        if line is not None and line.strip() and _indent_of(line) < indent:
+            break
+        end += 1
+    for position in range(start, end):
+        candidate = lines[position]
+        if candidate is None or not candidate.strip():
+            continue
+        if _indent_of(candidate) != indent:
+            continue
+        if _PERMISSIONS_RE.match(candidate) is not None:
+            return _grant_at(lines, position, indent)
+    return None
+
+
+def _has_checks_permission(text: str) -> bool:
+    """Gate 2 が外部 CI を見るための ``checks`` 権限があるか.
+
+    PyYAML を依存に加えない方針 (既定は依存ゼロ) のため、``permissions`` と ``uses``
+    だけを読む最小のパーサで判定する。コメント行・行末コメントとブロックスカラーの内側は
+    無視し、``checks: read-only`` のような別の値を権限と誤認しない。ラッパを呼ぶジョブに
+    ジョブレベルの ``permissions`` があればそれを優先し、無ければトップレベルを見る。
+    """
+    lines = _significant_lines(text.splitlines())
+    top: bool | None = None
+    for index, line in enumerate(lines):
+        if line is None or _indent_of(line) != 0:
+            continue
+        if _PERMISSIONS_RE.match(line) is not None:
+            top = _grant_at(lines, index, 0)
+            break
+    usages = [
+        (index, _indent_of(line))
+        for index, line in enumerate(lines)
+        if line is not None and _WORKFLOW_REF_RE.match(line) is not None
+    ]
+    if not usages:
+        # ラッパの参照が無い場合は、呼び出し側が「参照が不明」として DRIFT にする。
+        return top is True
+    for index, indent in usages:
+        job = _job_grant(lines, index, indent)
+        effective = top if job is None else job
+        if effective is not True:
+            return False
+    return True
+
+
 def _workflow_findings(repo: str, token: str) -> list[Finding]:
     """Gate 2 のラッパ 2 件を検査する (移動メジャータグ参照と ``checks: read``)."""
     expected = init_cmd.DEFAULT_REF
@@ -183,10 +343,12 @@ def _workflow_findings(repo: str, token: str) -> list[Finding]:
                 Finding(check, CheckStatus.DRIFT, "ラッパがありません (未移行の可能性)")
             )
             continue
-        # グループが増えても壊れないよう、名前付きグループで明示的に取り出す。
+        # 参照の抽出も ``_significant_lines`` を通す。ブロックスカラー (``run: |``) の
+        # 内側に書かれただけの ``uses:`` を参照と誤認しないため (checks 判定と揃える)。
         refs = [
             match.group("ref").strip("'\"")
-            for match in re.finditer(_WORKFLOW_REF_RE, text)
+            for line in _significant_lines(text.splitlines())
+            if line is not None and (match := _WORKFLOW_REF_RE.match(line)) is not None
         ]
         # 期待値が 1 つあれば良いのではない。同じファイルに古い固定参照が残っている
         # (両方が使われている) 場合も移行漏れなので、すべてが期待値であることを要求する。
@@ -199,7 +361,7 @@ def _workflow_findings(repo: str, token: str) -> list[Finding]:
                 )
             )
             continue
-        if filename == "review_command.yml" and not _CHECKS_READ_RE.search(text):
+        if filename == "review_command.yml" and not _has_checks_permission(text):
             # checks: read が無いと Circuit Breaker が外部 CI を見られない。
             findings.append(
                 Finding(
@@ -222,6 +384,7 @@ def _gate1_finding(repo: str, token: str, *, latest: tuple[str, str] | None) -> 
     """
     check = "gate1:wheel"
     found: list[tuple[str, tuple[config_sync.Reference, ...]]] = []
+    failures: list[Finding] = []
     for path, extract in (
         (".pre-commit-config.yaml", config_sync.precommit_references),
         ("pyproject.toml", config_sync.pyproject_references),
@@ -234,14 +397,17 @@ def _gate1_finding(repo: str, token: str, *, latest: tuple[str, str] | None) -> 
             ValueError,
             _UnreadableFileError,
         ) as exc:
-            # 片方の取得失敗で、もう片方の参照評価を失わない。
-            return _fetch_error(check, exc)
+            # 片方の取得失敗で、もう片方の参照評価 (特に DRIFT) を失わない。
+            failures.append(_fetch_error(check, exc))
+            continue
         if text is None:
             continue
         references = extract(text)
         if references:
             found.append((path, references))
     if not found:
+        if failures:
+            return failures[0]
         return Finding(
             check,
             CheckStatus.NOT_TRACKED,
@@ -298,6 +464,10 @@ def _gate1_finding(repo: str, token: str, *, latest: tuple[str, str] | None) -> 
             CheckStatus.UNKNOWN,
             f"{', '.join(unorderable)} の版を解釈できません (最新 v{latest_version})",
         )
+    if failures:
+        # 読めた参照は問題ないが、もう片方のファイルを確認できていない。追随済みと
+        # 断定せず判定不能にする (ahead でも同じ。読めない側に DRIFT が隠れ得る)。
+        return failures[0]
     if ahead:
         # ``sync`` の AHEAD と同じ扱い (意図的な新しい固定は書き換え対象外)。
         return Finding(
