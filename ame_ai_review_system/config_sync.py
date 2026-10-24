@@ -137,7 +137,7 @@ class SyncResult:
     detail: str = ""
 
 
-def _version_order(version: str) -> tuple[int, int, int] | None:
+def version_order(version: str) -> tuple[int, int, int] | None:
     """``x.y.z`` を比較可能なタプルにする (解釈できない版は ``None``)."""
     match = _VERSION_RE.match(version)
     if match is None:
@@ -149,7 +149,7 @@ def _version_order(version: str) -> tuple[int, int, int] | None:
     )
 
 
-def _optional_token() -> str:
+def optional_token() -> str:
     """トークンを既存規約の優先順位で解決する (見つからなければ空文字).
 
     優先順位は ``github_client.get_token`` (トークンファイル → ``GITHUB_PAT_TOKEN``) をそのまま
@@ -174,7 +174,7 @@ def _optional_token() -> str:
 def _request_headers() -> dict[str, str]:
     """リリース一覧 API のヘッダーを返す (トークンがあれば認証する)."""
     headers = {"Accept": "application/vnd.github+json"}
-    token = _optional_token()
+    token = optional_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
@@ -191,7 +191,7 @@ def _is_target_series(url: str, major: str) -> bool:
     return version is None or version.startswith(f"{major}.")
 
 
-def _target_major() -> str:
+def target_major() -> str:
     """追随先のメジャー系列 (``DEFAULT_REF`` から導出する)."""
     return init_cmd.DEFAULT_REF.removeprefix("v")
 
@@ -212,6 +212,29 @@ def _managed_matches(text: str, major: str) -> list[re.Match[str]]:
             continue
         matches.append(match)
     return matches
+
+
+def _pinned_versions(matches: list[re.Match[str]]) -> tuple[str, ...]:
+    """管理対象の参照が指すバージョンを出現順に返す (解釈できない URL は除外)."""
+    return tuple(
+        version
+        for match in matches
+        if (version := _pinned_version(match.group("url"))) is not None
+    )
+
+
+def precommit_pins(text: str) -> tuple[str, ...]:
+    """``.pre-commit-config.yaml`` 本文から管理対象の参照バージョンを抽出する.
+
+    ``sync`` の判定と同じ規則 (対象メジャーのみ・別メジャー固定は対象外) を使う。導入先の
+    ファイルを GitHub API 越しに読む監査 (Issue #164) から使う。
+    """
+    return _pinned_versions(_managed_matches(text, target_major()))
+
+
+def pyproject_pins(text: str) -> tuple[str, ...]:
+    """``pyproject.toml`` 本文から管理対象の参照バージョンを抽出する."""
+    return _pinned_versions(_pyproject_matches(text, target_major()))
 
 
 def _pyproject_path() -> Path:
@@ -357,7 +380,7 @@ def _pinned_version(url: str) -> str | None:
     return match.group("version") if match is not None else None
 
 
-def _latest_release(
+def latest_release(
     major: str, *, timeout: int = _TIMEOUT_SECONDS
 ) -> tuple[str, str] | None:
     """対象メジャー系列の最新リリースの ``(version, sha256)`` を返す.
@@ -476,7 +499,7 @@ def _resolve_target(
         found, cached = _read_cached_target(major)
         if found:
             return cached
-    target = _latest_release(major, timeout=timeout)
+    target = latest_release(major, timeout=timeout)
     if use_cache:
         _write_cached_target(major, target)
     return target
@@ -503,7 +526,7 @@ def inspect(
         return SyncResult(
             SyncStatus.UNKNOWN, config_path, detail=f"設定を読めません: {exc}"
         )
-    major = _target_major()
+    major = target_major()
     matches = _managed_matches(text, major)
     if not matches:
         # ``language: system`` 方式・未導入・別メジャーの意図的固定。対象が無いのは異常ではない。
@@ -512,11 +535,7 @@ def inspect(
             config_path,
             detail="管理対象の wheel 参照がありません (別メジャー固定は対象外)",
         )
-    pinned = tuple(
-        version
-        for match in matches
-        if (version := _pinned_version(match.group("url"))) is not None
-    )
+    pinned = _pinned_versions(matches)
     target = _resolve_target(major, use_cache=use_cache, timeout=timeout)
     if target is None:
         return SyncResult(
@@ -526,9 +545,9 @@ def inspect(
             detail=f"v{major} 系列の最新リリースを解決できません",
         )
     version, digest = target
-    target_order = _version_order(version)
+    target_order = version_order(version)
     if target_order is not None and any(
-        (order := _version_order(pinned_version)) is None or order > target_order
+        (order := version_order(pinned_version)) is None or order > target_order
         for pinned_version in pinned
     ):
         # 固定版が解決結果より新しい (存在しない版・意図的な prerelease 固定など)。書き換えると
@@ -602,9 +621,7 @@ def sync(config_path: Path, *, write: bool) -> SyncResult:
         )
     try:
         text = config_path.read_text(encoding="utf-8")
-        _write_text_atomic(
-            config_path, _rewrite(text, version, digest, _target_major())
-        )
+        _write_text_atomic(config_path, _rewrite(text, version, digest, target_major()))
     except OSError as exc:
         return SyncResult(
             SyncStatus.UNKNOWN, config_path, detail=f"設定を書けません: {exc}"
@@ -682,7 +699,7 @@ def inspect_pyproject(
         return SyncResult(
             SyncStatus.UNKNOWN, pyproject_path, detail=f"設定を読めません: {exc}"
         )
-    major = _target_major()
+    major = target_major()
     matches = _pyproject_matches(text, major)
     if not matches:
         return SyncResult(
@@ -690,11 +707,7 @@ def inspect_pyproject(
             pyproject_path,
             detail="pyproject.toml に管理対象の wheel 参照がありません (別メジャー固定は対象外)",
         )
-    pinned = tuple(
-        version
-        for match in matches
-        if (version := _pinned_version(match.group("url"))) is not None
-    )
+    pinned = _pinned_versions(matches)
     target = _resolve_target(major, use_cache=use_cache, timeout=timeout)
     if target is None:
         return SyncResult(
@@ -704,9 +717,9 @@ def inspect_pyproject(
             detail=f"v{major} 系列の最新リリースを解決できません",
         )
     version, digest = target
-    target_order = _version_order(version)
+    target_order = version_order(version)
     if target_order is not None and any(
-        (order := _version_order(pinned_version)) is None or order > target_order
+        (order := version_order(pinned_version)) is None or order > target_order
         for pinned_version in pinned
     ):
         return SyncResult(
@@ -772,7 +785,7 @@ def sync_pyproject(pyproject_path: Path, *, write: bool) -> SyncResult:
     try:
         text = pyproject_path.read_text(encoding="utf-8")
         _write_text_atomic(
-            pyproject_path, _rewrite_pyproject(text, version, digest, _target_major())
+            pyproject_path, _rewrite_pyproject(text, version, digest, target_major())
         )
     except OSError as exc:
         return SyncResult(
@@ -859,7 +872,7 @@ def _venv_installed_version(site_dir: Path) -> str | None:
     parseable = [
         (order, version)
         for version in versions
-        if (order := _version_order(version)) is not None
+        if (order := version_order(version)) is not None
     ]
     if parseable:
         return max(parseable)[1]
@@ -915,7 +928,7 @@ def inspect_venv(
         )
         return SyncResult(SyncStatus.ABSENT, root / _VENV_DIR_NAMES[0], detail=detail)
     site_dir, installed_version = selected
-    installed_order = _version_order(installed_version)
+    installed_order = version_order(installed_version)
     if installed_order is None:
         # prerelease 等 ``x.y.z`` 以外の版は、hub の最新と比較できない。
         return SyncResult(
@@ -924,16 +937,16 @@ def inspect_venv(
             pinned_versions=(installed_version,),
             detail=f"インストール版 v{installed_version} の版を解釈できません",
         )
-    target = _resolve_target(_target_major(), use_cache=use_cache, timeout=timeout)
+    target = _resolve_target(target_major(), use_cache=use_cache, timeout=timeout)
     if target is None:
         return SyncResult(
             SyncStatus.UNKNOWN,
             site_dir,
             pinned_versions=(installed_version,),
-            detail=f"v{_target_major()} 系列の最新リリースを解決できません",
+            detail=f"v{target_major()} 系列の最新リリースを解決できません",
         )
     version = target[0]
-    target_order = _version_order(version)
+    target_order = version_order(version)
     if target_order is None:
         # 解釈できない版 (``x.y.z`` 以外) は「古い」とも「同じ」とも言えない。黙って
         # IN_SYNC にするとドリフトの見逃しになるため、判定不能として返す。
@@ -1034,12 +1047,12 @@ def _warn_running_install() -> None:
     """実行中のインタプリタに入っている版でドリフトを警告する (Issue #153)."""
     installed = _installed_version()
     target = _resolve_target(
-        _target_major(), use_cache=True, timeout=_HOOK_TIMEOUT_SECONDS
+        target_major(), use_cache=True, timeout=_HOOK_TIMEOUT_SECONDS
     )
     if installed is None or target is None:
         return
-    installed_order = _version_order(installed)
-    target_order = _version_order(target[0])
+    installed_order = version_order(installed)
+    target_order = version_order(target[0])
     if (
         installed_order is None
         or target_order is None

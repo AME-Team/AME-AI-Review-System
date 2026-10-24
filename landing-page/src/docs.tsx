@@ -687,6 +687,12 @@ cp -r ame_ai_review_system/ /path/to/your-repo/`}
             "Run ame-ai-reviewer sync to move the Gate 1 wheel reference to the latest hub release. sync --check only reports drift; only the reference line is rewritten. For language: system setups the pyproject.toml reference is updated too, followed by uv lock. When a repo has no managed reference at all, sync and sync --check inspect the version installed in its virtualenv and exit 1 if it is behind (Issue #164). Nothing is inspected when the repo has no virtualenv or the package is not installed; an unresolvable latest release exits 2."
           )}
         </DocNote>
+        <DocNote>
+          {l(
+            "導入先の参照が追随しているかは ame-ai-reviewer audit で確認できます。--repo owner/name で対象を指定し（複数指定・カンマ区切り可）、CI では AME_AUDIT_REPOS を使います（--repo を指定した場合は環境変数より優先します）。Gate 2 の移動メジャータグ参照と checks: read、Gate 1 wheel の版を GitHub API 越しに列挙し、差分があれば exit 1、判定できなければ exit 2 です（Issue #164）。",
+            "Use ame-ai-reviewer audit to check whether downstream repos follow the latest references. Pass targets with --repo owner/name (repeatable or comma-separated); in CI use AME_AUDIT_REPOS (an explicit --repo wins over the environment variable). It lists the Gate 2 moving-tag reference, checks: read, and the Gate 1 wheel version over the GitHub API, exiting 1 on drift and 2 when it cannot decide (Issue #164)."
+          )}
+        </DocNote>
       </Section>
 
       <Section
