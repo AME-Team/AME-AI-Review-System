@@ -15,6 +15,7 @@ from ame_ai_review_system import audit, config_sync, github_client, init_cmd
 
 _DIGEST = "b" * 64
 _LATEST = "0.2.20"
+_LATEST_RELEASE = (_LATEST, _DIGEST)
 
 
 def _contents(text: str) -> dict[str, object]:
@@ -87,7 +88,7 @@ def test_audit_repo_ok(monkeypatch: pytest.MonkeyPatch) -> None:
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.OK
     assert {finding.status for finding in result.findings} == {audit.CheckStatus.OK}
 
@@ -104,7 +105,7 @@ def test_audit_repo_detects_stale_workflow_ref(
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.DRIFT
     finding = _check(result, "gate2:review_command.yml")
     assert finding.status is audit.CheckStatus.DRIFT
@@ -126,7 +127,7 @@ def test_audit_repo_ignores_trailing_comment_in_ref(
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.OK
 
 
@@ -144,7 +145,7 @@ def test_audit_repo_detects_missing_checks_read(
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.DRIFT
     assert "checks: read" in _check(result, "gate2:review_command.yml").detail
 
@@ -158,7 +159,7 @@ def test_audit_repo_detects_behind_wheel(monkeypatch: pytest.MonkeyPatch) -> Non
             ".pre-commit-config.yaml": _precommit("0.2.16"),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.DRIFT
     assert "0.2.16" in _check(result, "gate1:wheel").detail
 
@@ -176,7 +177,7 @@ def test_audit_repo_reads_pyproject_pin(monkeypatch: pytest.MonkeyPatch) -> None
             ),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert _check(result, "gate1:wheel").status is audit.CheckStatus.DRIFT
 
 
@@ -197,7 +198,7 @@ def test_audit_repo_checks_both_managed_files(
             ),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     finding = _check(result, "gate1:wheel")
     assert finding.status is audit.CheckStatus.DRIFT
     assert "pyproject.toml" in finding.detail
@@ -221,9 +222,12 @@ def test_audit_repo_reports_unreadable_file_as_unknown(
         return {"encoding": "none", "content": ""}
 
     monkeypatch.setattr(github_client, "http_request", _fake)
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.UNKNOWN
-    assert _check(result, "api").status is audit.CheckStatus.UNKNOWN
+    # 取得できなかったファイルは「ラッパがありません」(DRIFT) ではなく判定不能。
+    assert _check(result, "gate2:review_command.yml").status is (
+        audit.CheckStatus.UNKNOWN
+    )
 
 
 def test_audit_repo_detects_mixed_refs(
@@ -242,7 +246,7 @@ def test_audit_repo_detects_mixed_refs(
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.DRIFT
     assert "v0.2.13" in _check(result, "gate2:review_command.yml").detail
 
@@ -259,7 +263,7 @@ def test_audit_repo_reports_unorderable_pin_as_unknown(
             ".pre-commit-config.yaml": _precommit("0.3.0rc1"),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.UNKNOWN
     assert _check(result, "gate1:wheel").status is audit.CheckStatus.UNKNOWN
 
@@ -276,7 +280,7 @@ def test_audit_repo_treats_ahead_pin_as_ok(
             ".pre-commit-config.yaml": _precommit("0.2.21"),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     finding = _check(result, "gate1:wheel")
     assert finding.status is audit.CheckStatus.OK
     assert "対象外" in finding.detail
@@ -298,7 +302,7 @@ def test_audit_repo_ignores_commented_out_ref(
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.OK
 
 
@@ -319,7 +323,7 @@ def test_audit_repo_accepts_quoted_ref(
             ".pre-commit-config.yaml": _precommit(_LATEST),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.OK
 
 
@@ -339,10 +343,55 @@ def test_audit_repo_prefers_confirmed_drift_over_unknown(
             ),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     finding = _check(result, "gate1:wheel")
     assert finding.status is audit.CheckStatus.DRIFT
     assert "0.2.16" in finding.detail
+
+
+def test_audit_repo_detects_stale_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 版が最新でも sha256 が違えば内容が違う (古い固定 / 改ざん)。sync --check は
+    # テキスト完全一致で判定するため、監査も digest を見る。
+    stale = "c" * 64
+    text = _precommit(_LATEST).replace(_DIGEST, stale)
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": text,
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    finding = _check(result, "gate1:wheel")
+    assert finding.status is audit.CheckStatus.DRIFT
+    assert "sha256" in finding.detail
+
+
+def test_audit_repo_isolates_parse_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 取得だけでなくパース時の例外も、その検査の UNKNOWN に落として監査を続ける。
+    def _extract(_text: str) -> tuple[config_sync.Reference, ...]:
+        message = "broken"
+        raise ValueError(message)
+
+    monkeypatch.setattr(config_sync, "precommit_references", _extract)
+    _patch_files(
+        monkeypatch,
+        {
+            ".github/workflows/review_command.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
+            ".pre-commit-config.yaml": _precommit(_LATEST),
+        },
+    )
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
+    assert result.status is audit.CheckStatus.UNKNOWN
+    assert _check(result, "gate1:wheel").status is audit.CheckStatus.UNKNOWN
+    # Gate 2 の検査結果は失われない。
+    assert _check(result, "gate2:review_command.yml").status is audit.CheckStatus.OK
 
 
 def test_audit_repo_reports_untracked_wheel(
@@ -356,7 +405,7 @@ def test_audit_repo_reports_untracked_wheel(
             ".github/workflows/review_reply.yml": _wrapper(init_cmd.DEFAULT_REF),
         },
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.OK
     assert _check(result, "gate1:wheel").status is audit.CheckStatus.NOT_TRACKED
 
@@ -367,7 +416,7 @@ def test_audit_repo_reports_missing_wrapper(monkeypatch: pytest.MonkeyPatch) -> 
         monkeypatch,
         {".pre-commit-config.yaml": _precommit(_LATEST)},
     )
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.DRIFT
     assert "ありません" in _check(result, "gate2:review_command.yml").detail
 
@@ -389,7 +438,7 @@ def test_audit_repo_reports_unreachable_repository(
         raise github_client.HttpError(404, message)
 
     monkeypatch.setattr(github_client, "http_request", _fake)
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.UNKNOWN
     assert "読めません" in _check(result, "repo").detail
 
@@ -401,9 +450,9 @@ def test_audit_repo_reports_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
         raise github_client.HttpError(500, message)
 
     monkeypatch.setattr(github_client, "http_request", _boom)
-    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST)
+    result = audit.audit_repo("AME-Team/demo", token="", latest=_LATEST_RELEASE)
     assert result.status is audit.CheckStatus.UNKNOWN
-    assert _check(result, "api").status is audit.CheckStatus.UNKNOWN
+    assert _check(result, "repo").status is audit.CheckStatus.UNKNOWN
 
 
 def test_resolve_repos_dedupes_and_splits(

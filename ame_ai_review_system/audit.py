@@ -150,13 +150,34 @@ def _fetch_file(repo: str, path: str, token: str) -> str | None:
         raise _UnreadableFileError(message) from exc
 
 
+def _fetch_error(check: str, exc: BaseException) -> Finding:
+    """取得失敗を ``UNKNOWN`` の Finding にする."""
+    if isinstance(exc, github_client.HttpError):
+        return Finding(
+            check,
+            CheckStatus.UNKNOWN,
+            f"GitHub API を読めません (HTTP {exc.status_code})",
+        )
+    return Finding(check, CheckStatus.UNKNOWN, f"取得に失敗: {exc}")
+
+
 def _workflow_findings(repo: str, token: str) -> list[Finding]:
     """Gate 2 のラッパ 2 件を検査する (移動メジャータグ参照と ``checks: read``)."""
     expected = init_cmd.DEFAULT_REF
     findings: list[Finding] = []
     for filename in _WORKFLOW_FILES:
-        text = _fetch_file(repo, f".github/workflows/{filename}", token)
         check = f"gate2:{filename}"
+        try:
+            text = _fetch_file(repo, f".github/workflows/{filename}", token)
+        except (
+            github_client.HttpError,
+            OSError,
+            ValueError,
+            _UnreadableFileError,
+        ) as exc:
+            # 1 ファイルの失敗で、他の検査で確定した結果を捨てない。
+            findings.append(_fetch_error(check, exc))
+            continue
         if text is None:
             findings.append(
                 Finding(check, CheckStatus.DRIFT, "ラッパがありません (未移行の可能性)")
@@ -192,24 +213,34 @@ def _workflow_findings(repo: str, token: str) -> list[Finding]:
     return findings
 
 
-def _gate1_finding(repo: str, token: str, *, latest: str | None) -> Finding:
-    """Gate 1 の wheel 参照の版を検査する (pre-commit / pyproject の両方を見る).
+def _gate1_finding(repo: str, token: str, *, latest: tuple[str, str] | None) -> Finding:
+    """Gate 1 の wheel 参照を検査する (pre-commit / pyproject の両方を見る).
 
     移行途中のリポジトリは両方に参照を持つ。片方だけ見て return すると、もう片方の古い
-    参照を見逃すため、見つかった参照をすべて突き合わせて結果をまとめる。
+    参照を見逃すため、見つかった参照をすべて突き合わせて結果をまとめる。バージョンが
+    最新でも ``sha256`` が最新リリースと違えば壊れた参照なので、digest も検証する。
     """
     check = "gate1:wheel"
-    found: list[tuple[str, tuple[str, ...]]] = []
+    found: list[tuple[str, tuple[config_sync.Reference, ...]]] = []
     for path, extract in (
-        (".pre-commit-config.yaml", config_sync.precommit_pins),
-        ("pyproject.toml", config_sync.pyproject_pins),
+        (".pre-commit-config.yaml", config_sync.precommit_references),
+        ("pyproject.toml", config_sync.pyproject_references),
     ):
-        text = _fetch_file(repo, path, token)
+        try:
+            text = _fetch_file(repo, path, token)
+        except (
+            github_client.HttpError,
+            OSError,
+            ValueError,
+            _UnreadableFileError,
+        ) as exc:
+            # 片方の取得失敗で、もう片方の参照評価を失わない。
+            return _fetch_error(check, exc)
         if text is None:
             continue
-        pins = extract(text)
-        if pins:
-            found.append((path, pins))
+        references = extract(text)
+        if references:
+            found.append((path, references))
     if not found:
         return Finding(
             check,
@@ -217,76 +248,89 @@ def _gate1_finding(repo: str, token: str, *, latest: str | None) -> Finding:
             "git 管理下に wheel 参照がありません (ローカルの `sync --check` で検査)",
         )
     if latest is None:
-        listed = ", ".join(f"{path} の {', '.join(pins)}" for path, pins in found)
+        listed = ", ".join(
+            f"{path} の {', '.join(f'v{ref.version}' for ref in references)}"
+            for path, references in found
+        )
         return Finding(check, CheckStatus.UNKNOWN, f"{listed} (最新版を解決できません)")
-    target = config_sync.version_order(latest)
+    latest_version, latest_digest = latest
+    target = config_sync.version_order(latest_version)
     if target is None:
         return Finding(
-            check, CheckStatus.UNKNOWN, f"最新リリース v{latest} の版を解釈できません"
+            check,
+            CheckStatus.UNKNOWN,
+            f"最新リリース v{latest_version} の版を解釈できません",
         )
     behind: list[str] = []
+    stale_digest: list[str] = []
     unorderable: list[str] = []
     ahead: list[str] = []
-    for path, pins in found:
-        for pin in pins:
-            order = config_sync.version_order(pin)
+    for path, references in found:
+        for reference in references:
+            version = reference.version
+            order = config_sync.version_order(version) if version else None
             if order is None:
-                unorderable.append(f"{path} の v{pin}")
+                unorderable.append(f"{path} の v{version or '不明'}")
             elif order < target:
-                behind.append(f"{path} の v{pin}")
+                behind.append(f"{path} の v{version}")
             elif order > target:
-                ahead.append(f"{path} の v{pin}")
+                ahead.append(f"{path} の v{version}")
+            elif reference.digest is not None and reference.digest != latest_digest:
+                # 同じ版でも digest が違えば内容が違う (改ざん・古い固定)。
+                stale_digest.append(f"{path} の v{version}")
     if behind:
-        # 確定したドリフトは UNKNOWN より優先する。解釈できない参照が 1 つあるだけで
-        # 更新すべき参照の通知を落とさない。
         return Finding(
             check,
             CheckStatus.DRIFT,
-            f"{', '.join(behind)} → v{latest} へ更新できます",
+            f"{', '.join(behind)} → v{latest_version} へ更新できます",
+        )
+    if stale_digest:
+        return Finding(
+            check,
+            CheckStatus.DRIFT,
+            f"{', '.join(stale_digest)} の sha256 が最新リリース "
+            f"(v{latest_version}) と一致しません",
         )
     if unorderable:
         # prerelease 等は「古い」とも「同じ」とも言えないため追随済みと断定しない。
         return Finding(
             check,
             CheckStatus.UNKNOWN,
-            f"{', '.join(unorderable)} の版を解釈できません (最新 v{latest})",
+            f"{', '.join(unorderable)} の版を解釈できません (最新 v{latest_version})",
         )
     if ahead:
         # ``sync`` の AHEAD と同じ扱い (意図的な新しい固定は書き換え対象外)。
         return Finding(
             check,
             CheckStatus.OK,
-            f"固定版が最新 (v{latest}) より新しいため対象外: {', '.join(ahead)}",
+            f"固定版が最新 (v{latest_version}) より新しいため対象外: "
+            f"{', '.join(ahead)}",
         )
     return Finding(
-        check, CheckStatus.OK, f"v{latest} ({', '.join(path for path, _ in found)})"
+        check,
+        CheckStatus.OK,
+        f"v{latest_version} ({', '.join(path for path, _ in found)})",
     )
 
 
-def audit_repo(repo: str, *, token: str, latest: str | None) -> RepoAudit:
-    """1 リポジトリを監査する (ネットワーク失敗は ``UNKNOWN`` へ落とす)."""
-    findings: list[Finding] = []
+def audit_repo(repo: str, *, token: str, latest: tuple[str, str] | None) -> RepoAudit:
+    """1 リポジトリを監査する (検査ごとに失敗を隔離し、確定した結果は残す)."""
     try:
         blocked = _repo_access(repo, token)
-        if blocked is not None:
-            return RepoAudit(repo, (blocked,))
+    except (github_client.HttpError, OSError, ValueError) as exc:
+        return RepoAudit(repo, (_fetch_error("repo", exc),))
+    if blocked is not None:
+        return RepoAudit(repo, (blocked,))
+    findings: list[Finding] = []
+    try:
         findings.extend(_workflow_findings(repo, token))
+    except (github_client.HttpError, OSError, ValueError) as exc:
+        # 取得だけでなくパース時の例外も、その検査の UNKNOWN に落として残りを続ける。
+        findings.append(_fetch_error("gate2", exc))
+    try:
         findings.append(_gate1_finding(repo, token, latest=latest))
-    except github_client.HttpError as exc:
-        return RepoAudit(
-            repo,
-            (
-                Finding(
-                    "api",
-                    CheckStatus.UNKNOWN,
-                    f"GitHub API を読めません (HTTP {exc.status_code})",
-                ),
-            ),
-        )
-    except (OSError, ValueError, _UnreadableFileError) as exc:
-        return RepoAudit(
-            repo, (Finding("api", CheckStatus.UNKNOWN, f"取得に失敗: {exc}"),)
-        )
+    except (github_client.HttpError, OSError, ValueError) as exc:
+        findings.append(_fetch_error("gate1:wheel", exc))
     return RepoAudit(repo, tuple(findings))
 
 
@@ -338,8 +382,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         return _EXIT_UNRESOLVED
     token = config_sync.optional_token()
     latest = config_sync.latest_release(config_sync.target_major())
-    target = latest[0] if latest is not None else None
-    audits = [audit_repo(repo, token=token, latest=target) for repo in repos]
+    audits = [audit_repo(repo, token=token, latest=latest) for repo in repos]
     if getattr(args, "json", False):
         print(
             json.dumps(

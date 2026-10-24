@@ -111,6 +111,20 @@ _EXIT_DRIFT = 1
 _EXIT_UNRESOLVED = 2
 
 
+_SHA256_FRAGMENT_RE = re.compile(r"(?:^|&)sha256=(?P<digest>[0-9a-f]{64})(?:&|$)")
+
+
+@dataclass(frozen=True)
+class Reference:
+    """管理対象の参照 1 件 (解釈できない項目は ``None``).
+
+    監査 (Issue #164) が、版だけでなく ``sha256`` の一致も検証できるようにする。
+    """
+
+    version: str | None
+    digest: str | None
+
+
 class SyncStatus(StrEnum):
     """同期状態."""
 
@@ -223,18 +237,32 @@ def _pinned_versions(matches: list[re.Match[str]]) -> tuple[str, ...]:
     )
 
 
-def precommit_pins(text: str) -> tuple[str, ...]:
-    """``.pre-commit-config.yaml`` 本文から管理対象の参照バージョンを抽出する.
+def _reference(url: str, digest: str | None) -> Reference:
+    """参照 URL (と任意の digest) から ``Reference`` を作る."""
+    if digest is None:
+        match = _SHA256_FRAGMENT_RE.search(url.partition("#")[2])
+        digest = match.group("digest") if match is not None else None
+    return Reference(_pinned_version(url), digest)
+
+
+def precommit_references(text: str) -> tuple[Reference, ...]:
+    """``.pre-commit-config.yaml`` 本文から管理対象の参照を抽出する.
 
     ``sync`` の判定と同じ規則 (対象メジャーのみ・別メジャー固定は対象外) を使う。導入先の
     ファイルを GitHub API 越しに読む監査 (Issue #164) から使う。
     """
-    return _pinned_versions(_managed_matches(text, target_major()))
+    return tuple(
+        _reference(match.group("url"), match.group("digest"))
+        for match in _managed_matches(text, target_major())
+    )
 
 
-def pyproject_pins(text: str) -> tuple[str, ...]:
-    """``pyproject.toml`` 本文から管理対象の参照バージョンを抽出する."""
-    return _pinned_versions(_pyproject_matches(text, target_major()))
+def pyproject_references(text: str) -> tuple[Reference, ...]:
+    """``pyproject.toml`` 本文から管理対象の参照を抽出する."""
+    return tuple(
+        _reference(match.group("url"), None)
+        for match in _pyproject_matches(text, target_major())
+    )
 
 
 def _pyproject_path() -> Path:
