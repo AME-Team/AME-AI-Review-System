@@ -281,6 +281,12 @@ Gate 2 のラッパが移動メジャータグを参照しているか、`checks
 1 の wheel 参照が最新リリースかを GitHub API 越しに列挙します。差分があれば exit
 1、判定できなければ exit 2 です。読み取り専用で、書き換えは行いません (Issue #164)。
 
+hub の `Drift Audit` ワークフローは、この `audit` を毎日実行します。下流を読めるトークンは
+`AME_AUDIT_TOKEN` (任意) から渡します。未設定なら匿名で実行します (公開リポジトリは読めます)。対象は
+`AME_AUDIT_REPOS`
+で指定します。導入先の参照が外れていれば CI は失敗します。あわせて、配布テンプレート (`templates/workflow/*-wrapper.yml`) の入力・秘密が reusable
+workflow の宣言と一致することをテストで検証します。reusable 側だけに input を足すと CI で落ちます。
+
 `sync` 自身もレビューシステムの一部です。新しい `sync`
 を使うには、まず導入先の wheel を更新してください。たとえば
 `uv sync --upgrade-package ame-ai-review-system` を実行します。そのあと `ame-ai-reviewer sync`

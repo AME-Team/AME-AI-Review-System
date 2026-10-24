@@ -1,0 +1,71 @@
+---
+# 導入先の参照ドリフトを定期検知する (Issue #164)。
+#
+# `ame-ai-reviewer audit` を GitHub API 越しに実行し、Gate 2 の移動メジャータグ参照 /
+# `checks: read` / Gate 1 wheel の版が期待値から外れたら失敗する。監査は読み取り専用で、
+# 書き換えは行わない (同期は `ame-ai-reviewer sync` と導入先の PR)。
+#
+# 対象は `AME_AUDIT_REPOS` で渡す (配布先が増えたらここへ追加する)。トークンは任意で、
+# `AME_AUDIT_TOKEN` (下流 6 リポジトリへの contents: read) を設定すれば 5000 req/時で
+# 読める。未設定なら匿名 (60 req/時) で実行する。レート制限に当たるとドリフトではなく
+# 「判定不能」(exit 2) として失敗するため、日次で回すなら設定を推奨する。
+
+name: Drift Audit
+
+"on":
+  schedule:
+    # 毎日 00:15 UTC (09:15 JST)。リリース後のドリフトを翌朝までに検知する。
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+  # pull_request では実行しない。fork PR には secret が渡らず (匿名 + レート制限で
+  # 判定不能)、同一リポジトリの PR では未レビューのコードに secret を渡すことになる。
+  # 監査経路の壊れはユニットテスト (pytest) で PR 時に検知する。
+
+permissions:
+  contents: read
+
+env:
+  AME_AUDIT_REPOS: >-
+    AME-Team/AME-Compression, AME-Team/AME-AI-Sandbox, AME-Team/AME-Agent-Chat,
+    AME-Team/AME-Design-Skills, AME-Team/windows-noto-system-fonts,
+    AME-Team/AME-Music-Notation-Assistance
+
+jobs:
+  audit:
+    name: Downstream reference drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # パッケージは標準ライブラリのみで動くため、インストールせずリポジトリ直下から
+      # モジュールとして実行する (依存解決の手順を増やさない)。
+      # 下流 6 リポジトリへの contents: read を持つ監査専用トークン (``AME_AUDIT_TOKEN``) が
+      # あればそれを使う。無ければ未設定のまま匿名で実行する (public リポジトリは読める)。
+      # GITHUB_TOKEN はこのリポジトリにスコープされた installation token で、下流を読める
+      # 保証がないため代用しない (権限不足を「参照ドリフト」と誤判定させない)。
+      # 終了コードは drift (1) と判定不能 (2) を別のアノテーションにして、日次の通知で
+      # 「参照が古い」のか「監査できなかった」のかを取り違えないようにする。
+      - name: Run audit
+        env:
+          AME_AUDIT_TOKEN_VALUE: ${{ secrets.AME_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${AME_AUDIT_TOKEN_VALUE}" ]; then
+            export GITHUB_PAT_TOKEN="$AME_AUDIT_TOKEN_VALUE"
+          fi
+          rc=0
+          python -m ame_ai_review_system.main audit || rc=$?
+          case "$rc" in
+            0) exit 0 ;;
+            1) echo "::error::導入先の参照がドリフトしています (exit 1)。sync / ラッパ移行を確認してください。" ;;
+            2) echo "::error::監査を実行できませんでした (exit 2: トークン未設定・レート制限・API 障害)。" ;;
+            *) echo "::error::audit が異常終了しました (exit ${rc})。" ;;
+          esac
+          exit "$rc"

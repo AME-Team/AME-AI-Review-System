@@ -7,6 +7,13 @@
 
 ### Added
 
+- 導入先の参照ドリフトを毎日検知する `Drift Audit` ワークフローを追加した (Issue #164)。
+  `ame-ai-reviewer audit` を `AME_AUDIT_REPOS` の 6 リポジトリに対して実行し、Gate
+  2 の移動メジャータグ参照 / `checks: read` / Gate 1
+  wheel の版が外れていれば CI を失敗させる。下流を読むトークンは任意の `AME_AUDIT_TOKEN`
+  から渡し、未設定なら匿名で実行する。
+- 配布テンプレートと reusable workflow の契約テストを追加した (Issue #164)。ラッパが渡す input /
+  secret が `workflow_call` の宣言と一致することを検証する。
 - `ame-ai-reviewer audit` を追加した (Issue #164)。導入先の参照を GitHub
   API 越しに列挙し、1 コマンドでドリフトを検出する。
   - Gate 2 のラッパが移動メジャータグ (`@v0`) を参照しているか、`checks: read` があるかを見る。
