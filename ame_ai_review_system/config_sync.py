@@ -59,8 +59,9 @@ _MANAGED_LINE_RE = re.compile(
 _VENV_DIR_NAMES = (".venv", "venv")
 _SITE_PACKAGES_PATTERNS = ("lib/python*/site-packages", "Lib/site-packages")
 # 1 つの venv に複数 Python 版の ``site-packages`` が残る (インタプリタ更新後など) ことが
-# あるため、パスから Python の版を取り出して新しいものを優先する。
-_PYTHON_VERSION_RE = re.compile(r"[/\\]python(?P<major>\d+)\.(?P<minor>\d+)[/\\]")
+# あるため、site-packages の親ディレクトリ (``python3.12``) から版を取り、新しいものを
+# 優先する。パス全体を検索すると、祖先ディレクトリ名 (例: ~/python3.11/...) に引きずられる。
+_PYTHON_VERSION_RE = re.compile(r"^python(?P<major>\d+)\.(?P<minor>\d+)$")
 _DIST_INFO_PATTERNS = (
     "ame_ai_review_system-*.dist-info",
     "ame_ai_review_system-*.egg-info",
@@ -828,7 +829,7 @@ def _site_packages_dirs(root: Path, venv_name: str) -> list[Path]:
 
 def _python_version_rank(site_dir: Path) -> tuple[int, int]:
     """``site-packages`` の Python 版 (判別できなければ ``(-1, -1)``)."""
-    match = _PYTHON_VERSION_RE.search(str(site_dir))
+    match = _PYTHON_VERSION_RE.match(site_dir.parent.name)
     if match is None:
         return (-1, -1)
     return (int(match.group("major")), int(match.group("minor")))

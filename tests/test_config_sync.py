@@ -1243,6 +1243,24 @@ def test_inspect_venv_prefers_newest_python_site_packages(
     assert result.pinned_versions == ("0.2.20",)
 
 
+def test_inspect_venv_python_rank_ignores_ancestor_dirs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 祖先ディレクトリ名に python3.11 が含まれても、site-packages 自身の親
+    # (python3.12) で判定する。パス全体を検索すると古い方の版を採ってしまう。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    root = tmp_path / "python3.11" / "repo"
+    old = root / ".venv" / "lib" / "python3.11" / "site-packages"
+    old.mkdir(parents=True)
+    (old / "ame_ai_review_system-0.2.16.dist-info").mkdir()
+    new = root / ".venv" / "lib" / "python3.12" / "site-packages"
+    new.mkdir(parents=True)
+    (new / "ame_ai_review_system-0.2.20.dist-info").mkdir()
+    result = config_sync.inspect_venv(root)
+    assert result.status is config_sync.SyncStatus.IN_SYNC
+    assert result.pinned_versions == ("0.2.20",)
+
+
 def test_inspect_venv_absent_without_venv(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
