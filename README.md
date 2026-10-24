@@ -292,7 +292,10 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    で固定される。hub の最新リリースへ追随させるには `ame-ai-reviewer sync`
    を実行する。差分の確認のみなら `sync --check` を使う。`sync` は `language: system`
    の導入先も対象にする。wheel を指す `pyproject.toml` を書き換え、`uv lock`
-   でロックも追随させる (Issue #153)。手順は
+   でロックも追随させる (Issue #153)。どちらの参照も持たない導入先では、`sync` / `sync --check`
+   が仮想環境のインストール版を検査し、古ければ exit 1 を返す (Issue
+   #164)。仮想環境が無い、または review
+   system が入っていない場合は検査しない。最新リリースを解決できない場合は exit 2。手順は
    [セットアップガイド](ame_ai_review_system/docs/setup.md) の「更新(アップグレード)」を参照。
 
    > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは

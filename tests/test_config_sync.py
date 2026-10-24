@@ -1121,3 +1121,240 @@ def test_sync_pyproject_rolls_back_on_unexpected_lock_error(
     assert result.status is config_sync.SyncStatus.UNKNOWN
     assert "uv lock" in result.detail
     assert path.read_text(encoding="utf-8") == text
+
+
+def _make_venv(
+    root: Path, *versions: str, layout: str = "lib/python3.12/site-packages"
+) -> Path:
+    """導入先の仮想環境を模す (dist-info のディレクトリ名だけで版を表す)."""
+    site = root / ".venv" / layout
+    site.mkdir(parents=True, exist_ok=True)
+    for version in versions:
+        (site / f"ame_ai_review_system-{version}.dist-info").mkdir()
+    return site
+
+
+def test_inspect_venv_detects_behind_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 参照を git 管理しない導入先は「同期対象なし」で通ってしまうため、仮想環境の
+    # インストール版と突き合わせる (Issue #164)。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    site = _make_venv(tmp_path, "0.2.16")
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.MANUAL
+    assert result.pinned_versions == ("0.2.16",)
+    assert result.target_version == "0.2.20"
+    assert result.path == site
+
+
+def test_inspect_venv_uses_newest_installed_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 版を上げると古い dist-info が残る。残骸を拾って「古い」と誤判定しない。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    _make_venv(tmp_path, "0.2.0", "0.2.20")
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.IN_SYNC
+    assert result.pinned_versions == ("0.2.20",)
+
+
+def test_inspect_venv_finds_windows_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Windows の仮想環境は Lib/site-packages に置かれる。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    _make_venv(tmp_path, "0.2.16", layout="Lib/site-packages")
+    assert config_sync.inspect_venv(tmp_path).status is config_sync.SyncStatus.MANUAL
+
+
+def test_inspect_venv_reads_egg_info_versions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # egg-info は `<name>-<version>-py3.12.egg-info` の形もあり、版を持たない
+    # `<name>.egg-info` もある。前者は読み、後者は判別材料にしない。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    site = tmp_path / ".venv" / "lib" / "python3.12" / "site-packages"
+    site.mkdir(parents=True)
+    (site / "ame_ai_review_system.egg-info").mkdir()
+    (site / "ame_ai_review_system-0.2.16-py3.12.egg-info").mkdir()
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.MANUAL
+    assert result.pinned_versions == ("0.2.16",)
+
+
+def test_inspect_venv_reports_prerelease_as_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # prerelease (0.2.21rc1 等) は「入っていない」ではなく「比較できない」。
+    # ABSENT にすると検査を黙って飛ばしたことになる。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    _make_venv(tmp_path, "0.2.21rc1")
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.UNKNOWN
+    assert result.pinned_versions == ("0.2.21rc1",)
+
+
+def test_inspect_venv_prefers_dot_venv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # `.venv` と `venv` が併存する場合は `.venv` を正とする。別の venv の版を拾うと
+    # 実際にフックが動く環境を見落とす。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    _make_venv(tmp_path, "0.2.16")
+    other = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
+    other.mkdir(parents=True)
+    (other / "ame_ai_review_system-0.2.20.dist-info").mkdir()
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.MANUAL
+    assert result.pinned_versions == ("0.2.16",)
+
+
+def test_inspect_venv_falls_back_to_other_venv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # `.venv` はあるが review system が入っていない場合は `venv` を見る。
+    # ここで打ち切ると、実際にフックが動く環境の古さを見逃す。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    empty = tmp_path / ".venv" / "lib" / "python3.12" / "site-packages"
+    empty.mkdir(parents=True)
+    other = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
+    other.mkdir(parents=True)
+    (other / "ame_ai_review_system-0.2.16.dist-info").mkdir()
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.MANUAL
+    assert result.pinned_versions == ("0.2.16",)
+
+
+def test_inspect_venv_prefers_newest_python_site_packages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # インタプリタ更新後は古い Python の site-packages が残る。新しい方を採らないと
+    # 実際は最新なのに古いと誤判定する。
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    old = tmp_path / ".venv" / "lib" / "python3.11" / "site-packages"
+    old.mkdir(parents=True)
+    (old / "ame_ai_review_system-0.2.16.dist-info").mkdir()
+    new = tmp_path / ".venv" / "lib" / "python3.12" / "site-packages"
+    new.mkdir(parents=True)
+    (new / "ame_ai_review_system-0.2.20.dist-info").mkdir()
+    result = config_sync.inspect_venv(tmp_path)
+    assert result.status is config_sync.SyncStatus.IN_SYNC
+    assert result.pinned_versions == ("0.2.20",)
+
+
+def test_inspect_venv_absent_without_venv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 仮想環境が無ければ判定しない (API も引かない)。
+    _forbid_network(monkeypatch)
+    assert config_sync.inspect_venv(tmp_path).status is config_sync.SyncStatus.ABSENT
+
+
+def test_inspect_venv_unresolved_is_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 最新リリースを解決できない場合は「古い」と断定しない (drift と区別する)。
+    _patch_offline(monkeypatch)
+    _make_venv(tmp_path, "0.2.16")
+    assert config_sync.inspect_venv(tmp_path).status is config_sync.SyncStatus.UNKNOWN
+
+
+def test_cmd_sync_checks_venv_without_managed_reference(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # どちらの参照も無い構成でだけ仮想環境を検査し、手作業での入れ替えを促す。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks: []\n", encoding="utf-8"
+    )
+    _make_venv(tmp_path, "0.2.16")
+    assert config_sync.cmd_sync(argparse.Namespace(check=True)) == 1
+    err = capsys.readouterr().err
+    assert "v0.2.16" in err
+    assert "`sync` では更新できません" in err
+
+
+def test_cmd_sync_keeps_managed_reference_authoritative(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 管理下の参照がある導入先は仮想環境を検査しない。開発中は仮想環境だけ古い状態が
+    # 正常であり得るため、そこで exit 1 を返すとゲートが常時赤になる。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    _write(tmp_path, _config_text("0.2.20", _DIGEST))
+    _make_venv(tmp_path, "0.2.16")
+    assert config_sync.cmd_sync(argparse.Namespace(check=True)) == 0
+    assert "venv" not in capsys.readouterr().out
+
+
+def test_cmd_sync_without_check_also_reports_unmanaged_venv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 書き込みモードでも参照が無ければ直せない。exit 0 で黙って通すと CI が見逃す。
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks: []\n", encoding="utf-8"
+    )
+    _make_venv(tmp_path, "0.2.16")
+    assert config_sync.cmd_sync(argparse.Namespace(check=False)) == 1
+    assert "`sync` では更新できません" in capsys.readouterr().err
+
+
+def test_warn_prefers_managed_reference_over_venv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 管理下の参照が古い場合は、仮想環境が最新でも参照のドリフトを警告する。
+    # 仮想環境の版に判定を切り替えると、固定参照の古さを見逃す。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    _write(tmp_path, _config_text("0.2.7", _OLD_DIGEST))
+    _make_venv(tmp_path, "0.2.20")
+    config_sync.warn_if_out_of_sync()
+    assert "ame-ai-reviewer sync" in capsys.readouterr().err
+
+
+def test_warn_reports_behind_venv_install(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # フックが hub のチェックアウト経由で走っても、導入先の仮想環境の版で判定する。
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks: []\n", encoding="utf-8"
+    )
+    _make_venv(tmp_path, "0.2.16")
+    config_sync.warn_if_out_of_sync()
+    err = capsys.readouterr().err
+    assert "v0.2.16" in err
+    assert "v0.2.20" in err
+
+
+def test_warn_is_silent_when_venv_is_current(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _patch_project_root(monkeypatch, tmp_path)
+    _patch_releases(monkeypatch, [_release("v0.2.20")])
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks: []\n", encoding="utf-8"
+    )
+    _make_venv(tmp_path, "0.2.20")
+    config_sync.warn_if_out_of_sync()
+    assert not capsys.readouterr().err

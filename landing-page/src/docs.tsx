@@ -683,8 +683,8 @@ cp -r ame_ai_review_system/ /path/to/your-repo/`}
         </DocNote>
         <DocNote>
           {l(
-            "Gate 1（pre-commit）が参照する wheel の版は ame-ai-reviewer sync で hub の最新リリースへ追随できます。差分の確認だけなら sync --check を使います（書き換わるのは参照行のみ）。language: system の導入先が wheel を指す pyproject.toml も対象で、書き換え後は uv lock でロックも追随させます。",
-            "Run ame-ai-reviewer sync to move the Gate 1 wheel reference to the latest hub release. sync --check only reports drift; only the reference line is rewritten. For language: system setups the pyproject.toml reference is updated too, followed by uv lock."
+            "Gate 1（pre-commit）が参照する wheel の版は ame-ai-reviewer sync で hub の最新リリースへ追随できます。差分の確認だけなら sync --check を使います（書き換わるのは参照行のみ）。language: system の導入先が wheel を指す pyproject.toml も対象で、書き換え後は uv lock でロックも追随させます。どちらの参照も持たない導入先では、sync / sync --check が仮想環境のインストール版を検査し、古ければ exit 1 を返します（Issue #164）。仮想環境が無い場合と、review system が入っていない場合は検査しません。最新リリースを解決できない場合は exit 2 です。",
+            "Run ame-ai-reviewer sync to move the Gate 1 wheel reference to the latest hub release. sync --check only reports drift; only the reference line is rewritten. For language: system setups the pyproject.toml reference is updated too, followed by uv lock. When a repo has no managed reference at all, sync and sync --check inspect the version installed in its virtualenv and exit 1 if it is behind (Issue #164). Nothing is inspected when the repo has no virtualenv or the package is not installed; an unresolvable latest release exits 2."
           )}
         </DocNote>
       </Section>
