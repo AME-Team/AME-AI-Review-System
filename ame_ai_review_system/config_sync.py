@@ -53,6 +53,20 @@ _MANAGED_LINE_RE = re.compile(
     r"(?:#sha256=(?P<digest>[0-9a-f]{64}))?\s*$",
 )
 
+# 参照を git 管理しない導入先 (wheel を仮想環境へ直接入れる構成) を検査するための探索先。
+# 順序は優先順位でもある (``.venv`` と ``venv`` が併存するリポジトリでは ``.venv`` を正とする)。
+# Windows は ``Lib/site-packages`` に置かれるため、POSIX 表記と両方を glob する (Issue #164)。
+_VENV_DIR_NAMES = (".venv", "venv")
+_SITE_PACKAGES_PATTERNS = ("lib/python*/site-packages", "Lib/site-packages")
+# 1 つの venv に複数 Python 版の ``site-packages`` が残る (インタプリタ更新後など) ことが
+# あるため、site-packages の親ディレクトリ (``python3.12``) から版を取り、新しいものを
+# 優先する。パス全体を検索すると、祖先ディレクトリ名 (例: ~/python3.11/...) に引きずられる。
+_PYTHON_VERSION_RE = re.compile(r"^python(?P<major>\d+)\.(?P<minor>\d+)$")
+_DIST_INFO_PATTERNS = (
+    "ame_ai_review_system-*.dist-info",
+    "ame_ai_review_system-*.egg-info",
+)
+
 # リリース URL からバージョンを取り出す (``.../download/v0.2.15/<name>``)。
 _URL_VERSION_RE = re.compile(r"/download/v(?P<version>[^/]+)/")
 
@@ -104,6 +118,9 @@ class SyncStatus(StrEnum):
     DRIFT = "drift"
     # 固定版が hub の最新より新しい (棚上げ)。対象外だが「参照行が無い」ABSENT とは区別する。
     AHEAD = "ahead"
+    # 仮想環境のインストール版が古い。git 管理下に参照が無く ``sync`` では直せないため、
+    # DRIFT (sync で更新できる) と区別する (Issue #164)。
+    MANUAL = "manual"
     ABSENT = "absent"
     UNKNOWN = "unknown"
 
@@ -793,6 +810,155 @@ def sync_pyproject(pyproject_path: Path, *, write: bool) -> SyncResult:
     )
 
 
+def _site_packages_dirs(root: Path, venv_name: str) -> list[Path]:
+    """指定した仮想環境にある ``site-packages`` を列挙する (無ければ空).
+
+    ``Path.glob`` は大文字小文字を区別するため、POSIX (``lib/python3.12/site-packages``)
+    と Windows (``Lib/site-packages``) の両表記を明示的に探す。順序はソートして固定する
+    (同じ venv に複数の Python 版がある場合の判定を環境依存にしない)。
+    """
+    venv = root / venv_name
+    if not venv.is_dir():
+        return []
+    found: list[Path] = []
+    for pattern in _SITE_PACKAGES_PATTERNS:
+        found.extend(path for path in venv.glob(pattern) if path.is_dir())
+    # 新しい Python の site-packages を先に返す (残骸の古い版を拾わないため)。
+    return sorted(found, key=_python_version_rank, reverse=True)
+
+
+def _python_version_rank(site_dir: Path) -> tuple[int, int]:
+    """``site-packages`` の Python 版 (判別できなければ ``(-1, -1)``)."""
+    match = _PYTHON_VERSION_RE.match(site_dir.parent.name)
+    if match is None:
+        return (-1, -1)
+    return (int(match.group("major")), int(match.group("minor")))
+
+
+def _venv_installed_version(site_dir: Path) -> str | None:
+    """``site-packages`` に入っている review system の版を返す (無ければ ``None``).
+
+    複数の ``dist-info`` / ``egg-info`` が残っている環境 (版を上げた直後など) では、
+    解釈できるうち最も新しい版を採る。``x.y.z`` として解釈できない版 (prerelease 等)
+    しか無い場合はその版をそのまま返す。「入っていない」と誤判定して検査を飛ばすより、
+    判定不能として呼び出し側に判断させるためである。
+    """
+    versions: list[str] = []
+    for pattern in _DIST_INFO_PATTERNS:
+        for path in sorted(site_dir.glob(pattern)):
+            name = path.name
+            for suffix in (".dist-info", ".egg-info"):
+                if name.endswith(suffix):
+                    name = name.removesuffix(suffix)
+                    break
+            # ``<name>-<version>`` / ``<name>-<version>-py3.12`` (egg-info) から版だけを取る。
+            # 版を持たない ``<name>.egg-info`` (開発用の書き出し) は判別材料にならない。
+            version = name.partition("-")[2].partition("-")[0]
+            if version:
+                versions.append(version)
+    parseable = [
+        (order, version)
+        for version in versions
+        if (order := _version_order(version)) is not None
+    ]
+    if parseable:
+        return max(parseable)[1]
+    # 解釈できない版しか無い場合は表示用に 1 つ返す (``x.y.z`` でないため大小比較に意味は
+    # 無く、呼び出し側は UNKNOWN として扱う)。
+    return versions[-1] if versions else None
+
+
+def _venv_install(root: Path, venv_name: str) -> tuple[Path, str] | None:
+    """指定した仮想環境の ``(site-packages, インストール版)`` を返す (無ければ ``None``)."""
+    for site_dir in _site_packages_dirs(root, venv_name):
+        version = _venv_installed_version(site_dir)
+        if version is not None:
+            return site_dir, version
+    return None
+
+
+def inspect_venv(
+    root: Path, *, use_cache: bool = False, timeout: int = _TIMEOUT_SECONDS
+) -> SyncResult:
+    """参照を git 管理しない導入先のインストール版を検査する (Issue #164).
+
+    wheel を仮想環境へ直接入れる構成 (例: AME-Design-Skills) では、git 上の参照を
+    突き合わせても古さが分からず、``sync --check`` が「同期対象なし」で通ってしまう。
+    この構成だけを対象に、導入先の仮想環境に入っている版と hub の最新を比べる。
+    ``sync`` が書き換える参照行が存在しないため、古い場合は DRIFT ではなく MANUAL を返す
+    (「sync では直せない」ことを呼び出し側に伝えるため)。
+
+    ``.venv`` と ``venv`` が併存するリポジトリでは、フックが使う環境を 1 つに決めないと
+    別の venv の版を拾って誤判定する。``_VENV_DIR_NAMES`` の順 (``.venv`` 優先) で最初に
+    review system が入っている venv を正とする。
+
+    仮想環境が見つからない場合は ABSENT を返す。実行中のインタプリタにはフォールバック
+    しない。``sync --check`` は hub のチェックアウト経由 (PYTHONPATH) で走ることがあり、
+    そのときの実行中の版は導入先を表さないためである。フック (``warn_if_out_of_sync``) は
+    導入先の環境で走るので、そちらだけ実行中の版へフォールバックする。
+    """
+    selected: tuple[Path, str] | None = None
+    any_site_packages = False
+    for venv_name in _VENV_DIR_NAMES:
+        if _site_packages_dirs(root, venv_name):
+            any_site_packages = True
+        selected = _venv_install(root, venv_name)
+        if selected is not None:
+            break
+    if selected is None:
+        # ``.venv`` があっても review system が入っていないことがある。``venv`` 側に
+        # 入っている場合を打ち切らないよう、候補を全部見てから ABSENT を返す。
+        detail = (
+            "仮想環境に review system がインストールされていません"
+            if any_site_packages
+            else "仮想環境がありません"
+        )
+        return SyncResult(SyncStatus.ABSENT, root / _VENV_DIR_NAMES[0], detail=detail)
+    site_dir, installed_version = selected
+    installed_order = _version_order(installed_version)
+    if installed_order is None:
+        # prerelease 等 ``x.y.z`` 以外の版は、hub の最新と比較できない。
+        return SyncResult(
+            SyncStatus.UNKNOWN,
+            site_dir,
+            pinned_versions=(installed_version,),
+            detail=f"インストール版 v{installed_version} の版を解釈できません",
+        )
+    target = _resolve_target(_target_major(), use_cache=use_cache, timeout=timeout)
+    if target is None:
+        return SyncResult(
+            SyncStatus.UNKNOWN,
+            site_dir,
+            pinned_versions=(installed_version,),
+            detail=f"v{_target_major()} 系列の最新リリースを解決できません",
+        )
+    version = target[0]
+    target_order = _version_order(version)
+    if target_order is None:
+        # 解釈できない版 (``x.y.z`` 以外) は「古い」とも「同じ」とも言えない。黙って
+        # IN_SYNC にするとドリフトの見逃しになるため、判定不能として返す。
+        return SyncResult(
+            SyncStatus.UNKNOWN,
+            site_dir,
+            pinned_versions=(installed_version,),
+            detail=f"最新リリース v{version} の版を解釈できません",
+        )
+    if installed_order >= target_order:
+        return SyncResult(
+            SyncStatus.IN_SYNC,
+            site_dir,
+            target_version=version,
+            pinned_versions=(installed_version,),
+        )
+    return SyncResult(
+        SyncStatus.MANUAL,
+        site_dir,
+        target_version=version,
+        pinned_versions=(installed_version,),
+        detail=f"インストール版 v{installed_version} → v{version}",
+    )
+
+
 def warn_if_out_of_sync() -> None:
     """Gate 1 フックの先頭で wheel 参照のドリフトを警告する (fail-open・Issue #147).
 
@@ -803,6 +969,8 @@ def warn_if_out_of_sync() -> None:
 
     ``language: system`` の導入先は ``pyproject.toml`` の参照も見る。参照を git 管理せず
     仮想環境へ入れるだけの導入先では、インストール済みの版で古さを判定する (Issue #153)。
+    どちらかに参照がある場合はその判定に任せる (``cmd_sync`` と同じ規則)。管理下の参照が
+    ある導入先で仮想環境の版に切り替えると、固定参照の古さを見逃すためである。
     AHEAD (固定版が最新より新しい) は書き換えも警告も不要なため黙って戻る。
     """
     if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -828,8 +996,42 @@ def warn_if_out_of_sync() -> None:
                 file=sys.stderr,
             )
         return
+    if all(result.status is SyncStatus.ABSENT for result in results):
+        _warn_untracked_install(root)
+        return
     if any(result.status is SyncStatus.IN_SYNC for result in results):
         return
+    # 参照はあるが解決できなかった (UNKNOWN) 場合は、従来どおり実行中の版で比較する。
+    _warn_running_install()
+
+
+def _warn_untracked_install(root: Path) -> None:
+    """参照を git 管理しない導入先で、インストール版の古さを警告する (Issue #164).
+
+    仮想環境が見つかる構成ではその中の版で判定する。フックが hub のチェックアウト経由
+    (PYTHONPATH) で走ると実行中のインタプリタの版は導入先を表さないため、実行中の版より
+    確実である。
+
+    仮想環境が見つからない場合だけ実行中の版で判定する。フックは導入先の環境で走るので
+    実行中の版が導入先を表す (``inspect_venv`` は同じ状況で ABSENT を返すが、``sync
+    --check`` は別の環境から走り得るため、そこで実行中の版を信じてはいけない)。
+    """
+    if any(_site_packages_dirs(root, name) for name in _VENV_DIR_NAMES):
+        venv = inspect_venv(root, use_cache=True, timeout=_HOOK_TIMEOUT_SECONDS)
+        if venv.status is SyncStatus.MANUAL:
+            print(
+                "[config-sync] インストール済みの review system "
+                f"({', '.join(f'v{version}' for version in venv.pinned_versions)}) が "
+                f"hub の最新 (v{venv.target_version}) より古いです。"
+                "環境を更新してください (Issue #153・#164)。",
+                file=sys.stderr,
+            )
+        return
+    _warn_running_install()
+
+
+def _warn_running_install() -> None:
+    """実行中のインタプリタに入っている版でドリフトを警告する (Issue #153)."""
     installed = _installed_version()
     target = _resolve_target(
         _target_major(), use_cache=True, timeout=_HOOK_TIMEOUT_SECONDS
@@ -876,23 +1078,40 @@ def _report(label: str, result: SyncResult) -> int:
             file=sys.stderr,
         )
         return _EXIT_DRIFT
+    if result.status is SyncStatus.MANUAL:
+        print(
+            f"{prefix} {label}: 差分あり: {result.path} — {result.detail}",
+            file=sys.stderr,
+        )
+        print(
+            f"{prefix} git 管理下に wheel の参照が無いため `sync` では更新できません。"
+            f"仮想環境へ v{result.target_version} を入れ直してください (Issue #164)。",
+            file=sys.stderr,
+        )
+        return _EXIT_DRIFT
     print(f"{prefix} {label}: 判定できません: {result.detail}", file=sys.stderr)
     return _EXIT_UNRESOLVED
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
-    """``ame-ai-reviewer sync`` のエントリポイント (Issue #147・#153).
+    """``ame-ai-reviewer sync`` のエントリポイント (Issue #147・#153・#164).
 
     参照先は 2 つある。``.pre-commit-config.yaml`` の AI フックと、``language: system`` の
     導入先が wheel を指す ``pyproject.toml`` である。両方を同期し、終了コードは悪い方に
     合わせる (drift = 1 / 判定不能 = 2)。``--check`` は検出のみで書き換えない。
     ``pyproject.toml`` を書き換えた場合は ``uv lock`` でロックも追随させる。
     固定版が hub の最新より新しい場合は書き換えず、理由を stderr に出して exit 0 を返す。
+    どちらにも git 管理下の参照が無い導入先 (wheel を仮想環境へ直接入れる構成) は、
+    インストール版を検査して古ければ exit 1 を返す (``sync`` では直せないため手作業を促す)。
     """
     root = paths.project_root()
     write = not args.check
-    results = (
+    results: list[tuple[str, SyncResult]] = [
         ("pre-commit", sync(root / ".pre-commit-config.yaml", write=write)),
         ("pyproject", sync_pyproject(_pyproject_path(), write=write)),
-    )
+    ]
+    if all(result.status is SyncStatus.ABSENT for _, result in results):
+        # 参照を git 管理しない構成だけを対象にする。管理下の参照がある導入先では、
+        # 開発中に仮想環境だけ古い状態が正常であり得るため検査しない (誤検知を避ける)。
+        results.append(("venv", inspect_venv(root)))
     return max(starmap(_report, results))
