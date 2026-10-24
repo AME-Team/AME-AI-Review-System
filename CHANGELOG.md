@@ -7,6 +7,13 @@
 
 ### Added
 
+- `ame-ai-reviewer audit` を追加した (Issue #164)。導入先の参照を GitHub
+  API 越しに列挙し、1 コマンドでドリフトを検出する。
+  - Gate 2 のラッパが移動メジャータグ (`@v0`) を参照しているか、`checks: read` があるかを見る。
+  - Gate 1 の wheel 参照 (`pre-commit` / `pyproject.toml`) が hub の最新リリースかを比べる。
+  - 差分があれば exit 1、判定できなければ exit 2。読み取り専用で、書き換えは行わない。
+  - 対象は `--repo owner/name` (複数指定・カンマ区切り) で渡す。CI 用の環境変数 `AME_AUDIT_REPOS`
+    も読み、`--repo` を指定した場合はそちらを優先する。
 - `ame-ai-reviewer sync` / `sync --check`
   が、参照を git 管理しない導入先でも wheel のドリフトを検知するようにした (Issue #164)。
   - 仮想環境 (`.venv` / `venv`、Windows の `Lib/site-packages`

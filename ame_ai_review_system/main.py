@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from . import audit as audit_module
 from . import (
     config_sync,
     diff_truncate,
@@ -1164,6 +1165,24 @@ def main(argv: list[str] | None = None) -> int:
         help="差分の検出のみ行い、設定を書き換えない (差分があれば exit 1)",
     )
 
+    # audit (Issue #164): 導入先の Gate 1 / Gate 2 参照を GitHub API 越しに検査する。
+    p_audit = subparsers.add_parser(
+        "audit",
+        help="Check downstream repos for reference drift (Issue #164)",
+    )
+    p_audit.add_argument(
+        "--repo",
+        action="append",
+        metavar="OWNER/NAME",
+        help="監査対象のリポジトリ (複数指定可・カンマ区切り可)。"
+        "省略時は環境変数 AME_AUDIT_REPOS を使う",
+    )
+    p_audit.add_argument(
+        "--json",
+        action="store_true",
+        help="結果を JSON で出力する",
+    )
+
     # init
     p_init = subparsers.add_parser(
         "init",
@@ -1236,6 +1255,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_setup(args)
     if args.command == "sync":
         return config_sync.cmd_sync(args)
+    if args.command == "audit":
+        return audit_module.cmd_audit(args)
     if args.command == "init":
         return init_cmd.cmd_init(args)
     if args.command == "check-threads":

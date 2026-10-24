@@ -298,6 +298,11 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    system が入っていない場合は検査しない。最新リリースを解決できない場合は exit 2。手順は
    [セットアップガイド](ame_ai_review_system/docs/setup.md) の「更新(アップグレード)」を参照。
 
+   導入先の参照が追随しているかは `ame-ai-reviewer audit --repo owner/name`
+   で確認できる。対象は複数指定でき、カンマ区切りも受け付ける。CI では `AME_AUDIT_REPOS`
+   を使い、`--repo` を指定した場合は環境変数より優先する。差分があれば exit 1、判定できなければ exit
+   2 で終わる。`--json` を付けると機械可読な出力になる (Issue #164)。
+
    > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
    > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /
    > pull_request 時に走る静的解析 CI は含まれない**。PR レビュー（Gate 2）の Circuit Breaker（ruff

@@ -170,7 +170,10 @@ def http_request(
     """GitHub REST/GraphQL 共通の HTTP 呼び出し."""
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Bearer {token}")
+    if token:
+        # 未認証でも読める公開 API (監査の contents 取得など) は空トークンを渡す。
+        # "Bearer " を送ると 401 になるため、空のときはヘッダー自体を付けない。
+        req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", accept)
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
     if data is not None:

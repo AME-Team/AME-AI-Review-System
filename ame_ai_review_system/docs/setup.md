@@ -271,6 +271,16 @@ Gate 1 (pre-commit AI フック) が参照する wheel の版は `--version`
 では書き換えられないため手作業での入れ替えを促します (Issue
 #164)。管理下の参照がある導入先では検査しません。開発中は仮想環境だけ古い状態が正常なためです。
 
+#### 追随状況の監査
+
+導入先が最新の参照を持っているかは `ame-ai-reviewer audit` で確認できます。対象は
+`--repo owner/name` で指定します（複数指定・カンマ区切り可）。CI では環境変数 `AME_AUDIT_REPOS`
+を使います。`--repo` を指定した場合は環境変数より優先します。
+
+Gate 2 のラッパが移動メジャータグを参照しているか、`checks: read` があるか、Gate
+1 の wheel 参照が最新リリースかを GitHub API 越しに列挙します。差分があれば exit
+1、判定できなければ exit 2 です。読み取り専用で、書き換えは行いません (Issue #164)。
+
 `sync` 自身もレビューシステムの一部です。新しい `sync`
 を使うには、まず導入先の wheel を更新してください。たとえば
 `uv sync --upgrade-package ame-ai-review-system` を実行します。そのあと `ame-ai-reviewer sync`
