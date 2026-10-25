@@ -57,6 +57,12 @@ name: AI Review Reply (Reusable)
         type: string
         required: false
         default: ""
+      # 実行ランナー (JSON 配列)。既定は GitHub-hosted で、配布先の挙動を変えない。
+      # hub 自身はセルフホストを指定する。
+      runner_labels:
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
     secrets:
       app-id:
         required: true
@@ -84,17 +90,20 @@ permissions:
 jobs:
   reply:
     name: General Review Reply (ame-ai-reviewer)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     timeout-minutes: 10
     # Issue #159: レビュアーのスレッドへの返信はメンション無しでも再評価する。
     # メンション必須のままだと、返信が無言で skip され LGTM が付かないまま
     # Resolve される（= 監査証跡が欠ける）。判定の最終的な絞り込みは reply.py が行う。
     # Issue #159: bare login (``ame-ai-reviewer``) で投稿される環境もあるため、両方を除外する。
     # 除外しないとレビュアー自身の LGTM 返信がジョブを起動し、重複 LGTM やループの原因になる。
+    # セルフホストでは PR のコードがこのマシン上で動く。fork からの PR は実行しない。
+    # PR イベント以外や head 不明のときも false になり、fail-closed になる。
     if: >-
       inputs.comment_user != 'ame-ai-reviewer[bot]' && inputs.comment_user != 'ame-ai-reviewer' &&
       !startsWith(inputs.comment_body, '/') && (contains(inputs.comment_body, '@ame-ai-reviewer') ||
-      inputs.in_reply_to_id != '')
+      inputs.in_reply_to_id != '') && github.event.pull_request.head.repo.full_name ==
+      github.repository
     steps:
       - name: Checkout PR repo
         uses: actions/checkout@v4
@@ -133,10 +142,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # Python はランナーにあるものを使う。actions/setup-python は Linux Mint を認識できず
+      # 失敗するため使わない (GitHub-hosted の ubuntu-latest も python3 3.12 を同梱している)。
+      # 前提 (python3 3.10 以上 / venv / uv) は docs/setup.md に記載している。
+      - name: Verify Python
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
 
       - name: Install Python engine SDKs
         env:
@@ -152,7 +165,11 @@ jobs:
             claude-agent-sdk google-antigravity
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai
+        run: |
+          # self-hosted の npm prefix が /usr の場合に備え、ユーザー領域へ入れる
+          # (npm config は ~/.npmrc を書き換えるため、--prefix を都度渡す)。
+          npm install -g --prefix "${RUNNER_TEMP}/npm" opencode-ai
+          echo "${RUNNER_TEMP}/npm/bin" >> "$GITHUB_PATH"
 
       - name: Get GitHub App installation token
         id: app_token
@@ -175,15 +192,42 @@ jobs:
 
       - name: Start OpenCode server
         run: |
-          opencode serve --port 4096 > /tmp/opencode-server.log 2>&1 &
-          echo $! > /tmp/opencode.pid
-          for _ in $(seq 1 30); do
-            if grep -q "opencode server listening" /tmp/opencode-server.log 2>/dev/null; then
-              break
+          set -euo pipefail
+          # 空きポートを取ってから起動するまでに他プロセスが掴むことはあり得る。起動に
+          # 失敗したら別ポートで数回やり直し、全滅したら明示的に失敗させる。
+          for attempt in 1 2 3; do
+            port=$(python3 -c 'import socket; s=socket.socket(); \
+              s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+            log="${RUNNER_TEMP}/opencode-server.${port}.log"
+            # ジョブが強制終了されると Stop が走らずサーバが残る。ジョブの timeout-minutes は
+            # 10 (600 秒) なので、それより短い 480 秒で必ず終わるようにする。
+            # 他ジョブが使う共有ディレクトリの PID を掃除する方式は採らない (並行実行中の
+            # サーバを止めてしまうため)。ここで完結させる。
+            timeout --signal=TERM --kill-after=30s 480 \
+              opencode serve --port "${port}" > "${log}" 2>&1 &
+            pid=$!
+            ready=0
+            for _ in $(seq 1 30); do
+              if grep -q "opencode server listening" "${log}" 2>/dev/null; then
+                ready=1
+                break
+              fi
+              if ! kill -0 "${pid}" 2>/dev/null; then
+                break
+              fi
+              sleep 1
+            done
+            if [ "${ready}" -eq 1 ]; then
+              echo "${pid}" > "${RUNNER_TEMP}/opencode.pid"
+              echo "OPENCODE_URL=http://127.0.0.1:${port}" >> "$GITHUB_ENV"
+              exit 0
             fi
-            sleep 1
+            echo "::warning::opencode サーバの起動に失敗しました (attempt=${attempt}, port=${port})" >&2
+            tail -n 20 "${log}" >&2 || true
+            echo "${pid}" | xargs -r kill -15 2>/dev/null || true
           done
-          echo "OPENCODE_URL=http://127.0.0.1:4096" >> "$GITHUB_ENV"
+          echo "::error::opencode サーバを起動できませんでした。"
+          exit 1
 
       - name: Run reply handler
         env:
@@ -204,7 +248,9 @@ jobs:
       - name: Stop OpenCode server
         if: always()
         run: |
-          if [ -f /tmp/opencode.pid ]; then
-            pid=$(cat /tmp/opencode.pid)
+          pidfile="${RUNNER_TEMP}/opencode.pid"
+          if [ -f "${pidfile}" ]; then
+            pid=$(cat "${pidfile}")
             echo "$pid" | xargs -r kill -15
+            rm -f "${pidfile}"
           fi
