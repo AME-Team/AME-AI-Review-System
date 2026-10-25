@@ -157,7 +157,8 @@ npm run preview --workspace=landing-page
     release.yml           # `v*` タグ push で wheel/sdist をビルドし GitHub Release に添付
     deploy-landing-page.yml  # main への push でランディングページを GitHub Pages へデプロイ
 
-# hub のワークフローはセルフホストランナー (`self-hosted, linux, x64`) で実行する。
+# ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted で、
+# このリポジトリはセルフホスト (`self-hosted, linux, x64`) を設定している。
 # ランナーが停止しているとジョブはキューに残る。Windows ジョブを持つ導入先は GitHub-hosted のまま。
 
 ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする資材
@@ -292,6 +293,11 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 
    CI は reusable
    workflow を呼ぶ薄いラッパである。参照先の既定は移動メジャータグのため、hub のリリースに自動追随し、更新作業は不要である。バージョン固定時のみ ref を書き換える。
+
+   > [!NOTE] **実行ランナーは既定で GitHub-hosted**: `init` が生成するラッパは `ubuntu-latest`
+   > で動く。自前のランナーで実行したい場合は、リポジトリ変数 `RUNNER_LABELS` に JSON 配列 (例:
+   > `["self-hosted","linux","x64"]`) を設定する。ワークフローの書き換えは不要である。`pull_request`
+   > 起点の CI は設定に関係なく GitHub-hosted で実行する (PR 側のワークフロー定義が使われ得るため)。
 
    Gate 1 (pre-commit) が参照する wheel の版は `--version` で決まり、`#sha256=`
    で固定される。hub の最新リリースへ追随させるには `ame-ai-reviewer sync`

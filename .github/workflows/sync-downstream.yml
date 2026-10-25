@@ -34,7 +34,8 @@ jobs:
     # Release が失敗した run では同期しない (成果物が無い)。
     if: >-
       github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    runs-on: [self-hosted, linux, x64]
+    # ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted。
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -93,7 +94,7 @@ jobs:
     name: Open sync PRs for downstream repos
     needs: resolve
     if: needs.resolve.outputs.enabled == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     # 同一リリースの二重起動 (Release 完了と workflow_dispatch の重複) を直列化する。
     # キーは解決済みのタグ。ワークフローレベルではタグを解決できず、イベントごとに取れる値も

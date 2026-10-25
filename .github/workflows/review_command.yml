@@ -48,8 +48,9 @@ jobs:
         startsWith(github.event.comment.body, '/review ')))
     uses: ./.github/workflows/review-command.yml
     with:
-      # hub 自身のレビューは自前マシンで実行する。
-      runner_labels: '["self-hosted","linux","x64"]'
+      # ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted。
+      # 自前マシンで実行する場合は RUNNER_LABELS=["self-hosted","linux","x64"] を設定する。
+      runner_labels: ${{ vars.RUNNER_LABELS || '["ubuntu-latest"]' }}
       # Issue #104: reusable 側が type: string で受け取るため fromJSON 不要。
       # workflow_dispatch の inputs.pr_number (文字列) もそのまま渡せる。
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}

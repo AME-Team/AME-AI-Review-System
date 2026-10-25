@@ -25,8 +25,10 @@ jobs:
   reply:
     uses: ./.github/workflows/review-reply.yml
     with:
-      # pull_request_review_comment は PR 側のワークフロー定義が使われ得るため、
-      # hub の返信処理は GitHub-hosted で実行する (既定のまま)。
+      # ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted。
+      # pull_request_review_comment は PR 側のワークフロー定義が使われ得るため、セルフホストに
+      # する場合はランナーグループ側で信頼できるブランチに限定する (docs/setup.md)。
+      runner_labels: ${{ vars.RUNNER_LABELS || '["ubuntu-latest"]' }}
       pr_number: ${{ github.event.pull_request.number }}
       comment_id: ${{ github.event.comment.id }}
       comment_body: ${{ github.event.comment.body }}

@@ -34,7 +34,8 @@ permissions:
 jobs:
   build-and-release:
     name: Build wheel and attach to Release
-    runs-on: [self-hosted, linux, x64]
+    # ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted。
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 5
     steps:
       # セルフホストには gh が入っていないことがある。無ければ明示的に失敗させる。

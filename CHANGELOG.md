@@ -7,6 +7,9 @@
 
 ### Changed
 
+- 実行ランナーを GitHub-hosted とセルフホストで切り替えられるようにした。リポジトリ変数
+  `RUNNER_LABELS`
+  (JSON 配列) を設定すると、ワークフローを書き換えずに自前のランナーで実行できる。未設定の既定は GitHub-hosted で、hub 自身はセルフホストを設定している。
 - hub のワークフローをセルフホストランナー (`self-hosted, linux, x64`) で実行するようにした。sudo を使わずツールを
   `RUNNER_TEMP`
   配下へ入れ、ランナーに状態を残さない。opencode サーバはジョブごとに空きポートで専用に起動する。fork からの PR は実行しない (public リポジトリで第三者のコードを自前マシンに動かさないため)。Windows ジョブを持つ導入先は GitHub-hosted のままである。

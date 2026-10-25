@@ -181,3 +181,73 @@ def test_wrapper_matches_reusable_workflow_contract(
     assert not missing_secrets, (
         f"{template.name} が必須の secret を渡していません: {sorted(missing_secrets)}"
     )
+
+
+# ランナーはリポジトリ変数で切り替え、未設定なら GitHub-hosted で動く。
+_RUNNER_SELECTION = "fromJSON(vars.RUNNER_LABELS || '[\"ubuntu-latest\"]')"
+# reusable workflow へは JSON 文字列として渡すため fromJSON は呼び出し側で不要。
+_WRAPPER_RUNNER_LINE = (
+    "runner_labels: ${{ vars.RUNNER_LABELS || '[\"ubuntu-latest\"]' }}"
+)
+
+
+def _runs_on(path: Path) -> list[str]:
+    """``runs-on:`` の文を返す (折り返した式は 1 つの文へ畳む)."""
+    statements: list[str] = []
+    current: list[str] = []
+    indent = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if current and _indent(line) <= indent:
+            statements.append(" ".join(current))
+            current = []
+        if not current:
+            if not stripped.startswith("runs-on:"):
+                continue
+            indent = _indent(line)
+        current.append(stripped)
+    if current:
+        statements.append(" ".join(current))
+    return statements
+
+
+def test_hub_workflows_choose_runner_by_variable() -> None:
+    """ランナーを設定 (リポジトリ変数) で切り替えられること.
+
+    既定は GitHub-hosted である。``runs-on`` に ``self-hosted`` を直書きすると、fork や
+    導入先のリポジトリでも自前マシンを要求し、GitHub-hosted しか持たない利用者がジョブを
+    起動できなくなる。
+    """
+    variable_uses = 0
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        for statement in _runs_on(path):
+            assert "self-hosted" not in statement, f"{path.name}: {statement}"
+            assert (
+                "RUNNER_LABELS" in statement
+                or "inputs.runner_labels" in statement
+                or "ubuntu-latest" in statement
+            ), f"{path.name} の runs-on がランナーを固定していません: {statement}"
+            variable_uses += "RUNNER_LABELS" in statement
+    assert variable_uses, "RUNNER_LABELS を参照する runs-on がありません"
+
+
+def test_ci_pull_request_job_is_github_hosted() -> None:
+    """PR 起点の CI は変数に従わせない.
+
+    ``pull_request`` のワークフロー定義は PR 側が使われるため、セルフホストに寄せると
+    PR がファイルごと書き換えて任意コードを動かせる。
+    """
+    guard = "github.event_name == 'pull_request' && fromJSON('[\"ubuntu-latest\"]')"
+    statements = _runs_on(_WORKFLOWS / "ci.yml")
+    assert any(guard in statement for statement in statements), statements
+    assert any("RUNNER_LABELS" in statement for statement in statements), statements
+
+
+def test_wrapper_templates_pass_runner_labels() -> None:
+    """導入先がワークフローを書き換えずにランナーを切り替えられること."""
+    for template in sorted(_TEMPLATES.glob("*-wrapper.yml")):
+        assert _WRAPPER_RUNNER_LINE in template.read_text(encoding="utf-8"), (
+            template.name
+        )
