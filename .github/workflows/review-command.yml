@@ -237,27 +237,18 @@ jobs:
           PYTHONPATH="$SYSTEM_PATH" python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
 
       - name: Start OpenCode server
+        if: steps.cmd.outputs.run_review == 'true'
         run: |
           set -euo pipefail
           # 空きポートを取ってから起動するまでに他プロセスが掴むことはあり得る。起動に
           # 失敗したら別ポートで数回やり直し、全滅したら明示的に失敗させる。
-          # self-hosted はプロセスが残る。前回のジョブが異常終了して起動したままの
-          # サーバを、記録した PID から掃除する (開発用の 4096 には触らない)。
-          pid_dir="$HOME/.cache/ame-review/opencode"
-          mkdir -p "${pid_dir}"
-          for stale in "${pid_dir}"/*.pid; do
-            [ -e "${stale}" ] || continue
-            stale_pid=$(cat "${stale}" 2>/dev/null || true)
-            if [ -n "${stale_pid}" ] && kill -0 "${stale_pid}" 2>/dev/null; then
-              echo "${stale_pid}" | xargs -r kill -15 || true
-            fi
-            rm -f "${stale}"
-          done
           for attempt in 1 2 3; do
             port=$(python3 -c 'import socket; s=socket.socket(); \
               s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
             log="${RUNNER_TEMP}/opencode-server.${port}.log"
-            opencode serve --port "${port}" > "${log}" 2>&1 &
+            # ジョブが強制終了されると Stop が走らずサーバが残る。ジョブの timeout より
+            # 短い上限を付けて、残留しても自動で終了するようにする (他のジョブは触らない)。
+            timeout --signal=TERM 900 opencode serve --port "${port}" > "${log}" 2>&1 &
             pid=$!
             ready=0
             for _ in $(seq 1 30); do
@@ -272,7 +263,6 @@ jobs:
             done
             if [ "${ready}" -eq 1 ]; then
               echo "${pid}" > "${RUNNER_TEMP}/opencode.pid"
-              echo "${pid}" > "${pid_dir}/$$.pid"
               echo "OPENCODE_URL=http://127.0.0.1:${port}" >> "$GITHUB_ENV"
               exit 0
             fi
@@ -303,12 +293,11 @@ jobs:
             "$PR_NUMBER"
 
       - name: Stop OpenCode server
-        if: always() && steps.cmd.outputs.run_review == 'true'
+        if: always()
         run: |
           pidfile="${RUNNER_TEMP}/opencode.pid"
           if [ -f "${pidfile}" ]; then
             pid=$(cat "${pidfile}")
             echo "$pid" | xargs -r kill -15
             rm -f "${pidfile}"
-            rm -f "$HOME/.cache/ame-review/opencode/$$.pid"
           fi
