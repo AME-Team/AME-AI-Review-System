@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import Any, cast
 
-_SEMVER_PARTS = 3
 _ARGC_WITH_SCRIPT = 2
 
 Tag = dict[str, Any]
@@ -34,10 +34,8 @@ def _iter_tags(text: str) -> list[Tag]:
 
 def _is_release_tag(name: str) -> bool:
     """完全な vX.Y.Z だけを対象にする (移動タグ v0 / v0.2 を除外する)."""
-    if not name.startswith("v"):
-        return False
-    parts = name[1:].split(".")
-    return len(parts) == _SEMVER_PARTS and all(part.isdigit() for part in parts)
+    # `str.isdigit()` は全角数字なども真になる。タグ名は ASCII 前提なので正規表現で絞る。
+    return re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", name) is not None
 
 
 def resolve(text: str, head_sha: str) -> str:

@@ -132,6 +132,10 @@ def test_sync_workflow_opens_pull_requests_downstream() -> None:
     # タグは head_sha から特定する (workflow_dispatch 実行時は head_branch がブランチ名になる)。
     assert "github.event.workflow_run.head_sha" in workflow
     assert "gh release view" in workflow
+    # 同一リリースの二重起動は、解決済みタグをキーに job 側で直列化する
+    # (ワークフローレベルではタグを解決できない)。
+    assert "needs.resolve.outputs.version" in workflow
+    assert "concurrency:" in workflow
     assert "ame_ai_review_system.main sync" in workflow
     assert "AME_SYNC_TOKEN" in workflow
     assert not re.search(r"^\s*continue-on-error:", workflow, re.MULTILINE)
