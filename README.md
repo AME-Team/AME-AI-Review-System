@@ -151,9 +151,14 @@ npm run preview --workspace=landing-page
     review-command.yml    # 再利用可能本体（workflow_call）。`main review` を実行
     review_reply.yml      # インライン返信時に自動返答するラッパ（再利用可は review-reply.yml）
     review-reply.yml      # 再利用可能本体（workflow_call）。`reply run` を実行
+    drift-audit.yml       # 導入先の参照ドリフトを毎日監査する
+    sync-downstream.yml   # リリース後に導入先の Gate 1 wheel 同期 PR を作る
     ci.yml                # 本リポジトリのCI設定（pre-commit / pytest / vitest / pyright / wheel 検証）
     release.yml           # `v*` タグ push で wheel/sdist をビルドし GitHub Release に添付
     deploy-landing-page.yml  # main への push でランディングページを GitHub Pages へデプロイ
+
+# hub のワークフローはセルフホストランナー (`self-hosted, linux, x64`) で実行する。
+# ランナーが停止しているとジョブはキューに残る。Windows ジョブを持つ導入先は GitHub-hosted のまま。
 
 ame_ai_review_system/    # ★他のリポジトリに丸ごとコピーする資材
   main.py                # CLI エントリポイント（init / review / checkout / setup サブコマンド）

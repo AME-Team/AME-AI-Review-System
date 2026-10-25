@@ -4,7 +4,9 @@
 # PR 作成・更新時と main へのプッシュ時に、ローカルの pre-commit と
 # 同一のフックを実行する。
 #
-# ランナー: GitHub-hosted ubuntu-latest。
+# ランナー: セルフホスト (self-hosted, linux, x64)。このリポジトリのジョブは
+# 自前マシンで実行する (opencode のローカル設定・モデルをそのまま使える)。
+# sudo が使えない前提のため、ツールは RUNNER_TEMP 配下へ入れ、ランナーに状態を残さない。
 # ツールチェーン (Python 3.12 / Node 22 / uv / shellcheck / actionlint /
 # gitleaks / claude-code / opencode-ai) は steps: で明示的に
 # セットアップする（旧 Dockerfile 相当）。
@@ -24,7 +26,12 @@ permissions:
 jobs:
   pre-commit:
     name: Static Analysis (pre-commit)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
+    # セルフホストでは PR のコードがこのマシン上で実行される。public リポジトリなので
+    # fork からの PR は実行しない (push と同一リポジトリの PR だけを対象にする)。
+    if: >-
+      github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name ==
+      github.repository
 
     env:
       UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
@@ -57,6 +64,12 @@ jobs:
           cache-local-path: ${{ env.UV_CACHE_DIR }}
           cache-dependency-glob: requirements-dev.txt
 
+      # ランナーに残る状態を作らない (前回の版が残ると原因切り分けが難しくなる)。
+      - name: Add tool bin to PATH
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+
       - name: Install shellcheck
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,10 +87,10 @@ jobs:
           echo "shellcheck version: ${VER}"
           SC_BASE="https://github.com/koalaman/shellcheck/releases/download"
           SC_URL="${SC_BASE}/v${VER}/shellcheck-v${VER}.linux.x86_64.tar.xz"
-          mkdir -p /tmp/sc
-          curl -sSfL "$SC_URL" | tar -xJ -C /tmp/sc
-          sudo mv "/tmp/sc/shellcheck-v${VER}/shellcheck" /usr/local/bin/
-          rm -rf /tmp/sc
+          mkdir -p "${RUNNER_TEMP}/sc"
+          curl -sSfL "$SC_URL" | tar -xJ -C "${RUNNER_TEMP}/sc"
+          install -m 0755 "${RUNNER_TEMP}/sc/shellcheck-v${VER}/shellcheck" "${RUNNER_TEMP}/bin/"
+          rm -rf "${RUNNER_TEMP}/sc"
 
       - name: Install actionlint
         env:
@@ -96,10 +109,10 @@ jobs:
           echo "actionlint version: ${VER}"
           AL_BASE="https://github.com/rhysd/actionlint/releases/download"
           AL_URL="${AL_BASE}/v${VER}/actionlint_${VER}_linux_amd64.tar.gz"
-          mkdir -p /tmp/al
-          curl -sSfL "$AL_URL" | tar -xz -C /tmp/al
-          sudo mv "/tmp/al/actionlint" /usr/local/bin/
-          rm -rf /tmp/al
+          mkdir -p "${RUNNER_TEMP}/al"
+          curl -sSfL "$AL_URL" | tar -xz -C "${RUNNER_TEMP}/al"
+          install -m 0755 "${RUNNER_TEMP}/al/actionlint" "${RUNNER_TEMP}/bin/"
+          rm -rf "${RUNNER_TEMP}/al"
 
       - name: Install gitleaks
         env:
@@ -118,13 +131,18 @@ jobs:
           echo "gitleaks version: ${VER}"
           GL_BASE="https://github.com/gitleaks/gitleaks/releases/download"
           GL_URL="${GL_BASE}/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
-          mkdir -p /tmp/gl
-          curl -sSfL "$GL_URL" | tar -xz -C /tmp/gl
-          sudo mv "/tmp/gl/gitleaks" /usr/local/bin/
-          rm -rf /tmp/gl
+          mkdir -p "${RUNNER_TEMP}/gl"
+          curl -sSfL "$GL_URL" | tar -xz -C "${RUNNER_TEMP}/gl"
+          install -m 0755 "${RUNNER_TEMP}/gl/gitleaks" "${RUNNER_TEMP}/bin/"
+          rm -rf "${RUNNER_TEMP}/gl"
 
       - name: Install claude-code / opencode-ai
-        run: npm install -g @anthropic-ai/claude-code@2.1.214 opencode-ai@1.18.3
+        run: |
+          # self-hosted の npm prefix が /usr の場合に備え、ユーザー領域へ入れる
+          # (npm config は ~/.npmrc を書き換えるため、--prefix を都度渡す)。
+          npm install -g --prefix "${RUNNER_TEMP}/npm" \
+            @anthropic-ai/claude-code@2.1.214 opencode-ai@1.18.3
+          echo "${RUNNER_TEMP}/npm/bin" >> "$GITHUB_PATH"
 
       # ==========================================================================
       # Fetch base ref (PR diff scope)

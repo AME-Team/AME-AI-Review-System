@@ -81,6 +81,15 @@ def _workflow_contract(path: Path) -> tuple[dict[str, list[str]], dict[str, list
     raise AssertionError(message)
 
 
+def _required(block: dict[str, list[str]]) -> set[str]:
+    """Return the names declared as ``required: true`` (省略不可のものだけ)."""
+    return {
+        name
+        for name, body in block.items()
+        if any(line.strip() == "required: true" for line in body)
+    }
+
+
 def _wrapper_inherits_secrets(path: Path) -> bool:
     """ラッパが ``secrets: inherit`` を使っているか."""
     return any(
@@ -140,11 +149,11 @@ def _pairs() -> list[tuple[Path, Path]]:
 def test_wrapper_matches_reusable_workflow_contract(
     template: Path, workflow: Path
 ) -> None:
-    """ラッパが渡す入力・秘密が reusable workflow の宣言と過不足なく一致することを固定する.
+    """ラッパが reusable workflow の宣言を満たしていることを固定する.
 
-    過不足なく一致させるのは、reusable 側に任意 input を足したままテンプレートを追随
-    させない乖離も検出するため。未宣言の入力を渡せば実行時に落ち、未追随の入力は黙って
-    既定値で動き続ける (どちらも生成済みの導入先では気づけない)。
+    必須の入力・秘密はすべて渡すこと、宣言に無い名前は渡さないことを検証する。既定値を持つ
+    任意の入力 (``runner_labels`` など) は、ラッパが渡さなくても既定で動くため対象外とする。
+    未宣言の入力を渡せば実行時に落ち、必須入力の未追随は生成済みの導入先で気づけない。
     """
     inputs, secrets = _workflow_contract(workflow)
     uses, with_keys, secret_keys = _wrapper_call(template)
@@ -155,14 +164,20 @@ def test_wrapper_matches_reusable_workflow_contract(
     assert expected in uses, (
         f"{template.name} が {workflow.name} を呼んでいません: {uses}"
     )
-    assert with_keys == set(inputs), (
-        f"{template.name} の入力が reusable workflow と一致しません: "
-        f"不足 {sorted(set(inputs) - with_keys)} / 余剰 {sorted(with_keys - set(inputs))}"
+    assert not (with_keys - set(inputs)), (
+        f"{template.name} が未宣言の入力を渡しています: {sorted(with_keys - set(inputs))}"
+    )
+    missing_inputs = _required(inputs) - with_keys
+    assert not missing_inputs, (
+        f"{template.name} が必須の入力を渡していません: {sorted(missing_inputs)}"
     )
     if _wrapper_inherits_secrets(template):
         # `secrets: inherit` は宣言を個別に渡さないため、名前の一致は要求しない。
         return
-    assert secret_keys == set(secrets), (
-        f"{template.name} の secret が reusable workflow と一致しません: "
-        f"不足 {sorted(set(secrets) - secret_keys)} / 余剰 {sorted(secret_keys - set(secrets))}"
+    assert not (secret_keys - set(secrets)), (
+        f"{template.name} が未宣言の secret を渡しています: {sorted(secret_keys - set(secrets))}"
+    )
+    missing_secrets = _required(secrets) - secret_keys
+    assert not missing_secrets, (
+        f"{template.name} が必須の secret を渡していません: {sorted(missing_secrets)}"
     )

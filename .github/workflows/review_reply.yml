@@ -25,6 +25,8 @@ jobs:
   reply:
     uses: ./.github/workflows/review-reply.yml
     with:
+      # hub 自身のレビューは自前マシンで実行する。
+      runner_labels: '["self-hosted","linux","x64"]'
       pr_number: ${{ github.event.pull_request.number }}
       comment_id: ${{ github.event.comment.id }}
       comment_body: ${{ github.event.comment.body }}

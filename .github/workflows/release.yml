@@ -34,9 +34,20 @@ permissions:
 jobs:
   build-and-release:
     name: Build wheel and attach to Release
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 5
     steps:
+      # セルフホストには gh が入っていないことがある。無ければ明示的に失敗させる。
+      - name: Verify required CLIs
+        run: |
+          set -euo pipefail
+          for cmd in git gh; do
+            if ! command -v "${cmd}" >/dev/null 2>&1; then
+              echo "::error::${cmd} がランナーにありません (self-hosted の前提を確認してください)。"
+              exit 1
+            fi
+          done
+
       - name: Checkout
         uses: actions/checkout@v4
 

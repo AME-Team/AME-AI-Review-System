@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- hub のワークフローをセルフホストランナー (`self-hosted, linux, x64`) で実行するようにした。sudo を使わずツールを
+  `RUNNER_TEMP`
+  配下へ入れ、ランナーに状態を残さない。opencode サーバはジョブごとに空きポートで専用に起動する。fork からの PR は実行しない (public リポジトリで第三者のコードを自前マシンに動かさないため)。Windows ジョブを持つ導入先は GitHub-hosted のままである。
+- reusable workflow に `runner_labels` 入力を追加した。導入先は自前の runner へ切り替えられる (例:
+  `'["ubuntu-latest"]'`)。既定は hub のセルフホストランナーである。
+
 ## [0.2.21] - 2026-10-25
 
 ### Added
