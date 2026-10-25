@@ -20,6 +20,13 @@
   Mint を認識できず失敗するため。GitHub-hosted の ubuntu-latest も python3
   3.12 を同梱している。前提 (python3 / venv / uv) は docs/setup.md に記載した。
 
+### Fixed
+
+- セルフホストランナーで Gate 2 の Circuit
+  Breaker が毎回失敗し、AI レビューが無言でスキップされていた。`requirements-dev.txt`
+  を持つリポジトリでは、review ワークフローが venv を作って PATH へ載せる。これで `language: system`
+  のフック (mypy / pyright) が起動する。
+
 ## [0.2.21] - 2026-10-25
 
 ### Added
