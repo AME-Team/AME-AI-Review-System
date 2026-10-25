@@ -34,10 +34,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # Python はランナーにあるものを使う。actions/setup-python は Linux Mint を認識できず
+      # 失敗するため使わない (GitHub-hosted の ubuntu-latest も python3 3.12 を同梱している)。
+      # 前提 (python3 3.10 以上 / venv / uv) は docs/setup.md に記載している。
+      - name: Verify Python
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
 
       # パッケージは標準ライブラリのみで動くため、インストールせずリポジトリ直下から
       # モジュールとして実行する (依存解決の手順を増やさない)。

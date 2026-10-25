@@ -46,10 +46,14 @@ jobs:
       # ==========================================================================
       # ツールチェーンセットアップ (旧 Dockerfile 相当)
       # ==========================================================================
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # Python はランナーにあるものを使う。actions/setup-python は Linux Mint を認識できず
+      # 失敗するため使わない (GitHub-hosted の ubuntu-latest も python3 3.12 を同梱している)。
+      # 前提 (python3 3.10 以上 / venv / uv) は docs/setup.md に記載している。
+      - name: Verify Python
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4

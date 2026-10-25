@@ -11,7 +11,11 @@
   `RUNNER_TEMP`
   配下へ入れ、ランナーに状態を残さない。opencode サーバはジョブごとに空きポートで専用に起動する。fork からの PR は実行しない (public リポジトリで第三者のコードを自前マシンに動かさないため)。Windows ジョブを持つ導入先は GitHub-hosted のままである。
 - reusable workflow に `runner_labels` 入力を追加した。導入先は自前の runner へ切り替えられる (例:
-  `'["ubuntu-latest"]'`)。既定は hub のセルフホストランナーである。
+  `'["ubuntu-latest"]'`)。既定は GitHub-hosted で、hub 自身のラッパがセルフホストを指定する。
+- `actions/setup-python` を使うのをやめ、ランナーにある `python3`
+  (3.10 以上) を使う。setup-python は Linux
+  Mint を認識できず失敗するため。GitHub-hosted の ubuntu-latest も python3
+  3.12 を同梱している。前提 (python3 / venv / uv) は docs/setup.md に記載した。
 
 ## [0.2.21] - 2026-10-25
 

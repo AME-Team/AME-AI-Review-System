@@ -117,10 +117,14 @@ jobs:
       - name: Checkout hub
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # Python はランナーにあるものを使う。actions/setup-python は Linux Mint を認識できず
+      # 失敗するため使わない (GitHub-hosted の ubuntu-latest も python3 3.12 を同梱している)。
+      # 前提 (python3 3.10 以上 / venv / uv) は docs/setup.md に記載している。
+      - name: Verify Python
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
 
       # pyproject.toml + uv.lock 構成の導入先は sync が `uv lock` を実行する。
       # uv が無いと参照を書き戻して何もしないため、必ず用意する。
@@ -139,7 +143,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/dist"
           gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" \
             --pattern 'ame_ai_review_system-*.whl' --dir "${RUNNER_TEMP}/dist"
-          python -m venv "${RUNNER_TEMP}/syncenv"
+          python3 -m venv "${RUNNER_TEMP}/syncenv"
           "${RUNNER_TEMP}/syncenv/bin/python" -m pip install --disable-pip-version-check \
             "${RUNNER_TEMP}"/dist/ame_ai_review_system-*.whl
 
