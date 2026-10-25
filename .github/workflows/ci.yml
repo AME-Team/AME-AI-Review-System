@@ -33,7 +33,11 @@ jobs:
     # ただし fork PR は ci.yml 自体に self-hosted のジョブを足せるため、リポジトリ側の
     # 記述だけでは防げない。ランナーグループを信頼できるワークフロー/ブランチに限定するか、
     # fork PR の実行承認を必須にする運用が前提になる (docs/setup.md に記載)。
-    runs-on: ubuntu-latest
+    #
+    # push (main へのマージ後) は書き込み権限が要る信頼できる起点なのでセルフホストで動かす。
+    runs-on:
+      ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') ||
+      fromJSON('["self-hosted","linux","x64"]') }}
 
     env:
       UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
