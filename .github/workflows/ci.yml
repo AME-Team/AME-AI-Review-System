@@ -26,12 +26,11 @@ permissions:
 jobs:
   pre-commit:
     name: Static Analysis (pre-commit)
-    runs-on: [self-hosted, linux, x64]
-    # セルフホストでは PR のコードがこのマシン上で実行される。public リポジトリなので
-    # fork からの PR は実行しない (push と同一リポジトリの PR だけを対象にする)。
-    if: >-
-      github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name ==
-      github.repository
+    # pull_request のワークフロー定義は PR 側 (マージコミット) が使われる。セルフホストに置くと
+    # PR がファイルごと書き換えて任意コードを実行でき、コード側の防御では防げない。
+    # そのため CI は GitHub-hosted で実行し、セルフホストは信頼できる起点
+    # (push / schedule / workflow_dispatch / issue_comment) のジョブだけに使う。
+    runs-on: ubuntu-latest
 
     env:
       UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv

@@ -199,11 +199,11 @@ jobs:
             port=$(python3 -c 'import socket; s=socket.socket(); \
               s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
             log="${RUNNER_TEMP}/opencode-server.${port}.log"
-            # ジョブが強制終了されると Stop が走らずサーバが残る。ジョブの timeout より
-            # 短い上限を付けて、残留しても自動で終了するようにする。
+            # ジョブが強制終了されると Stop が走らずサーバが残る。ジョブの timeout-minutes は
+            # 10 (600 秒) なので、それより短い 480 秒で必ず終わるようにする。
             # 他ジョブが使う共有ディレクトリの PID を掃除する方式は採らない (並行実行中の
             # サーバを止めてしまうため)。ここで完結させる。
-            timeout --signal=TERM --kill-after=30s 900 \
+            timeout --signal=TERM --kill-after=30s 480 \
               opencode serve --port "${port}" > "${log}" 2>&1 &
             pid=$!
             ready=0
