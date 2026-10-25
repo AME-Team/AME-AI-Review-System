@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-10-25
+
 ### Added
 
 - リリース公開をトリガーに、導入先の同期 PR を作る `Sync Downstream` ワークフローを追加した (Issue
