@@ -287,6 +287,20 @@ hub の `Drift Audit` ワークフローは、この `audit` を毎日実行し�
 で指定します。導入先の参照が外れていれば CI は失敗します。あわせて、配布テンプレート (`templates/workflow/*-wrapper.yml`) の入力・秘密が reusable
 workflow の宣言と一致することをテストで検証します。reusable 側だけに input を足すと CI で落ちます。
 
+#### リリース後の自動追随
+
+hub がタグを push すると `Release`
+ワークフローが wheel を添付し、移動メジャータグを付け替えます。公開をトリガーに別の
+`Sync Downstream` ワークフローが動きます。対象は `.github/downstream-repos.txt` に並ぶ導入先で、
+`ame-ai-reviewer sync` を実行します。差分があれば `chore/review-wheel-sync-<tag>`
+ブランチで PR を自動作成します。差分は wheel 参照行と、`pyproject.toml` 構成での `uv.lock`
+更新です。人間の作業は PR のマージだけです（レビューは PR コメントで `/request-review`
+を投稿すると始まります）。
+
+このジョブには secret `AME_SYNC_TOKEN` が必要です。対象リポジトリへの Contents: Read and
+write と Pull requests: Read and write を持つ fine-grained PAT を登録してください。未設定の場合は
+`::notice::` を残してスキップします。
+
 `sync` 自身もレビューシステムの一部です。新しい `sync`
 を使うには、まず導入先の wheel を更新してください。たとえば
 `uv sync --upgrade-package ame-ai-review-system` を実行します。そのあと `ame-ai-reviewer sync`

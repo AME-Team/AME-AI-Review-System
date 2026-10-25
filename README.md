@@ -302,7 +302,9 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    で確認できる。対象は複数指定でき、カンマ区切りも受け付ける。CI では `AME_AUDIT_REPOS`
    を使い、`--repo` を指定した場合は環境変数より優先する。差分があれば exit 1、判定できなければ exit
    2 で終わる。`--json` を付けると機械可読な出力になる (Issue #164)。hub ではこの監査を
-   `Drift Audit` ワークフローが毎日実行し、導入先の参照が外れたら CI で検知する。
+   `Drift Audit` ワークフローが毎日実行し、導入先の参照が外れたら CI で検知する。リリース時は
+   `Sync Downstream` ワークフローが導入先（`.github/downstream-repos.txt` の一覧）へ Gate 1
+   wheel の同期 PR を自動作成する（secret `AME_SYNC_TOKEN` が必要）。
 
    > [!IMPORTANT] **Gate 2 の静的解析は `/request-review` 実行時のみ**。`init` が生成するのは
    > `review_command.yml` / `review_reply.yml` のラッパのみで、 **push /

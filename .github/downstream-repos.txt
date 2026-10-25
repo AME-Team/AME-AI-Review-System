@@ -1,0 +1,12 @@
+# 導入先 (配布先) リポジトリの一覧 — 単一情報源 (Issue #164)。
+#
+# `Release` ワークフローの sync PR 自動作成と、`Drift Audit` ワークフローの監査が
+# このファイルを読む。配布先を増やすときはここに 1 行追加するだけでよい。
+# 形式: 1 行 1 リポジトリ (`owner/name`)。空行と `#` で始まる行は無視される。
+# 行内コメント (`owner/name  # メモ`) は使えない (リポジトリ名として読まれる)。
+AME-Team/AME-Compression
+AME-Team/AME-AI-Sandbox
+AME-Team/AME-Agent-Chat
+AME-Team/AME-Design-Skills
+AME-Team/windows-noto-system-fonts
+AME-Team/AME-Music-Notation-Assistance

@@ -689,8 +689,8 @@ cp -r ame_ai_review_system/ /path/to/your-repo/`}
         </DocNote>
         <DocNote>
           {l(
-            "導入先の参照が追随しているかは ame-ai-reviewer audit で確認できます。--repo owner/name で対象を指定し（複数指定・カンマ区切り可）、CI では AME_AUDIT_REPOS を使います（--repo を指定した場合は環境変数より優先します）。Gate 2 の移動メジャータグ参照と checks: read、Gate 1 wheel の版を GitHub API 越しに列挙し、差分があれば exit 1、判定できなければ exit 2 です（Issue #164）。hub の Drift Audit ワークフローは、この audit を毎日実行し、導入先の参照が外れたら CI で失敗します。",
-            "Use ame-ai-reviewer audit to check whether downstream repos follow the latest references. Pass targets with --repo owner/name (repeatable or comma-separated); in CI use AME_AUDIT_REPOS (an explicit --repo wins over the environment variable). It lists the Gate 2 moving-tag reference, checks: read, and the Gate 1 wheel version over the GitHub API, exiting 1 on drift and 2 when it cannot decide (Issue #164). The hub repo's Drift Audit workflow runs this audit daily and fails CI when a downstream reference drifts."
+            "導入先の参照が追随しているかは ame-ai-reviewer audit で確認できます。--repo owner/name で対象を指定し（複数指定・カンマ区切り可）、CI では AME_AUDIT_REPOS を使います（--repo を指定した場合は環境変数より優先します）。Gate 2 の移動メジャータグ参照と checks: read、Gate 1 wheel の版を GitHub API 越しに列挙し、差分があれば exit 1、判定できなければ exit 2 です（Issue #164）。hub の Drift Audit ワークフローは、この audit を毎日実行し、導入先の参照が外れたら CI で失敗します。リリース時は Sync Downstream ワークフローが導入先（downstream-repos.txt の一覧）へ Gate 1 wheel の同期 PR を自動作成します（secret AME_SYNC_TOKEN が必要）。",
+            "Use ame-ai-reviewer audit to check whether downstream repos follow the latest references. Pass targets with --repo owner/name (repeatable or comma-separated); in CI use AME_AUDIT_REPOS (an explicit --repo wins over the environment variable). It lists the Gate 2 moving-tag reference, checks: read, and the Gate 1 wheel version over the GitHub API, exiting 1 on drift and 2 when it cannot decide (Issue #164). The hub repo's Drift Audit workflow runs this audit daily and fails CI when a downstream reference drifts. On release, the Sync Downstream workflow opens sync pull requests for the repos listed in downstream-repos.txt (requires the AME_SYNC_TOKEN secret)."
           )}
         </DocNote>
       </Section>

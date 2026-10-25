@@ -5,7 +5,8 @@
 # `checks: read` / Gate 1 wheel の版が期待値から外れたら失敗する。監査は読み取り専用で、
 # 書き換えは行わない (同期は `ame-ai-reviewer sync` と導入先の PR)。
 #
-# 対象は `AME_AUDIT_REPOS` で渡す (配布先が増えたらここへ追加する)。トークンは任意で、
+# 対象は `.github/downstream-repos.txt` (Release の sync PR と同じ単一情報源)。
+# トークンは任意で、
 # `AME_AUDIT_TOKEN` (下流 6 リポジトリへの contents: read) を設定すれば 5000 req/時で
 # 読める。未設定なら匿名 (60 req/時) で実行する。レート制限に当たるとドリフトではなく
 # 「判定不能」(exit 2) として失敗するため、日次で回すなら設定を推奨する。
@@ -23,12 +24,6 @@ name: Drift Audit
 
 permissions:
   contents: read
-
-env:
-  AME_AUDIT_REPOS: >-
-    AME-Team/AME-Compression, AME-Team/AME-AI-Sandbox, AME-Team/AME-Agent-Chat,
-    AME-Team/AME-Design-Skills, AME-Team/windows-noto-system-fonts,
-    AME-Team/AME-Music-Notation-Assistance
 
 jobs:
   audit:
@@ -50,6 +45,23 @@ jobs:
       # あればそれを使う。無ければ未設定のまま匿名で実行する (public リポジトリは読める)。
       # GITHUB_TOKEN はこのリポジトリにスコープされた installation token で、下流を読める
       # 保証がないため代用しない (権限不足を「参照ドリフト」と誤判定させない)。
+      # 対象は `.github/downstream-repos.txt` (同期 PR と同じ単一情報源)。
+      - name: Resolve targets
+        run: |
+          set -euo pipefail
+          if [ ! -f .github/downstream-repos.txt ]; then
+            echo "::error::.github/downstream-repos.txt がありません (checkout を確認してください)。"
+            exit 1
+          fi
+          # 一覧の読み方は scripts/list_downstream_repos.sh に集約する (同期側と共通)。
+          repos=$(bash "${GITHUB_WORKSPACE}/scripts/list_downstream_repos.sh" \
+            .github/downstream-repos.txt | paste -sd, -)
+          if [ -z "${repos}" ]; then
+            echo "::error::.github/downstream-repos.txt が空です。"
+            exit 1
+          fi
+          echo "AME_AUDIT_REPOS=${repos}" >> "${GITHUB_ENV}"
+
       # 終了コードは drift (1) と判定不能 (2) を別のアノテーションにして、日次の通知で
       # 「参照が古い」のか「監査できなかった」のかを取り違えないようにする。
       - name: Run audit

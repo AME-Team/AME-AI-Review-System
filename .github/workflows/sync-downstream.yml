@@ -1,0 +1,253 @@
+---
+# リリース公開後、導入先の Gate 1 wheel 参照を追随させる PR を自動作成する (Issue #164)。
+#
+# Gate 1 は供給チェーン保護のため `#sha256=` 固定を維持しており、リリースごとに
+# `ame-ai-reviewer sync` が必要になる。ここを自動化して人間の作業を PR レビューだけにする。
+#
+# `Release` ワークフローから分離しているのは、成果物の公開 (リリースの成否) と同期の成否を
+# 切り分けるため。同期が失敗してもリリースは成功のまま、このワークフローだけが失敗する。
+#
+# 前提: secret `AME_SYNC_TOKEN` (対象リポジトリへの Contents: Read and write /
+# Pull requests: Read and write を持つ fine-grained PAT)。未設定ならスキップし、
+# ::notice:: で理由を残す (無言で何もしない状態にしない)。
+
+name: Sync Downstream
+
+"on":
+  # Release ワークフローの完了で起動する。`release: published` は Release を GITHUB_TOKEN で
+  # 作成すると発火しない (token 由来のイベントは新規ワークフローを起動しない) ため使わない。
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "同期先のリリースタグ (例: v0.2.20)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve release tag
+    # Release が失敗した run では同期しない (成果物が無い)。
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      enabled: ${{ steps.token.outputs.enabled }}
+    steps:
+      - name: Checkout hub
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: version
+        env:
+          # 式展開の結果を直接シェルへ埋め込むと引用符やコマンドで注入され得る。env で渡し、
+          # スクリプト側で検証する。
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="${INPUT_TAG}"
+          else
+            # workflow_run の head_branch は、Release を workflow_dispatch から実行した場合に
+            # ブランチ名 (main など) になる。タグは head_sha と一致するタグ ref から特定する。
+            if ! tag=$(bash "${GITHUB_WORKSPACE}/scripts/resolve_release_tag.sh" \
+              "${HEAD_SHA}" "${GITHUB_REPOSITORY}"); then
+              echo "::error::タグの解決に失敗しました (head_sha=${HEAD_SHA})"
+              exit 1
+            fi
+          fi
+          if ! printf '%s' "${tag}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::リリースタグを特定できません (event=${EVENT_NAME}, tag=${tag:-none})"
+            exit 1
+          fi
+          # タグを切っただけ (Release 未公開) の状態で同期しないよう、リリースの存在を確認する。
+          if ! gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::${tag} のリリースが見つかりません (Release の完了を待ってください)。"
+            exit 1
+          fi
+          echo "version=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check sync token
+        id: token
+        env:
+          AME_SYNC_TOKEN: ${{ secrets.AME_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AME_SYNC_TOKEN}" ]; then
+            echo "::notice::AME_SYNC_TOKEN is not set; skipping downstream sync PRs."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+  sync-downstream:
+    name: Open sync PRs for downstream repos
+    needs: resolve
+    if: needs.resolve.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 同一リリースの二重起動 (Release 完了と workflow_dispatch の重複) を直列化する。
+    # キーは解決済みのタグ。ワークフローレベルではタグを解決できず、イベントごとに取れる値も
+    # 違うため、resolve ジョブの出力を job 側の concurrency で使う。
+    concurrency:
+      group: sync-downstream-${{ needs.resolve.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout hub
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # pyproject.toml + uv.lock 構成の導入先は sync が `uv lock` を実行する。
+      # uv が無いと参照を書き戻して何もしないため、必ず用意する。
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+
+      # 同期は「リリースした wheel」で実行する (導入先が受け取るコードと同じものを動かす)。
+      # チェックアウトのソースを PYTHONPATH で参照すると、サードパーティ依存が増えたときに
+      # ModuleNotFoundError で落ちる。
+      - name: Install the released wheel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/dist"
+          gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'ame_ai_review_system-*.whl' --dir "${RUNNER_TEMP}/dist"
+          python -m venv "${RUNNER_TEMP}/syncenv"
+          "${RUNNER_TEMP}/syncenv/bin/python" -m pip install --disable-pip-version-check \
+            "${RUNNER_TEMP}"/dist/ame_ai_review_system-*.whl
+
+      - name: Open sync pull requests
+        env:
+          GH_TOKEN: ${{ secrets.AME_SYNC_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          branch="chore/review-wheel-sync-${VERSION}"
+          # 対象は `.github/downstream-repos.txt` (Drift Audit と同じ単一情報源)。
+          # 一覧の読み方は scripts/list_downstream_repos.sh に集約する (監査側と共通)。
+          repos=$(bash "${GITHUB_WORKSPACE}/scripts/list_downstream_repos.sh" \
+            "${GITHUB_WORKSPACE}/.github/downstream-repos.txt")
+          if [ -z "${repos}" ]; then
+            echo "::error::.github/downstream-repos.txt が空です。"
+            exit 1
+          fi
+          workdir=$(mktemp -d)
+          trap 'rm -rf "${workdir}"' EXIT
+          # 1 リポジトリの失敗で全体を止めず、最後にまとめて失敗させる。ジョブは成功に
+          # しない (同期されなかったことを CI から分かるようにする)。
+          failures=0
+          for repo in ${repos}; do
+            if [ -z "${repo}" ]; then
+              continue
+            fi
+            name=${repo#*/}
+            echo "::group::${repo}"
+            # 既定ブランチは導入先ごとに違い得る。clone は既定ブランチを checkout する
+            # ため、PR の base もそれに合わせる (main 固定だと失敗する)。
+            if ! base=$(gh repo view "${repo}" --json defaultBranchRef \
+              --jq '.defaultBranchRef.name'); then
+              echo "::error::failed to resolve the default branch of ${repo}"
+              failures=$((failures + 1))
+              echo "::endgroup::"
+              continue
+            fi
+            # gh 経由で clone する (URL にトークンを埋め込まない)。
+            if ! gh repo clone "${repo}" "${workdir}/${name}" -- --depth 1; then
+              echo "::error::failed to clone ${repo}"
+              failures=$((failures + 1))
+              echo "::endgroup::"
+              continue
+            fi
+            if ! (
+              cd "${workdir}/${name}"
+              # cwd が sys.path 先頭に入ると、導入先に複製された ame_ai_review_system/ を
+              # 実行してしまう (書き込み権限のあるトークンの下で未検証コードを動かす)。
+              # 常に venv へ入れた wheel を使う。
+              PYTHONSAFEPATH=1 "${RUNNER_TEMP}/syncenv/bin/python" -m ame_ai_review_system.main sync
+            ); then
+              echo "::error::ame-ai-reviewer sync failed for ${repo}"
+              failures=$((failures + 1))
+              echo "::endgroup::"
+              continue
+            fi
+            # 未追跡ファイル (uv.lock を新規生成した場合など) も差分として扱う。
+            if [ -z "$(cd "${workdir}/${name}" && git status --porcelain)" ]; then
+              echo "::notice::${repo} is already in sync; nothing to do."
+              echo "::endgroup::"
+              continue
+            fi
+            # 再実行時に備えて、既にリモートへ push 済みなら push をスキップする
+            # (non-fast-forward で失敗させない)。
+            if (
+              cd "${workdir}/${name}"
+              git ls-remote --exit-code --heads origin "${branch}" > /dev/null
+            ); then
+              echo "::notice::${repo}: ${branch} は既にリモートにあります。"
+            elif ! (
+              cd "${workdir}/${name}"
+              git checkout -b "${branch}"
+              git add -A
+              git -c user.name="github-actions[bot]" \
+                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                commit -m "chore(review): Gate 1 wheel を ${VERSION} へ同期"
+              git push -u origin "${branch}"
+            ); then
+              echo "::error::failed to push ${branch} to ${repo}"
+              failures=$((failures + 1))
+              echo "::endgroup::"
+              continue
+            fi
+            if ! existing=$(gh pr list --repo "${repo}" --head "${branch}" \
+              --json number --jq '.[].number'); then
+              echo "::error::failed to list pull requests for ${repo}"
+              failures=$((failures + 1))
+              echo "::endgroup::"
+              continue
+            fi
+            if [ -n "${existing}" ]; then
+              echo "::notice::${repo}: ${branch} の PR は既にあります。"
+            else
+              printf '%s\n' \
+                'Gate 1 (pre-commit) の wheel 参照を hub の最新リリースへ追随させます。' \
+                '' \
+                "- 参照: ${VERSION}" \
+                '- 生成: ame-ai-reviewer sync (hub の Sync Downstream ワークフロー)' \
+                '' \
+                '差分は wheel 参照行 (URL と sha256) と、pyproject 構成では uv lock による' \
+                'ロック更新です。レビュー (Gate 2) は PR コメントで /request-review を投稿すると' \
+                '開始されます。' \
+                > "${workdir}/pr-body.md"
+              if ! gh pr create --repo "${repo}" --base "${base}" --head "${branch}" \
+                --title "chore(review): Gate 1 wheel を ${VERSION} へ同期" \
+                --body-file "${workdir}/pr-body.md"; then
+                echo "::error::failed to create a PR for ${repo}"
+                failures=$((failures + 1))
+              fi
+            fi
+            echo "::endgroup::"
+          done
+          if [ "${failures}" -ne 0 ]; then
+            echo "::error::${failures} リポジトリで同期に失敗しました。"
+            {
+              echo "### Downstream sync failures"
+              echo ""
+              echo "${failures} リポジトリで同期に失敗しました。"
+              echo "詳細は上の ::error:: アノテーションを参照してください。"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi

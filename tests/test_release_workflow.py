@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 from ame_ai_review_system import __version__, init_cmd
@@ -113,3 +115,117 @@ def test_default_ref_matches_version_major_tag() -> None:
 def test_version_is_three_component() -> None:
     # タグフィルタ (vX.Y.Z) と __version__ の形式が対応していること。
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__) is not None
+
+
+def test_sync_workflow_opens_pull_requests_downstream() -> None:
+    # リリース後の Gate 1 追随は人間の作業 (sync + PR) を前提にしていた。リリース公開を
+    # トリガーに、導入先の sync PR を自動作成するワークフローを固定する (Issue #164)。
+    # リリースの成否と切り分けるため、Release とは別ワークフローにしている。
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "sync-downstream.yml").read_text(
+        encoding="utf-8"
+    )
+    # `release: published` は GITHUB_TOKEN で作った Release では発火しないため、
+    # Release ワークフローの完了 (workflow_run) で起動する。
+    assert "workflow_run:" in workflow
+    assert 'workflows: ["Release"]' in workflow
+    assert "conclusion == 'success'" in workflow
+    # タグは head_sha から特定する (workflow_dispatch 実行時は head_branch がブランチ名になる)。
+    assert "github.event.workflow_run.head_sha" in workflow
+    assert "gh release view" in workflow
+    # 同一リリースの二重起動は、解決済みタグをキーに job 側で直列化する
+    # (ワークフローレベルではタグを解決できない)。
+    assert "needs.resolve.outputs.version" in workflow
+    assert "concurrency:" in workflow
+    assert "ame_ai_review_system.main sync" in workflow
+    assert "AME_SYNC_TOKEN" in workflow
+    assert not re.search(r"^\s*continue-on-error:", workflow, re.MULTILINE)
+
+
+def test_list_downstream_repos_normalizes_input(tmp_path: Path) -> None:
+    # インデント・CRLF・空行・コメント行が混ざっても owner/name に正規化される。
+    script = _REPO_ROOT / "scripts" / "list_downstream_repos.sh"
+    source = tmp_path / "repos.txt"
+    source.write_bytes(
+        b"# comment\r\n\r\n  AME-Team/AME-Compression  \r\n\tAME-Team/AME-AI-Sandbox\n"
+    )
+    completed = subprocess.run(
+        [str(script), str(source)], capture_output=True, text=True, check=True
+    )
+    assert completed.stdout.split() == [
+        "AME-Team/AME-Compression",
+        "AME-Team/AME-AI-Sandbox",
+    ]
+
+
+def _write_stub_gh(tmp_path: Path, pages: list[str]) -> Path:
+    """`gh api --paginate` を模したスタブを作り、ページごとの JSON を連結して出力する."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "gh"
+    body = ["#!/usr/bin/env bash", "set -euo pipefail"]
+    body.extend(f"cat <<'EOF'\n{page}\nEOF" for page in pages)
+    stub.write_text("\n".join(body) + "\n", encoding="utf-8")
+    stub.chmod(0o755)
+    return bin_dir
+
+
+def _run_resolve(tmp_path: Path, pages: list[str], head_sha: str) -> str:
+    bin_dir = _write_stub_gh(tmp_path, pages)
+    script = _REPO_ROOT / "scripts" / "resolve_release_tag.sh"
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    completed = subprocess.run(
+        [str(script), head_sha, "AME-Team/AME-AI-Review-System"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    return completed.stdout.strip()
+
+
+def test_resolve_release_tag_skips_moving_tags(tmp_path: Path) -> None:
+    # リリース時は移動タグ (v0 / v0.2) も同じ SHA を指す。先頭を取ると v0 を拾って
+    # タグ検証で必ず失敗するため、完全な vX.Y.Z だけを選ぶ。
+    sha = "a" * 40
+    page1 = (
+        '[{"name": "v0", "commit": {"sha": "' + sha + '"}}, '
+        '{"name": "v0.2", "commit": {"sha": "' + sha + '"}}]'
+    )
+    page2 = '[{"name": "v0.2.20", "commit": {"sha": "' + sha + '"}}]'
+    assert _run_resolve(tmp_path, [page1, page2], sha) == "v0.2.20"
+
+
+def test_resolve_release_tag_returns_empty_when_unknown(tmp_path: Path) -> None:
+    page = '[{"name": "v0", "commit": {"sha": "b"}}, {"name": "v9.9.9"}]'
+    assert not _run_resolve(tmp_path, [page], "a" * 40)
+
+
+def test_downstream_repo_list_is_the_single_source_of_truth() -> None:
+    # 配布先の一覧は `.github/downstream-repos.txt` に一元化されている。Release の
+    # sync PR と Drift Audit が同じファイルを読むため、対象のずれが起きない (Issue #164)。
+    repos_file = _REPO_ROOT / ".github" / "downstream-repos.txt"
+    script = _REPO_ROOT / "scripts" / "list_downstream_repos.sh"
+    # 解析はスクリプト側の責務。テストが再実装すると共通処理の回帰を検出できない。
+    # bash 経由ではなく直接実行し、実行ビットの欠落も検出できるようにする。
+    completed = subprocess.run(
+        [str(script), str(repos_file)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    repos = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(repos) == len(set(repos)), "配布先の一覧に重複があります"
+    assert "AME-Team/AME-Design-Skills" in repos
+    assert len(repos) >= 6
+    audit = _REPO_ROOT / ".github" / "workflows" / "drift-audit.yml"
+    sync = _REPO_ROOT / ".github" / "workflows" / "sync-downstream.yml"
+    for path in (sync, audit):
+        text = path.read_text(encoding="utf-8")
+        assert "downstream-repos.txt" in text, (
+            f"{path.name} が一覧ファイルを読んでいません"
+        )
+        # 読み方 (コメント・空行の除去) は共通スクリプトに集約する。
+        assert "scripts/list_downstream_repos.sh" in text, (
+            f"{path.name} が一覧の共通スクリプトを使っていません"
+        )
