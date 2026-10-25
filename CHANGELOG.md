@@ -7,8 +7,12 @@
 
 ### Added
 
+- リリース公開をトリガーに、導入先の同期 PR を作る `Sync Downstream` ワークフローを追加した (Issue
+  #164)。導入先（`.github/downstream-repos.txt` の一覧）へ Gate 1
+  wheel の同期 PR を自動作成する。secret `AME_SYNC_TOKEN` が必要である (Contents / Pull
+  requests の書き込み権限)。未設定なら `::notice::` を残してスキップする。
 - 導入先の参照ドリフトを毎日検知する `Drift Audit` ワークフローを追加した (Issue #164)。
-  `ame-ai-reviewer audit` を `AME_AUDIT_REPOS` の 6 リポジトリに対して実行し、Gate
+  `ame-ai-reviewer audit` を `.github/downstream-repos.txt` の導入先に対して実行し、Gate
   2 の移動メジャータグ参照 / `checks: read` / Gate 1
   wheel の版が外れていれば CI を失敗させる。下流を読むトークンは任意の `AME_AUDIT_TOKEN`
   から渡し、未設定なら匿名で実行する。

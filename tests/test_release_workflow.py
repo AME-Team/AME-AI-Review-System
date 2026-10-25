@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from ame_ai_review_system import __version__, init_cmd
@@ -113,3 +114,45 @@ def test_default_ref_matches_version_major_tag() -> None:
 def test_version_is_three_component() -> None:
     # タグフィルタ (vX.Y.Z) と __version__ の形式が対応していること。
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__) is not None
+
+
+def test_sync_workflow_opens_pull_requests_downstream() -> None:
+    # リリース後の Gate 1 追随は人間の作業 (sync + PR) を前提にしていた。リリース公開を
+    # トリガーに、導入先の sync PR を自動作成するワークフローを固定する (Issue #164)。
+    # リリースの成否と切り分けるため、Release とは別ワークフローにしている。
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "sync-downstream.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "types: [published]" in workflow
+    assert "ame_ai_review_system.main sync" in workflow
+    assert "AME_SYNC_TOKEN" in workflow
+    assert not re.search(r"^\s*continue-on-error:", workflow, re.MULTILINE)
+
+
+def test_downstream_repo_list_is_the_single_source_of_truth() -> None:
+    # 配布先の一覧は `.github/downstream-repos.txt` に一元化されている。Release の
+    # sync PR と Drift Audit が同じファイルを読むため、対象のずれが起きない (Issue #164)。
+    repos_file = _REPO_ROOT / ".github" / "downstream-repos.txt"
+    script = _REPO_ROOT / "scripts" / "list_downstream_repos.sh"
+    # 解析はスクリプト側の責務。テストが再実装すると共通処理の回帰を検出できない。
+    completed = subprocess.run(
+        ["bash", str(script), str(repos_file)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    repos = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(repos) == len(set(repos)), "配布先の一覧に重複があります"
+    assert "AME-Team/AME-Design-Skills" in repos
+    assert len(repos) >= 6
+    audit = _REPO_ROOT / ".github" / "workflows" / "drift-audit.yml"
+    sync = _REPO_ROOT / ".github" / "workflows" / "sync-downstream.yml"
+    for path in (sync, audit):
+        text = path.read_text(encoding="utf-8")
+        assert "downstream-repos.txt" in text, (
+            f"{path.name} が一覧ファイルを読んでいません"
+        )
+        # 読み方 (コメント・空行の除去) は共通スクリプトに集約する。
+        assert "scripts/list_downstream_repos.sh" in text, (
+            f"{path.name} が一覧の共通スクリプトを使っていません"
+        )
