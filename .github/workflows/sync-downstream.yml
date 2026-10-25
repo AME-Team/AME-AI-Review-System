@@ -28,11 +28,10 @@ name: Sync Downstream
 permissions:
   contents: read
 
-# 同一タグに対して release イベントと workflow_dispatch が重なると、二重に clone/push/PR
-# 作成が走る。直列化して後発を無駄に失敗させない (cancel はしない)。
-concurrency:
-  group: sync-downstream-${{ github.event.release.tag_name || inputs.tag }}
-  cancel-in-progress: false
+# 二重起動 (Release 完了と workflow_dispatch の重複) は `concurrency` では抑えない。
+# ワークフローレベルではリリースタグを解決できず (解決は job 内のステップ)、イベントごとに
+# 取れる値が違うため、キーを「同一タグ」に揃えられないためである。代わりに各リポジトリの
+# 処理を冪等にしてある (同期済みなら差分ゼロで何もしない、ブランチ・PR が既にあれば作らない)。
 
 jobs:
   sync-downstream:
@@ -72,9 +71,11 @@ jobs:
           else
             # workflow_run の head_branch は、Release を workflow_dispatch から実行した場合に
             # ブランチ名 (main など) になる。タグは head_sha と一致するタグ ref から特定する。
-            tag=$(gh api "repos/${GITHUB_REPOSITORY}/tags?per_page=100" \
-              --jq ".[] | select(.commit.sha == \"${HEAD_SHA}\") | .name" \
-              | head -1 || true)
+            if ! tag=$(bash "${GITHUB_WORKSPACE}/scripts/resolve_release_tag.sh" \
+              "${HEAD_SHA}" "${GITHUB_REPOSITORY}"); then
+              echo "::error::タグの解決に失敗しました (head_sha=${HEAD_SHA})"
+              exit 1
+            fi
           fi
           if ! printf '%s' "${tag}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::リリースタグを特定できません (event=${EVENT_NAME}, tag=${tag:-none})"
@@ -162,7 +163,10 @@ jobs:
             fi
             if ! (
               cd "${workdir}/${name}"
-              "${RUNNER_TEMP}/syncenv/bin/python" -m ame_ai_review_system.main sync
+              # cwd が sys.path 先頭に入ると、導入先に複製された ame_ai_review_system/ を
+              # 実行してしまう (書き込み権限のあるトークンの下で未検証コードを動かす)。
+              # 常に venv へ入れた wheel を使う。
+              PYTHONSAFEPATH=1 "${RUNNER_TEMP}/syncenv/bin/python" -m ame_ai_review_system.main sync
             ); then
               echo "::error::ame-ai-reviewer sync failed for ${repo}"
               failures=$((failures + 1))

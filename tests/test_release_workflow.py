@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -150,6 +151,50 @@ def test_list_downstream_repos_normalizes_input(tmp_path: Path) -> None:
         "AME-Team/AME-Compression",
         "AME-Team/AME-AI-Sandbox",
     ]
+
+
+def _write_stub_gh(tmp_path: Path, pages: list[str]) -> Path:
+    """`gh api --paginate` を模したスタブを作り、ページごとの JSON を連結して出力する."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "gh"
+    body = ["#!/usr/bin/env bash", "set -euo pipefail"]
+    body.extend(f"cat <<'EOF'\n{page}\nEOF" for page in pages)
+    stub.write_text("\n".join(body) + "\n", encoding="utf-8")
+    stub.chmod(0o755)
+    return bin_dir
+
+
+def _run_resolve(tmp_path: Path, pages: list[str], head_sha: str) -> str:
+    bin_dir = _write_stub_gh(tmp_path, pages)
+    script = _REPO_ROOT / "scripts" / "resolve_release_tag.sh"
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    completed = subprocess.run(
+        [str(script), head_sha, "AME-Team/AME-AI-Review-System"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    return completed.stdout.strip()
+
+
+def test_resolve_release_tag_skips_moving_tags(tmp_path: Path) -> None:
+    # リリース時は移動タグ (v0 / v0.2) も同じ SHA を指す。先頭を取ると v0 を拾って
+    # タグ検証で必ず失敗するため、完全な vX.Y.Z だけを選ぶ。
+    sha = "a" * 40
+    page1 = (
+        '[{"name": "v0", "commit": {"sha": "' + sha + '"}}, '
+        '{"name": "v0.2", "commit": {"sha": "' + sha + '"}}]'
+    )
+    page2 = '[{"name": "v0.2.20", "commit": {"sha": "' + sha + '"}}]'
+    assert _run_resolve(tmp_path, [page1, page2], sha) == "v0.2.20"
+
+
+def test_resolve_release_tag_returns_empty_when_unknown(tmp_path: Path) -> None:
+    page = '[{"name": "v0", "commit": {"sha": "b"}}, {"name": "v9.9.9"}]'
+    assert not _run_resolve(tmp_path, [page], "a" * 40)
 
 
 def test_downstream_repo_list_is_the_single_source_of_truth() -> None:
