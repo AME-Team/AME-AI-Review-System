@@ -30,6 +30,9 @@ jobs:
     # PR がファイルごと書き換えて任意コードを実行でき、コード側の防御では防げない。
     # そのため CI は GitHub-hosted で実行し、セルフホストは信頼できる起点
     # (push / schedule / workflow_dispatch / issue_comment) のジョブだけに使う。
+    # ただし fork PR は ci.yml 自体に self-hosted のジョブを足せるため、リポジトリ側の
+    # 記述だけでは防げない。ランナーグループを信頼できるワークフロー/ブランチに限定するか、
+    # fork PR の実行承認を必須にする運用が前提になる (docs/setup.md に記載)。
     runs-on: ubuntu-latest
 
     env:
