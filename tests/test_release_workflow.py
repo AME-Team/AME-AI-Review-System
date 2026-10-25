@@ -123,10 +123,33 @@ def test_sync_workflow_opens_pull_requests_downstream() -> None:
     workflow = (_REPO_ROOT / ".github" / "workflows" / "sync-downstream.yml").read_text(
         encoding="utf-8"
     )
-    assert "types: [published]" in workflow
+    # `release: published` は GITHUB_TOKEN で作った Release では発火しないため、
+    # Release ワークフローの完了 (workflow_run) で起動する。
+    assert "workflow_run:" in workflow
+    assert 'workflows: ["Release"]' in workflow
+    assert "conclusion == 'success'" in workflow
+    # タグは head_sha から特定する (workflow_dispatch 実行時は head_branch がブランチ名になる)。
+    assert "github.event.workflow_run.head_sha" in workflow
+    assert "gh release view" in workflow
     assert "ame_ai_review_system.main sync" in workflow
     assert "AME_SYNC_TOKEN" in workflow
     assert not re.search(r"^\s*continue-on-error:", workflow, re.MULTILINE)
+
+
+def test_list_downstream_repos_normalizes_input(tmp_path: Path) -> None:
+    # インデント・CRLF・空行・コメント行が混ざっても owner/name に正規化される。
+    script = _REPO_ROOT / "scripts" / "list_downstream_repos.sh"
+    source = tmp_path / "repos.txt"
+    source.write_bytes(
+        b"# comment\r\n\r\n  AME-Team/AME-Compression  \r\n\tAME-Team/AME-AI-Sandbox\n"
+    )
+    completed = subprocess.run(
+        [str(script), str(source)], capture_output=True, text=True, check=True
+    )
+    assert completed.stdout.split() == [
+        "AME-Team/AME-Compression",
+        "AME-Team/AME-AI-Sandbox",
+    ]
 
 
 def test_downstream_repo_list_is_the_single_source_of_truth() -> None:
@@ -135,8 +158,9 @@ def test_downstream_repo_list_is_the_single_source_of_truth() -> None:
     repos_file = _REPO_ROOT / ".github" / "downstream-repos.txt"
     script = _REPO_ROOT / "scripts" / "list_downstream_repos.sh"
     # 解析はスクリプト側の責務。テストが再実装すると共通処理の回帰を検出できない。
+    # bash 経由ではなく直接実行し、実行ビットの欠落も検出できるようにする。
     completed = subprocess.run(
-        ["bash", str(script), str(repos_file)],
+        [str(script), str(repos_file)],
         capture_output=True,
         text=True,
         check=True,

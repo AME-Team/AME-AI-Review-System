@@ -14,8 +14,11 @@
 name: Sync Downstream
 
 "on":
-  release:
-    types: [published]
+  # Release ワークフローの完了で起動する。`release: published` は Release を GITHUB_TOKEN で
+  # 作成すると発火しない (token 由来のイベントは新規ワークフローを起動しない) ため使わない。
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -34,6 +37,9 @@ concurrency:
 jobs:
   sync-downstream:
     name: Open sync PRs for downstream repos
+    # Release が失敗した run では同期しない (成果物が無い)。
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,18 +58,34 @@ jobs:
 
       - name: Resolve release tag
         id: version
+        env:
+          # 式展開の結果を直接シェルへ埋め込むと引用符やコマンドで注入され得る。env で渡し、
+          # スクリプト側で検証する。
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "release" ]; then
-            tag="${{ github.event.release.tag_name }}"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="${INPUT_TAG}"
           else
-            tag="${{ inputs.tag }}"
+            # workflow_run の head_branch は、Release を workflow_dispatch から実行した場合に
+            # ブランチ名 (main など) になる。タグは head_sha と一致するタグ ref から特定する。
+            tag=$(gh api "repos/${GITHUB_REPOSITORY}/tags?per_page=100" \
+              --jq ".[] | select(.commit.sha == \"${HEAD_SHA}\") | .name" \
+              | head -1 || true)
           fi
           if ! printf '%s' "${tag}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::unexpected release tag: ${tag}"
+            echo "::error::リリースタグを特定できません (event=${EVENT_NAME}, tag=${tag:-none})"
             exit 1
           fi
-          echo "VERSION=${tag}" >> "${GITHUB_ENV}"
+          # タグを切っただけ (Release 未公開) の状態で同期しないよう、リリースの存在を確認する。
+          if ! gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::${tag} のリリースが見つかりません (Release の完了を待ってください)。"
+            exit 1
+          fi
+          echo "version=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Check sync token
         id: token
@@ -85,6 +107,7 @@ jobs:
         if: steps.token.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/dist"
@@ -98,12 +121,13 @@ jobs:
         if: steps.token.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.AME_SYNC_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           branch="chore/review-wheel-sync-${VERSION}"
           # 対象は `.github/downstream-repos.txt` (Drift Audit と同じ単一情報源)。
           # 一覧の読み方は scripts/list_downstream_repos.sh に集約する (監査側と共通)。
-          repos=$(scripts/list_downstream_repos.sh \
+          repos=$(bash "${GITHUB_WORKSPACE}/scripts/list_downstream_repos.sh" \
             "${GITHUB_WORKSPACE}/.github/downstream-repos.txt")
           if [ -z "${repos}" ]; then
             echo "::error::.github/downstream-repos.txt が空です。"
