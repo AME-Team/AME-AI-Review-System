@@ -254,8 +254,6 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          # 後続ステップへ渡す PATH の元になる値 (uv 用の export より前の状態)。
-          base_path="${PATH}"
           # `if ! install_python_tools` の条件文脈では set -e が無効になる。失敗を握り潰すと
           # 警告も出ないままツール未導入になるため、各所で明示的に伝播する。
           install_python_tools() {
@@ -279,10 +277,16 @@ jobs:
                 "curl -LsSf 'https://astral.sh/uv/${UV_VERSION}/install.sh' | sh" || return 1
             fi
             export PATH="$HOME/.local/bin:$PATH"
-            timeout 60 uv venv "${RUNNER_TEMP}/dev-venv" \
+            # --clear: 前回の RUNNER_TEMP が残っていても確実に作り直す。
+            timeout 60 uv venv --clear "${RUNNER_TEMP}/dev-venv" \
               --python "$(command -v python3)" || return 1
             timeout 180 uv pip install --python "${RUNNER_TEMP}/dev-venv/bin/python" \
               -r requirements-dev.txt || return 1
+            # pyrightconfig.json の venvPath / venv は .venv を指す。venv は RUNNER_TEMP に作る。
+            # PR が実体の .venv を持ち込んでも、pyright に PR 側の Python を実行させないよう
+            # 常に張り替える (この checkout はジョブ専用で、下流の作業ツリーには影響しない)。
+            rm -rf "${GITHUB_WORKSPACE}/.venv" || return 1
+            ln -sfn "${RUNNER_TEMP}/dev-venv" "${GITHUB_WORKSPACE}/.venv" || return 1
             # venv の bin をそのまま PATH へ足すと python3 / pip が差し替わり、engine 側の
             # Python SDK (system python へ入れたもの) を見失う。実行系とパッケージ操作系は除く。
             mkdir -p "${RUNNER_TEMP}/dev-bin" || return 1
@@ -310,10 +314,12 @@ jobs:
               echo "::warning::${msg}"
             fi
           fi
-          # PATH は 1 か所で確定する。dev-bin は先頭に置く (mypy / pyright 等は system に無い)。
-          # node_modules/.bin は末尾に置く (entry が `eslint` のようにコマンド名だけでも解決
-          # でき、system の同名ツールを隠さない)。
-          echo "PATH=${RUNNER_TEMP}/dev-bin:${base_path}:${PWD}/node_modules/.bin" >> "$GITHUB_ENV"
+          # PATH へは dev-bin だけを足す (mypy / pyright 等は system に無い)。
+          # node_modules/.bin は意図的に PATH へ載せない (PR 側のバイナリを信頼済みツールとして
+          # 実行させない)。現在の後続ステップが呼ぶのは opencode (RUNNER_TEMP/npm/bin 経由) と
+          # python3 だけで、bare な node ツール呼び出しは無い。今後 node ツールを使うステップを
+          # 足すときは ./node_modules/.bin/<tool> と明示パスで呼ぶこと。
+          echo "${RUNNER_TEMP}/dev-bin" >> "$GITHUB_PATH"
 
       - name: Start OpenCode server
         if: steps.cmd.outputs.run_review == 'true'
