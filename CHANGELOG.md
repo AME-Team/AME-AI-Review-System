@@ -26,6 +26,10 @@
   Breaker が毎回失敗し、AI レビューが無言でスキップされていた。`requirements-dev.txt`
   を持つリポジトリでは、review ワークフローが venv を作って PATH へ載せる。これで `language: system`
   のフック (mypy / pyright) が起動する。
+- node の system フック (`markdownlint-cli2`
+  等) が見つからず、Markdown を含む差分でレビューがスキップされていた (Issue
+  #173)。review ワークフローが `package-lock.json` から `npm ci --ignore-scripts` で `node_modules`
+  を用意する。ツール導入の各コマンドに上限 (合計 600 秒) を掛け、ジョブ上限を 30 分へ広げた。
 
 ## [0.2.21] - 2026-10-25
 
