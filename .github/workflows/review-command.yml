@@ -131,7 +131,9 @@ jobs:
     needs: guard
     if: needs.guard.outputs.allowed == 'true'
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    timeout-minutes: 10
+    # ツール導入 (最大 600 秒) + opencode サーバの自己終了 (480 秒) + kill-after (30 秒) の
+    # 1110 秒に、checkout / engine 依存の導入 / 終了処理の余裕 (690 秒) を足して 30 分。
+    timeout-minutes: 30
     steps:
       - name: Checkout PR repo
         uses: actions/checkout@v4
@@ -237,47 +239,81 @@ jobs:
           PYTHONPATH="$SYSTEM_PATH" python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
 
       # pre-commit の language: system フックは PATH 上のツールを直接起動する。セルフホストの
-      # ランナーには mypy / pyright が無く、Circuit Breaker が毎回失敗してレビューが無言で
-      # スキップされる。requirements-dev.txt を持つリポジトリでは ci.yml と同じ venv を作る。
-      # GITHUB_PATH は後続ステップにしか効かないため、このステップは Circuit Breaker を実行する
-      # "Run General Review" より前でなければならない (順序を入れ替えないこと)。
+      # ランナーには mypy / pyright / node_modules が無く、Circuit Breaker が毎回失敗して
+      # レビューが無言でスキップされる。lockfile を持つリポジトリでは ci.yml と同じ
+      # ツールチェーン (venv / node_modules) を用意する。
+      # GITHUB_ENV / GITHUB_PATH の反映は後続ステップからなので、このステップは Circuit Breaker を
+      # 実行する "Run General Review" より前でなければならない (順序を入れ替えないこと)。
       - name: Install dev toolchain for static pre-check
         if: steps.cmd.outputs.run_review == 'true'
+        # 導入が遅いだけでレビューごと落とさない。ツールが揃わなければ Circuit Breaker が
+        # 失敗し、理由を出してスキップする経路に乗る。
+        # 各コマンドの timeout の合計は 600 秒 (120 + 60 + 180 + 240)。ジョブ上限 30 分
+        # (1800 秒) から opencode サーバの 480 秒・--kill-after (30 秒)・その他のステップを
+        # 引いても余裕が残る。
+        continue-on-error: true
         run: |
           set -euo pipefail
-          if [ ! -f requirements-dev.txt ]; then
-            # フックが自己完結 (language: python 等) なら何も要らない。system フックが残って
-            # いる場合だけ、ツール不在で Circuit Breaker が失敗し続けることを警告する。
-            if grep -q "language: system" .pre-commit-config.yaml 2>/dev/null; then
-              msg="requirements-dev.txt が無いのに language: system のフックがあります。"
-              msg="${msg} mypy / pyright 等が PATH に無いと Circuit Breaker が失敗します。"
+          # 後続ステップへ渡す PATH の元になる値 (uv 用の export より前の状態)。
+          base_path="${PATH}"
+          # `if ! install_python_tools` の条件文脈では set -e が無効になる。失敗を握り潰すと
+          # 警告も出ないままツール未導入になるため、各所で明示的に伝播する。
+          install_python_tools() {
+            if [ ! -f requirements-dev.txt ]; then
+              # フックが自己完結 (language: python 等) なら何も要らない。system フックが残って
+              # いる場合だけ、ツール不在で Circuit Breaker が失敗し続けることを警告する。
+              if grep -q "language: system" .pre-commit-config.yaml 2>/dev/null; then
+                msg="requirements-dev.txt が無いのに language: system のフックがあります。"
+                msg="${msg} mypy / pyright 等が PATH に無いと Circuit Breaker が失敗します。"
+                echo "::warning::${msg}"
+              fi
+              return 0
+            fi
+            # セルフホストのランナーには uv が入っていることがある。毎回ダウンロードしない。
+            # 取得元は版を固定する (install.sh は引数なしだと最新を取る)。
+            if command -v uv >/dev/null 2>&1; then
+              echo "uv は既にあります: $(command -v uv)"
+            else
+              UV_VERSION="0.12.1"
+              timeout 120 bash -o pipefail -c \
+                "curl -LsSf 'https://astral.sh/uv/${UV_VERSION}/install.sh' | sh" || return 1
+            fi
+            export PATH="$HOME/.local/bin:$PATH"
+            timeout 60 uv venv "${RUNNER_TEMP}/dev-venv" \
+              --python "$(command -v python3)" || return 1
+            timeout 180 uv pip install --python "${RUNNER_TEMP}/dev-venv/bin/python" \
+              -r requirements-dev.txt || return 1
+            # venv の bin をそのまま PATH へ足すと python3 / pip が差し替わり、engine 側の
+            # Python SDK (system python へ入れたもの) を見失う。実行系とパッケージ操作系は除く。
+            mkdir -p "${RUNNER_TEMP}/dev-bin" || return 1
+            for entry in "${RUNNER_TEMP}/dev-venv/bin"/*; do
+              name="$(basename "$entry")"
+              case "$name" in
+                python* | pip* | activate* | Activate*) continue ;;
+              esac
+              ln -sf "$entry" "${RUNNER_TEMP}/dev-bin/${name}" || return 1
+            done
+          }
+          if ! install_python_tools; then
+            msg="Python ツールチェーンの導入に失敗しました。"
+            msg="${msg} language: system のフックは失敗します (理由は静的解析のログに出ます)。"
+            echo "::warning::${msg}"
+          fi
+          # node の system フックは `./node_modules/.bin/<tool>` を直接起動する。entry の書き方は
+          # 導入先ごとに違い (コマンド名だけの構成もある)、文字列で判定すると取りこぼすため
+          # lockfile の有無だけで用意する。PATH は変えず、相対パスの実体だけを置く。
+          # --ignore-scripts: PR 側 package.json の postinstall をセルフホストで実行させない。
+          if [ -f package.json ] && [ -f package-lock.json ]; then
+            if ! timeout 240 npm ci --ignore-scripts --no-audit --no-fund; then
+              msg="npm ci に失敗しました。node の system フックは失敗します"
+              msg="${msg} (理由は静的解析のログに出ます)。"
               echo "::warning::${msg}"
             fi
-            exit 0
           fi
-          # セルフホストのランナーには uv が入っていることがある。毎回ダウンロードしない。
-          # 取得元は版を固定する (install.sh は引数なしだと最新を取る)。
-          if command -v uv >/dev/null 2>&1; then
-            echo "uv は既にあります: $(command -v uv)"
-          else
-            UV_VERSION="0.12.1"
-            curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
-          fi
-          export PATH="$HOME/.local/bin:$PATH"
-          uv venv "${RUNNER_TEMP}/dev-venv" --python "$(command -v python3)"
-          uv pip install --python "${RUNNER_TEMP}/dev-venv/bin/python" \
-            -r requirements-dev.txt
-          # venv の bin をそのまま PATH へ足すと python3 / pip が差し替わり、engine 側の Python
-          # SDK (system python へ入れたもの) を見失う。実行系とパッケージ操作系は除く。
-          mkdir -p "${RUNNER_TEMP}/dev-bin"
-          for entry in "${RUNNER_TEMP}/dev-venv/bin"/*; do
-            name="$(basename "$entry")"
-            case "$name" in
-              python* | pip* | activate* | Activate*) continue ;;
-            esac
-            ln -sf "$entry" "${RUNNER_TEMP}/dev-bin/${name}"
-          done
-          echo "${RUNNER_TEMP}/dev-bin" >> "$GITHUB_PATH"
+          # PATH は 1 か所で確定する。dev-bin は先頭に置く (mypy / pyright 等は system に無い)。
+          # node_modules/.bin は末尾に置く (entry が `eslint` のようにコマンド名だけでも解決
+          # でき、system の同名ツールを隠さない)。
+          echo "PATH=${RUNNER_TEMP}/dev-bin:${base_path}:${PWD}/node_modules/.bin" >> "$GITHUB_ENV"
 
       - name: Start OpenCode server
         if: steps.cmd.outputs.run_review == 'true'
@@ -289,8 +325,9 @@ jobs:
             port=$(python3 -c 'import socket; s=socket.socket(); \
               s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
             log="${RUNNER_TEMP}/opencode-server.${port}.log"
-            # ジョブが強制終了されると Stop が走らずサーバが残る。ジョブの timeout-minutes は
-            # 10 (600 秒) なので、それより短い 480 秒で必ず終わるようにする。
+            # ジョブが強制終了されると Stop が走らずサーバが残る。ジョブ上限は 30 分
+            # (1800 秒) で、ツール導入 (最大 600 秒) と --kill-after (30 秒) を引いても
+            # 1170 秒残る。その範囲に収まる 480 秒で必ず終わるようにする。
             # 他ジョブが使う共有ディレクトリの PID を掃除する方式は採らない (並行実行中の
             # サーバを止めてしまうため)。ここで完結させる。
             timeout --signal=TERM --kill-after=30s 480 \
