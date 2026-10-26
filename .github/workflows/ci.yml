@@ -4,8 +4,8 @@
 # PR 作成・更新時と main へのプッシュ時に、ローカルの pre-commit と
 # 同一のフックを実行する。
 #
-# ランナー: セルフホスト (self-hosted, linux, x64)。このリポジトリのジョブは
-# 自前マシンで実行する (opencode のローカル設定・モデルをそのまま使える)。
+# ランナー: リポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted で動く。
+# このリポジトリは self-hosted を設定済み (自前マシンの opencode 設定・モデルをそのまま使える)。
 # sudo が使えない前提のため、ツールは RUNNER_TEMP 配下へ入れ、ランナーに状態を残さない。
 # ツールチェーン (Python 3.12 / Node 22 / uv / shellcheck / actionlint /
 # gitleaks / claude-code / opencode-ai) は steps: で明示的に
@@ -34,10 +34,11 @@ jobs:
     # 記述だけでは防げない。ランナーグループを信頼できるワークフロー/ブランチに限定するか、
     # fork PR の実行承認を必須にする運用が前提になる (docs/setup.md に記載)。
     #
-    # push (main へのマージ後) は書き込み権限が要る信頼できる起点なのでセルフホストで動かす。
+    # push (main へのマージ後) は書き込み権限が要る信頼できる起点なので、リポジトリ変数
+    # RUNNER_LABELS (JSON 配列) でランナーを選べる。未設定なら GitHub-hosted で動く。
     runs-on:
       ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') ||
-      fromJSON('["self-hosted","linux","x64"]') }}
+      fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
 
     env:
       UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv

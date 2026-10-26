@@ -236,6 +236,49 @@ jobs:
         run: |
           PYTHONPATH="$SYSTEM_PATH" python3 -m ame_ai_review_system.main checkout "$PR_NUMBER"
 
+      # pre-commit の language: system フックは PATH 上のツールを直接起動する。セルフホストの
+      # ランナーには mypy / pyright が無く、Circuit Breaker が毎回失敗してレビューが無言で
+      # スキップされる。requirements-dev.txt を持つリポジトリでは ci.yml と同じ venv を作る。
+      # GITHUB_PATH は後続ステップにしか効かないため、このステップは Circuit Breaker を実行する
+      # "Run General Review" より前でなければならない (順序を入れ替えないこと)。
+      - name: Install dev toolchain for static pre-check
+        if: steps.cmd.outputs.run_review == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -f requirements-dev.txt ]; then
+            # フックが自己完結 (language: python 等) なら何も要らない。system フックが残って
+            # いる場合だけ、ツール不在で Circuit Breaker が失敗し続けることを警告する。
+            if grep -q "language: system" .pre-commit-config.yaml 2>/dev/null; then
+              msg="requirements-dev.txt が無いのに language: system のフックがあります。"
+              msg="${msg} mypy / pyright 等が PATH に無いと Circuit Breaker が失敗します。"
+              echo "::warning::${msg}"
+            fi
+            exit 0
+          fi
+          # セルフホストのランナーには uv が入っていることがある。毎回ダウンロードしない。
+          # 取得元は版を固定する (install.sh は引数なしだと最新を取る)。
+          if command -v uv >/dev/null 2>&1; then
+            echo "uv は既にあります: $(command -v uv)"
+          else
+            UV_VERSION="0.12.1"
+            curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+          fi
+          export PATH="$HOME/.local/bin:$PATH"
+          uv venv "${RUNNER_TEMP}/dev-venv" --python "$(command -v python3)"
+          uv pip install --python "${RUNNER_TEMP}/dev-venv/bin/python" \
+            -r requirements-dev.txt
+          # venv の bin をそのまま PATH へ足すと python3 / pip が差し替わり、engine 側の Python
+          # SDK (system python へ入れたもの) を見失う。実行系とパッケージ操作系は除く。
+          mkdir -p "${RUNNER_TEMP}/dev-bin"
+          for entry in "${RUNNER_TEMP}/dev-venv/bin"/*; do
+            name="$(basename "$entry")"
+            case "$name" in
+              python* | pip* | activate* | Activate*) continue ;;
+            esac
+            ln -sf "$entry" "${RUNNER_TEMP}/dev-bin/${name}"
+          done
+          echo "${RUNNER_TEMP}/dev-bin" >> "$GITHUB_PATH"
+
       - name: Start OpenCode server
         if: steps.cmd.outputs.run_review == 'true'
         run: |

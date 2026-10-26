@@ -880,6 +880,12 @@ def cmd_review(args: argparse.Namespace) -> int:
                 check=False,
             )
             if result.returncode != 0:
+                # 失敗理由を捨てると、ツール不在による全スキップ (無言の劣化) に気付けない。
+                detail = (
+                    (result.stdout + result.stderr).decode("utf-8", "replace").strip()
+                )
+                if detail:
+                    print(f"[review] Static analysis output:\n{detail}")
                 print("[review] Static analysis failed. Skipping AI review.")
                 print(
                     "[review] 静的解析エラーを解消してから /request-review を再実行してください。",

@@ -35,7 +35,8 @@ concurrency:
 jobs:
   build:
     name: Build landing page
-    runs-on: [self-hosted, linux, x64]
+    # ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted。
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
 
     env:
       npm_config_cache: ${{ github.workspace }}/.cache/npm
@@ -67,7 +68,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

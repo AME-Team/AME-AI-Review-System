@@ -28,7 +28,8 @@ permissions:
 jobs:
   audit:
     name: Downstream reference drift
-    runs-on: [self-hosted, linux, x64]
+    # ランナーはリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。未設定なら GitHub-hosted。
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout

@@ -57,6 +57,9 @@ jobs:
       # 空文字は || で /request-review へフォールバックし、手動実行でも判定を通す。
       command: ${{ github.event.comment.body || '/request-review' }}
       system_ref: __REF__
+      # ランナーは導入先のリポジトリ変数 RUNNER_LABELS (JSON 配列) で選ぶ。
+      # 未設定なら GitHub-hosted、セルフホストにする場合だけ設定すればよい。
+      runner_labels: ${{ vars.RUNNER_LABELS || '["ubuntu-latest"]' }}
       review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}
